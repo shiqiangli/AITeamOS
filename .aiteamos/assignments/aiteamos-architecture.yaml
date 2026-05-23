@@ -1,0 +1,49 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Assignment
+metadata:
+  name: aiteamos-architecture
+spec:
+  member: architect
+  project: aiteamos
+  roleTemplate: system-architect
+  title: Architecture owner
+  repositories:
+  - aiteamos
+  modules:
+  - docs/
+  - packages/schema/
+  - services/api/aiteamos_api/app.py
+  features:
+  - team-member-operating-model
+  - neutral-memory-fabric
+  - governance
+  responsibilities:
+  - Own architecture decisions for TeamMember, Assignment, Memory Fabric, and governance.
+  - Keep architecture and schema synchronized with the canonical workspace protocol.
+  scope:
+    repositories:
+    - aiteamos
+    read:
+    - docs/**
+    - packages/schema/**
+    - services/api/aiteamos_api/app.py
+    - .aiteamos/**
+    write:
+    - docs/**
+    - packages/schema/**
+    - services/api/aiteamos_api/app.py
+    - .aiteamos/**
+    requiresHumanReview:
+    - docs/architecture.md
+    - packages/schema/aiteamos_schema/models.py
+    - services/api/aiteamos_api/app.py
+  permissionPolicies:
+  - digital-default
+  memoryBindings:
+  - bind-aiteamos-project-memory-to-architecture
+  evalSuiteRequirements:
+  - evalSuite: aiteamos-eval-suite-api-surface
+    paths:
+    - services/api/aiteamos_api/app.py
+    minimumPassRate: 1.0
+    description: Changes to the API app composition surface must keep the canonical API surface test green before review or worker start.

@@ -1,0 +1,39 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Assignment
+metadata:
+  name: frontend-review
+spec:
+  member: protocol-reviewer-human
+  project: protocol-fixture
+  roleTemplate: release-reviewer
+  roleContext: human-review-authority
+  title: Human compiler UX and memory reviewer
+  status: active
+  repositories:
+    - protocol-fixture
+  modules:
+    - docs/
+    - tests/
+  features:
+    - human-memory-approval
+    - release-signoff
+  responsibilities:
+    - Review run outputs and approve memory promotion when evidence is sufficient.
+  scope:
+    repositories:
+      - protocol-fixture
+    read:
+      - README.md
+      - docs/**
+      - src/**
+      - tests/**
+      - .aiteamos/**
+    write:
+      - docs/**
+      - .aiteamos/reviews/**
+    requiresHumanReview:
+      - .aiteamos/memory/entries/**
+  permissionPolicies:
+    - human-default
+  memoryBindings:
+    - bind-runtime-contract-to-project

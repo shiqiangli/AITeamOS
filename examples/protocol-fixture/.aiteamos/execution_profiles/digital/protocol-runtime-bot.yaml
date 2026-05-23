@@ -1,0 +1,16 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: DigitalExecutionProfile
+metadata:
+  name: protocol-runtime-bot
+spec:
+  member: protocol-runtime-bot
+  defaultModelProfile: demo-gpt-5.5-xhigh
+  allowedModelProfiles:
+    - demo-gpt-5.5-xhigh
+  workerRuntime:
+    defaultMode: managed_llm
+    requireIsolatedBranch: true
+  toolPolicy:
+    permissionPolicy: digital-default
+  budgetPolicies:
+    - demo-budget

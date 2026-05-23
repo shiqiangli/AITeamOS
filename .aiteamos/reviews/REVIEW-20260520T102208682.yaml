@@ -1,0 +1,43 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Review
+metadata:
+  id: REVIEW-20260520T102208682
+  createdAt: "2026-05-20T10:22:08.682+08:00"
+spec:
+  project: aiteamos
+  task: TASK-20260520T101022277
+  reviewer: qoder
+  source: assisted-ide-review
+  verdict: accepted-with-action-items
+  target:
+    type: external_review
+    description: Architecture review feedback provided in the conversation.
+  findings:
+    - id: schema-source-of-truth
+      severity: high
+      summary: Schema language ownership must be explicit before API and dashboard implementation.
+      action: Use Pydantic as source of truth and generate JSON Schema, OpenAPI, and TypeScript types.
+    - id: assisted-ingest-protocol
+      severity: high
+      summary: Assisted IDE Mode needs a concrete ingest protocol.
+      action: Define authentication, journal format, review target format, incomplete run handling, and idempotence.
+    - id: memory-auto-approval
+      severity: medium
+      summary: Memory auto-approval needs measurable policy criteria.
+      action: Add a policy matrix with evidence, confidence, and forbidden categories.
+    - id: budget-policy-schema
+      severity: medium
+      summary: BudgetPolicy should not be an unconstrained JSON blob.
+      action: Add a constrained BudgetPolicy manifest draft.
+    - id: run-recovery
+      severity: medium
+      summary: Managed Mode needs stale run and worker crash recovery rules.
+      action: Add heartbeat, stalled, recovering, interrupted, and reconciliation rules.
+    - id: multi-member-handoff
+      severity: medium
+      summary: Handoff and branch ownership need explicit protocol.
+      action: Add branch naming and handoff event requirements.
+    - id: review-target-link
+      severity: medium
+      summary: Review workflows should not require a local diff patch.
+      action: Allow PR, branch, commit, diff patch, or external review targets.

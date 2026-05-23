@@ -1,0 +1,35 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: TeamMember
+metadata:
+  name: protocol-architect
+  title: Protocol Digital Architect
+spec:
+  kind: digital
+  profile:
+    displayName: Protocol Digital Architect
+    title: Protocol architecture owner
+    status: active
+    summary: Defines protocol fixture contracts and reviews memory promotion evidence.
+  aboutMe:
+    coreCapabilities:
+      - protocol semantics
+      - compiler architecture review
+      - memory promotion governance
+    workStyle:
+      - evidence-first
+      - minimal-scope
+    workMethod:
+      - review-contract-before-runtime-write
+      - require-memory-lineage-before-approval
+  projects:
+    - project: protocol-fixture
+      assignments:
+        - protocol-design
+      responsibilities:
+        - Keep protocol contracts explicit and testable.
+  skills:
+    - protocol-design
+  permissionPolicies:
+    - digital-default
+  memoryStores:
+    - protocol-project-memory

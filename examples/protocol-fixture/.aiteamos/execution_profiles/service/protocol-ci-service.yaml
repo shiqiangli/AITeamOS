@@ -1,0 +1,16 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: ServiceAccountProfile
+metadata:
+  name: protocol-ci-service
+spec:
+  member: protocol-ci-service
+  serviceKind: demo-ci-automation
+  owner: protocol-reviewer-human
+  triggerSources:
+    - manual
+    - memory.stale
+  auditPolicy:
+    requireReviewForWrites:
+      - memory/entries
+      - memory/bindings
+      - runs

@@ -1,0 +1,21 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: ContextManifest
+metadata:
+  id: RUN-20260521T083000000-context
+spec:
+  run: RUN-20260521T083000000
+  task: TASK-20260521T083000000
+  member: protocol-release-hybrid
+  assignment: release-handoff
+  project: protocol-fixture
+  selectedSources:
+    docs:
+      - ../../../README.md
+      - ../../../README.md
+    memory:
+      - MEM-protocol-runtime-contract
+    handoffs:
+      - HANDOFF-20260521T083000000
+  budget:
+    policy: demo-budget
+    decision: no-managed-model-call

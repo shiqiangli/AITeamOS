@@ -1,0 +1,8 @@
+artifacts/blob/
+artifacts/cache/
+artifacts/worktrees/
+indexes/
+runs/*/artifacts/
+runs/*/raw-provider-response*
+runs/*/*.log
+runs/*/*.tmp

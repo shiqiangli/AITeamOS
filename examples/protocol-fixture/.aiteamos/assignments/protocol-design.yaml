@@ -1,0 +1,42 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Assignment
+metadata:
+  name: protocol-design
+spec:
+  member: protocol-architect
+  project: protocol-fixture
+  roleTemplate: compiler-architect
+  roleContext: protocol-design-owner
+  title: Protocol fixture architecture owner
+  status: active
+  repositories:
+    - protocol-fixture
+  modules:
+    - docs/
+    - src/pure_function.py
+  features:
+    - runtime.add_i32
+    - runtime-contract
+  responsibilities:
+    - Define the runtime operation contract and review runtime changes.
+    - Approve memory promotion only after evidence is reviewed.
+  scope:
+    repositories:
+      - protocol-fixture
+    read:
+      - README.md
+      - docs/**
+      - src/**
+      - tests/**
+      - .aiteamos/**
+    write:
+      - docs/**
+      - .aiteamos/memory/proposals/**
+    requiresHumanReview:
+      - src/**
+      - .aiteamos/memory/entries/**
+      - .aiteamos/memory/bindings/**
+  permissionPolicies:
+    - digital-default
+  memoryBindings:
+    - bind-runtime-contract-to-project

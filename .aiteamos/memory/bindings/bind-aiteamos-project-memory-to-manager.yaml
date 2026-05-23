@@ -1,0 +1,14 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemoryBinding
+metadata:
+  id: bind-aiteamos-project-memory-to-manager
+spec:
+  store: aiteamos-project-memory
+  targetType: assignment
+  targetId: aiteamos-manager
+  access:
+  - read
+  - reference
+  reason: The manager assignment needs reviewed project operating memory for planning recommendations.
+  status: active
+  createdByMember: architect

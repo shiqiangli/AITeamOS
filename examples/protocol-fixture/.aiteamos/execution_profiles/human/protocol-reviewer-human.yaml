@@ -1,0 +1,15 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: HumanCollaborationProfile
+metadata:
+  name: protocol-reviewer-human
+spec:
+  member: protocol-reviewer-human
+  ideEntrypoints:
+    - dashboard
+    - local-ide
+  reviewAuthority:
+    - memory-review
+    - release-signoff
+  approvalScopes:
+    - memory-promotion
+    - runtime-contract-change

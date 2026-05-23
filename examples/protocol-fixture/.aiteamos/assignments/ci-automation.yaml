@@ -1,0 +1,31 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Assignment
+metadata:
+  name: ci-automation
+spec:
+  member: protocol-ci-service
+  project: protocol-fixture
+  title: Service automation for public demo health
+  status: active
+  repositories:
+    - protocol-fixture
+  modules:
+    - .aiteamos/automations/
+  features:
+    - memory-health
+    - task-planning
+  responsibilities:
+    - Run permission-gated automation checks without approving memory or starting workers.
+  scope:
+    repositories:
+      - protocol-fixture
+    read:
+      - .aiteamos/**
+    write:
+      - .aiteamos/automations/runs/**
+      - .aiteamos/automations/events/**
+    requiresHumanReview:
+      - .aiteamos/task_plans/**
+      - .aiteamos/runs/**
+  permissionPolicies:
+    - service-ci-default

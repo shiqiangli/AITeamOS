@@ -1,0 +1,15 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: ServiceAccountProfile
+metadata:
+  name: memory-service
+spec:
+  member: memory-service
+  serviceKind: memory-extractor
+  owner: manager
+  triggerSources:
+  - run.closed
+  - memory.stale
+  auditPolicy:
+    requireReviewForWrites:
+    - memory/entries
+    - memory/bindings

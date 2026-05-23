@@ -1,0 +1,16 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemoryBinding
+metadata:
+  id: bind-runtime-contract-to-runtime
+spec:
+  store: protocol-project-memory
+  entry: MEM-protocol-runtime-contract
+  targetType: assignment
+  targetId: conversion-runtime
+  access:
+    - read
+    - reference
+    - inject
+  reason: Runtime tasks need the approved Add i32 runtime contract.
+  status: active
+  createdByMember: protocol-reviewer-human

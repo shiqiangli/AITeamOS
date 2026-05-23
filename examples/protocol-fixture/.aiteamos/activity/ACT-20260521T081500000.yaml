@@ -1,0 +1,20 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemberActivity
+metadata:
+  id: ACT-20260521T081500000
+spec:
+  member: protocol-runtime-bot
+  project: protocol-fixture
+  assignment: conversion-runtime
+  task: TASK-20260521T080000000
+  run: RUN-20260521T080000000
+  activityType: managed-runtime-implementation
+  sourceType: run
+  contributionKind: authored-work
+  sourceId: RUN-20260521T080000000
+  occurredAt: "2026-05-21T08:15:00+08:00"
+  summary: Completed the Add i32 runtime contract run with tests and memory proposal.
+  evidence:
+    - runs/RUN-20260521T080000000/run.yaml
+    - memory/proposals/MP-20260521T080000000.yaml
+  visibility: project

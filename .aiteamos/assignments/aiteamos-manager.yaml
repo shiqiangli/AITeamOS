@@ -1,0 +1,57 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Assignment
+metadata:
+  name: aiteamos-manager
+spec:
+  member: aiteamos-manager
+  project: aiteamos
+  roleTemplate: manager
+  title: Self-hosting planning manager
+  repositories:
+  - aiteamos
+  modules:
+  - .aiteamos/
+  - docs/
+  features:
+  - manager-inbox
+  - task-planning
+  - plan-recommendations
+  - blocker-triage
+  responsibilities:
+  - Read workspace health, tasks, runs, reviews, assignments, and approved memory before proposing plans.
+  - Produce reviewable TaskPlan and plan-recommendation artifacts instead of mutating tasks directly.
+  - Route work to members and assignments that already declare scope and permission policy.
+  - Escalate governance, permission, secret, deployment, and memory-promotion changes for human review.
+  scope:
+    repositories:
+    - aiteamos
+    read:
+    - docs/**
+    - .aiteamos/project.yaml
+    - .aiteamos/workspace.yaml
+    - .aiteamos/members/**
+    - .aiteamos/assignments/**
+    - .aiteamos/tasks/**
+    - .aiteamos/runs/**
+    - .aiteamos/reviews/**
+    - .aiteamos/memory/**
+    - .aiteamos/im/**
+    - .aiteamos/automations/**
+    - .aiteamos/permissions/**
+    - .aiteamos/git_activity/**
+    write:
+    - .aiteamos/task_plans/**
+    - .aiteamos/im/messages/**
+    - .aiteamos/im/handoffs/**
+    - .aiteamos/memory/proposals/**
+    requiresHumanReview:
+    - .aiteamos/tasks/**
+    - .aiteamos/role_templates/**
+    - .aiteamos/permissions/**
+    - .aiteamos/memory/entries/**
+    - .aiteamos/memory/bindings/**
+    - docs/architecture.md
+  permissionPolicies:
+  - digital-default
+  memoryBindings:
+  - bind-aiteamos-project-memory-to-manager

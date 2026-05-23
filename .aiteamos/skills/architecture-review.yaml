@@ -1,0 +1,15 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Skill
+metadata:
+  name: architecture-review
+spec:
+  description: Review TeamMember, Assignment, Memory Fabric, and governance architecture.
+  ownerMember: architect
+  projects:
+  - aiteamos
+  capabilities:
+  - architecture-review
+  - governance-review
+  requiredPermissions:
+  - digital-default
+  lifecycle: active

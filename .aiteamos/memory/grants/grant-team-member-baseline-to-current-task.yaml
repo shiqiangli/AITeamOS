@@ -1,0 +1,18 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemoryGrant
+metadata:
+  id: grant-team-member-baseline-to-current-task
+spec:
+  granteeMember: backend-digital
+  grantorMember: architect
+  task: TASK-20260520T104310792
+  stores:
+  - aiteamos-project-memory
+  entries:
+  - team-member-baseline
+  access:
+  - read
+  - reference
+  - inject
+  reason: Backend runtime migration needs the newly approved architecture baseline.
+  status: active

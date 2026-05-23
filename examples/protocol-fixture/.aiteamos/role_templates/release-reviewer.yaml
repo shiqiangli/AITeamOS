@@ -1,0 +1,14 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: RoleTemplate
+metadata:
+  name: release-reviewer
+spec:
+  summary: Reviews handoffs, release notes, and human/hybrid ingest packets.
+  reusableAcrossProjects: true
+  defaultResponsibilities:
+    - Inspect handoff evidence.
+    - Keep release and memory decisions auditable.
+  defaultOutputs:
+    - Review verdict
+    - Handoff response
+    - Pending memory proposal

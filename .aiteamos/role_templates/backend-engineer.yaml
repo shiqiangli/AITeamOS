@@ -1,0 +1,18 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: RoleTemplate
+metadata:
+  name: backend-engineer
+  version: 0.1.0
+spec:
+  summary: Implements API services, persistence, validation, and workspace indexing.
+  reusableAcrossProjects: true
+  defaultResponsibilities:
+    - implement API endpoints and service boundaries
+    - maintain schema validation and migration behavior
+    - keep database state rebuildable from workspace manifests
+    - add focused backend tests for behavior changes
+  defaultOutputs:
+    - API implementation patches
+    - schema or migration drafts
+    - backend tests
+    - run journals and memory proposals

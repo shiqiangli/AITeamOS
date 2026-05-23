@@ -1,0 +1,22 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: BudgetPolicy
+metadata:
+  name: default-budget
+spec:
+  scope:
+    project: aiteamos
+  limits:
+    softInputTokensPerRun: 600000
+    softOutputTokensPerRun: 80000
+    softRetriesPerRun: 1
+    maxInputTokensPerRun: 800000
+    maxOutputTokensPerRun: 100000
+    maxRetriesPerRun: 2
+  rateLimit:
+    requestsPerMinute: 10
+  fallback:
+    allowModelFallback: false
+    maxFallbacksPerRun: 0
+  enforcement:
+    onSoftLimit: warn
+    onHardLimit: stop-run

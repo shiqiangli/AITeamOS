@@ -1,0 +1,13 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: RoleTemplate
+metadata:
+  name: compiler-architect
+spec:
+  summary: Owns protocol semantics, ownership boundaries, and architectural review gates.
+  reusableAcrossProjects: true
+  defaultResponsibilities:
+    - Define protocol contracts and review criteria.
+    - Keep memory promotion tied to reviewed evidence.
+  defaultOutputs:
+    - Architecture notes
+    - Review decisions

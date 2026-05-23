@@ -1,0 +1,26 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Repository
+metadata:
+  name: protocol-fixture
+spec:
+  provider: local
+  url: file://examples/protocol-fixture
+  defaultBranch: main
+  workspaceRelation: embedded
+  pathPolicy:
+    generallyModifiable:
+      - docs/**
+      - src/**
+      - tests/**
+      - .aiteamos/tasks/**
+      - .aiteamos/runs/**
+      - .aiteamos/memory/proposals/**
+      - .aiteamos/im/**
+    requiresHumanReview:
+      - src/**
+      - .aiteamos/memory/entries/**
+      - .aiteamos/memory/bindings/**
+    prohibitedForDirectAutomation:
+      - "**/.env"
+      - "**/*secret*"
+      - "**/production*"

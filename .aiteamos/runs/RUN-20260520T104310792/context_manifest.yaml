@@ -1,0 +1,38 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: ContextManifest
+metadata:
+  run: RUN-20260520T104310792
+spec:
+  task: TASK-20260520T104310792
+  project: aiteamos
+  member: backend-digital
+  memberKind: digital
+  assignment: aiteamos-backend-runtime
+  sources:
+    userRequirements:
+      - conversation: request to implement Track A UI-first review loop
+    repositoryFiles:
+      - docs/architecture.md
+      - .aiteamos/workspace.yaml
+      - .aiteamos/project.yaml
+      - apps/dashboard/README.md
+      - services/api/README.md
+      - packages/schema/README.md
+      - packages/workspace/README.md
+      - tools/cli/README.md
+    generatedFiles:
+      - pyproject.toml
+      - aiteamos
+      - packages/schema/aiteamos_schema/models.py
+      - packages/workspace/aiteamos_workspace/loader.py
+      - packages/workspace/aiteamos_workspace/indexer.py
+      - services/api/aiteamos_api/app.py
+      - tools/cli/aiteamos.py
+      - apps/dashboard/src/main.tsx
+      - apps/dashboard/src/styles.css
+  exclusions:
+    - raw provider responses
+    - hidden chain-of-thought
+    - node_modules
+    - dashboard dist
+    - SQLite derived index

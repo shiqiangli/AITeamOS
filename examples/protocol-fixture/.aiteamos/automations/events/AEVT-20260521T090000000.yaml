@@ -1,0 +1,27 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: AutomationTriggerEvent
+metadata:
+  id: AEVT-20260521T090000000
+  createdAt: "2026-05-21T09:00:00+08:00"
+spec:
+  automation: protocol-memory-health-demo
+  project: protocol-fixture
+  triggerType: manual
+  source: manual
+  actorMember: protocol-reviewer-human
+  payload:
+    reason: public demo health check
+  dedupeKey: protocol-memory-health-demo-20260521T090000000
+  dryRun: true
+  status: accepted
+  automationRun: ARUN-20260521T090000000
+  receivedAt: "2026-05-21T09:00:00+08:00"
+  summary: Accepted manual memory-health dry-run event.
+  decisionAudit:
+    - decisionKind: human_approval
+      decision: accepted
+      actorMember: protocol-reviewer-human
+      actorMemberKind: human
+      authority: approve
+      decidedAt: "2026-05-21T09:00:00+08:00"
+      reason: Public demo memory health check.

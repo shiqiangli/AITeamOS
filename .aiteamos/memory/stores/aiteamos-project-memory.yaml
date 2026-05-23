@@ -1,0 +1,27 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemoryStore
+metadata:
+  name: aiteamos-project-memory
+spec:
+  storeType: project
+  ownerProject: aiteamos
+  description: Reviewed project-level operating memory for AITEAMOS self-hosting.
+  visibility: project
+  lifecycle: active
+  acl:
+    read:
+    - member:architect
+    - member:backend-digital
+    - member:frontend-human
+    - member:manager
+    write:
+    - member:architect
+    - member:backend-digital
+    reference:
+    - project:aiteamos
+    promote:
+    - member:frontend-human
+    export:
+    - admin
+    share:
+    - member:manager

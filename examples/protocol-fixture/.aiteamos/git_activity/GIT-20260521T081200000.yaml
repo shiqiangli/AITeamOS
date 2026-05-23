@@ -1,0 +1,20 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: GitActivity
+metadata:
+  id: GIT-20260521T081200000
+spec:
+  member: protocol-runtime-bot
+  project: protocol-fixture
+  repository: protocol-fixture
+  assignment: conversion-runtime
+  activityType: branch
+  provider: local
+  occurredAt: "2026-05-21T08:12:00+08:00"
+  summary: Prepared reviewed demo branch for Add i32 runtime contract.
+  refs:
+    - aiteamos/demo/TASK-20260521T080000000/protocol-runtime-bot
+  evidence:
+    - runs/RUN-20260521T080000000/run.yaml
+  visibility: project
+  lifecycle: active
+  exportPolicy: sanitize

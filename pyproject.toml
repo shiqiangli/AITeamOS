@@ -1,0 +1,45 @@
+[project]
+name = "aiteamos"
+version = "0.1.0"
+description = "AI Team Management System"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110",
+  "litellm>=1.75",
+  "pydantic>=2.0",
+  "PyYAML>=6.0",
+  "uvicorn>=0.27",
+]
+
+[project.scripts]
+aiteamos = "tools.cli.aiteamos:main"
+
+[project.entry-points."aiteamos.connectors"]
+builtin = "aiteamos_connectors:connector_package"
+
+[tool.setuptools.packages.find]
+include = [
+  "aiteamos_connectors*",
+  "aiteamos_schema*",
+  "aiteamos_workspace*",
+  "aiteamos_api*",
+  "tools*",
+]
+where = [
+  "packages/connectors",
+  "packages/schema",
+  "packages/workspace",
+  "services/api",
+  ".",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [
+  "packages/connectors",
+  "packages/schema",
+  "packages/workspace",
+  "services/api",
+  "services/worker",
+  ".",
+]

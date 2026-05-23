@@ -1,0 +1,35 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: TeamMember
+metadata:
+  name: protocol-reviewer-human
+  title: Frontend Human Reviewer
+spec:
+  kind: human
+  profile:
+    displayName: Frontend Human Reviewer
+    title: Human review authority
+    status: active
+    summary: Reviews user-facing compiler ergonomics and memory approvals.
+  aboutMe:
+    coreCapabilities:
+      - compiler UX review
+      - human approval
+      - release signoff
+    workStyle:
+      - concise
+      - user-impact-oriented
+    workMethod:
+      - inspect-handoff-before-signoff
+      - approve-memory-only-after-evidence
+  projects:
+    - project: protocol-fixture
+      assignments:
+        - frontend-review
+      responsibilities:
+        - Review runtime behavior and release notes from a human perspective.
+  skills:
+    - release-review
+  permissionPolicies:
+    - human-default
+  memoryStores:
+    - protocol-project-memory

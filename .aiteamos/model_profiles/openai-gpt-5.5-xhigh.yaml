@@ -1,0 +1,30 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: ModelProfile
+metadata:
+  name: openai-gpt-5.5-xhigh
+spec:
+  provider: openai
+  model: gpt-5.5
+  displayName: OpenAI GPT-5.5 Extra High
+  gateway: openai-responses
+  secretEnv: OPENAI_API_KEY
+  invocation:
+    reasoningEffort: xhigh
+    reasoningSummary: auto
+    maxOutputTokens: 4096
+    timeoutSeconds: 240
+  capabilities:
+  - managed_llm
+  - assisted
+  - reasoning
+  - coding
+  - review
+  defaultForMembers:
+  - manager
+  - aiteamos-manager
+  - architect
+  - backend-digital
+  defaultForAssignments:
+  - aiteamos-manager
+  - aiteamos-architecture
+  - aiteamos-backend-runtime

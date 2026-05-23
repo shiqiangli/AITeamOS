@@ -1,0 +1,34 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Run
+metadata:
+  id: RUN-20260521T080000000
+  createdAt: "2026-05-21T08:00:00+08:00"
+spec:
+  project: protocol-fixture
+  task: TASK-20260521T080000000
+  member: protocol-runtime-bot
+  assignment: conversion-runtime
+  memberKind: digital
+  roleContext: runtime-implementation
+  mode: managed_llm
+  status: FINISHED
+  modelProfile: demo-gpt-5.5-xhigh
+  branch:
+    name: aiteamos/demo/TASK-20260521T080000000/protocol-runtime-bot
+    base: main
+    status: reviewed
+  reviewTarget:
+    type: diff_patch
+    ref: artifacts/RUN-20260521T080000000.diff
+    description: Synthetic runtime patch reviewed by the frontend human.
+  contextCapsule: prompt_capsule.md
+  contextManifest: context_manifest.yaml
+  eventLedger: events.jsonl
+  journal: journal.md
+  reviews:
+    - ../../reviews/REVIEW-20260521T081000000.yaml
+  outputs:
+    - ../../../src/pure_function.py
+    - ../../../tests/test_pure_function.py
+  memoryProposals:
+    - ../../memory/proposals/MP-20260521T080000000.yaml

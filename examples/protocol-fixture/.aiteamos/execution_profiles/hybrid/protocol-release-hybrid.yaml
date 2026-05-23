@@ -1,0 +1,17 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: HybridExecutionProfile
+metadata:
+  name: protocol-release-hybrid
+spec:
+  member: protocol-release-hybrid
+  humanProfile: protocol-reviewer-human
+  assistedTools:
+    - local-ide
+    - dashboard-ingest
+  ingestPolicy:
+    requireJournal: true
+    requireReviewTarget: true
+  aiAssistancePolicy:
+    memoryProposalStatus: pending-review
+  reviewExpectations:
+    - human reviewer approves release packet before memory promotion

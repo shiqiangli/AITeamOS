@@ -1,0 +1,24 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: ContextManifest
+metadata:
+  id: RUN-20260521T080000000-context
+spec:
+  run: RUN-20260521T080000000
+  task: TASK-20260521T080000000
+  member: protocol-runtime-bot
+  assignment: conversion-runtime
+  project: protocol-fixture
+  selectedSources:
+    docs:
+      - ../../../README.md
+    code:
+      - ../../../src/pure_function.py
+      - ../../../tests/test_pure_function.py
+    memory:
+      - MEM-protocol-runtime-contract
+  exclusions:
+    - reason: private-root-workspace-excluded
+      source: ../../../../.aiteamos
+  budget:
+    policy: demo-budget
+    decision: within-limit
