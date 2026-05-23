@@ -1,0 +1,29 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Repository
+metadata:
+  name: aiteamos
+spec:
+  provider: local
+  url: file:///home/shiqiangli/projects/AITeamOS
+  localPath: /home/shiqiangli/projects/AITeamOS
+  defaultBranch: main
+  workspaceRelation: embedded
+  pathPolicy:
+    generallyModifiable:
+      - README.md
+      - docs/**
+      - .aiteamos/**
+      - apps/dashboard/**
+      - services/api/**
+      - packages/schema/**
+      - packages/workspace/**
+      - tools/cli/**
+    requiresHumanReview:
+      - packages/schema/**
+      - services/worker/**
+      - services/api/**/auth*
+      - .aiteamos/workspace.yaml
+    prohibitedForDirectAutomation:
+      - "**/.env"
+      - "**/*secret*"
+      - "**/production*"

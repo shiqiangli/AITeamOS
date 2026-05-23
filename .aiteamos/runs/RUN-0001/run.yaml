@@ -1,0 +1,24 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Run
+metadata:
+  id: RUN-0001
+  createdAt: "2026-05-20T00:00:00+08:00"
+spec:
+  project: aiteamos
+  task: TASK-20260520T101022277
+  member: architect
+  assignment: aiteamos-architecture
+  memberKind: digital
+  roleContext: system-architect
+  mode: assisted
+  status: FINISHED
+  contextCapsule: prompt_capsule.md
+  contextManifest: context_manifest.yaml
+  eventLedger: events.jsonl
+  journal: journal.md
+  outputs:
+    - ../../../docs/architecture.md
+    - ../../../README.md
+    - ../../workspace.yaml
+  memoryProposals:
+    - ../../memory/proposals/MP-0001.yaml

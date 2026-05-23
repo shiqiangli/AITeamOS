@@ -1,0 +1,58 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemoryEntry
+metadata:
+  id: MEM-protocol-runtime-contract
+  createdAt: "2026-05-21T08:12:00+08:00"
+spec:
+  store: protocol-project-memory
+  path: decisions/add-i32-runtime-contract.md
+  title: Add i32 runtime preserves operand order
+  content: >
+    The reviewed runtime contract for `runtime.add_i32` is to emit
+    `runtime.add_i32(lhs, rhs)` while preserving operand order. Runtime changes
+    must keep `tests/test_pure_function.py` as regression evidence before release.
+  kind: decision
+  scope: project
+  source: REVIEW-20260521T081000000
+  evidence:
+    - runs/RUN-20260521T080000000/journal.md
+    - reviews/REVIEW-20260521T081000000.yaml
+    - tests/test_pure_function.py
+  confidence: 0.96
+  freshness: current
+  lastVerifiedAt: "2026-05-21T08:12:00+08:00"
+  sensitivity: internal
+  visibility: project
+  acl:
+    read:
+      - project:protocol-fixture
+      - member:protocol-runtime-bot
+      - member:protocol-release-hybrid
+    write:
+      - member:protocol-reviewer-human
+    reference:
+      - project:protocol-fixture
+  tags:
+    - runtime
+    - runtime-contract
+    - reviewed-memory
+  relatedProjects:
+    - protocol-fixture
+  relatedMembers:
+    - protocol-runtime-bot
+    - protocol-reviewer-human
+  relatedAssignments:
+    - conversion-runtime
+    - frontend-review
+  version: 1
+  lineage:
+    sourceRun: RUN-20260521T080000000
+    sourceTask: TASK-20260521T080000000
+    authorMember: protocol-runtime-bot
+    reviewerMember: protocol-reviewer-human
+    evidence:
+      - tests/test_pure_function.py
+    relatedReviews:
+      - REVIEW-20260521T081000000
+  lifecycle: active
+  embedding: {}

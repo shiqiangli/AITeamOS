@@ -1,0 +1,4 @@
+{"ts":"2026-05-21T08:30:10+08:00","event":"handoff-opened","handoff":"HANDOFF-20260521T083000000"}
+{"ts":"2026-05-21T08:34:00+08:00","event":"assisted-ingest-recorded","member":"protocol-release-hybrid"}
+{"ts":"2026-05-21T08:38:30+08:00","event":"review-requested","review":"REVIEW-20260521T084000000"}
+{"ts":"2026-05-21T08:42:00+08:00","event":"memory-proposed","proposal":"MP-20260521T083000000"}

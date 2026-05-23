@@ -1,0 +1,16 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemoryBinding
+metadata:
+  id: bind-runtime-contract-to-project
+spec:
+  store: protocol-project-memory
+  entry: MEM-protocol-runtime-contract
+  targetType: project
+  targetId: protocol-fixture
+  access:
+    - read
+    - reference
+    - inject
+  reason: Project views should explain the approved runtime decision.
+  status: active
+  createdByMember: protocol-reviewer-human

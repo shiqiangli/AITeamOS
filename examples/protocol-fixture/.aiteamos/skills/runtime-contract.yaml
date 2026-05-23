@@ -1,0 +1,15 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Skill
+metadata:
+  name: runtime-contract
+spec:
+  description: Implement and test protocol fixture runtime to runtime calls.
+  ownerMember: protocol-runtime-bot
+  projects:
+    - protocol-fixture
+  capabilities:
+    - runtime-implementation
+    - regression-testing
+  requiredPermissions:
+    - digital-default
+  lifecycle: active

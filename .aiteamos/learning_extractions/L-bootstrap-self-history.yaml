@@ -1,0 +1,97 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: LearningExtraction
+metadata:
+  id: L-bootstrap-self-history
+  createdAt: "2026-05-22T17:39:02.703+08:00"
+spec:
+  runId: RUN-0001
+  extractedAt: "2026-05-22T17:39:02.703+08:00"
+  dedupeKey: learning-bootstrap:self-hosting-trimmed
+  extractorId: aiteamos.learning-extractor
+  extractorVersion: v1-bootstrap
+  sourceContext:
+    project: aiteamos
+    taskId: TASK-20260520T101022277
+    member: architect
+    assignment: aiteamos-architecture
+    runStatus: FINISHED
+    sourceJournalPath: runs/RUN-0001/journal.md
+    sourceEventLedger: runs/RUN-0001/events.jsonl
+    sourceRunIds:
+      - RUN-0001
+      - RUN-20260520T104310792
+    sourceRunCount: 2
+  proposals:
+    - kind: memory
+      targetKind: MemoryProposal
+      targetManifest:
+        apiVersion: aiteamos.dev/v1alpha1
+        kind: MemoryProposal
+        metadata:
+          id: MP-DRAFT-bootstrap-source-of-truth
+        spec:
+          project: aiteamos
+          member: architect
+          assignment: aiteamos-architecture
+          sourceRun: RUN-0001
+          sourceTask: TASK-20260520T101022277
+          sourceExtractorId: aiteamos.learning-extractor
+          dedupeKey: learning:bootstrap:memory:source-of-truth
+          status: pending-review
+          kind: decision
+          title: Workspace files remain the source of truth
+          content: AITEAMOS self-hosting keeps durable truth in `.aiteamos/`; indexes, caches, and dashboards are rebuildable derived state.
+      summary: Capture the source-of-truth boundary as a bootstrap memory candidate.
+      confidence: 0.78
+      evidence:
+        - runs/RUN-0001/journal.md
+        - docs/architecture.md
+      dedupeKey: learning:bootstrap:memory:source-of-truth
+      reviewGuidance: Human review should verify the boundary still matches architecture before promotion.
+      warnings: []
+    - kind: growth
+      targetKind: GrowthSignal
+      targetManifest:
+        apiVersion: aiteamos.dev/v1alpha1
+        kind: GrowthSignal
+        metadata:
+          id: GROWTH-DRAFT-bootstrap-review-first
+        spec:
+          project: aiteamos
+          member: architect
+          assignment: aiteamos-architecture
+          sourceRun: RUN-0001
+          dedupeKey: learning:bootstrap:growth:review-first
+          summary: Keep governance, permission, secret, deploy, and memory-promotion changes review-first.
+      summary: Record a growth signal around review-first governance habits.
+      confidence: 0.7
+      evidence:
+        - runs/RUN-0001/prompt_capsule.md
+      dedupeKey: learning:bootstrap:growth:review-first
+      reviewGuidance: Use as coaching context only; it does not grant permissions.
+      warnings: []
+    - kind: retrospective
+      targetKind: RetrospectiveCandidate
+      targetManifest:
+        apiVersion: aiteamos.dev/v1alpha1
+        kind: RetrospectiveCandidate
+        metadata:
+          id: RETROC-DRAFT-bootstrap-workspace-slimming
+        spec:
+          project: aiteamos
+          sourceRuns:
+            - RUN-0001
+            - RUN-20260520T104310792
+          sourceTasks:
+            - TASK-20260520T101022277
+            - TASK-20260520T104310792
+          dedupeKey: learning:bootstrap:retrospective:workspace-slimming
+          summary: Review whether the self-hosting workspace still contains only representative protocol samples.
+      summary: Seed a retrospective candidate for future workspace fixture hygiene.
+      confidence: 0.66
+      evidence:
+        - .aiteamos/cleanup_progress.yaml
+      dedupeKey: learning:bootstrap:retrospective:workspace-slimming
+      reviewGuidance: Run after cleanup rounds complete.
+      warnings: []
+  warnings: []

@@ -1,0 +1,22 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Handoff
+metadata:
+  id: HANDOFF-20260521T083000000
+  createdAt: "2026-05-21T08:30:00+08:00"
+spec:
+  fromMember: protocol-runtime-bot
+  toMember: protocol-release-hybrid
+  task: TASK-20260521T083000000
+  run: RUN-20260521T083000000
+  project: protocol-fixture
+  sourceBranch: aiteamos/demo/TASK-20260521T080000000/protocol-runtime-bot
+  targetBranch: aiteamos/demo/release-handoff
+  problem: Release notes need a reviewed runtime contract and test evidence.
+  knownContext:
+    - RUN-20260521T080000000 completed with test evidence.
+    - REVIEW-20260521T081000000 approved the runtime contract.
+  recommendedNextStep: Ingest the handoff into an assisted release packet.
+  sharedMemoryPack:
+    - MEM-protocol-runtime-contract
+  ownership: consult
+  status: completed

@@ -1,0 +1,41 @@
+"""API-facing connector operations boundary."""
+
+from aiteamos_workspace import (
+    accept_connector_remediation_task_plan,
+    check_connector_health,
+    cleanup_connector_health_checks,
+    connector_failure_escalation_candidates,
+    connector_failure_reminder_candidates,
+    connector_health_records,
+    connector_operations_overview,
+    connector_remediation_materialized_task_records,
+    connector_remediation_run_records,
+    connector_remediation_suggestions,
+    connector_remediation_task_plan_records,
+    launch_connector_remediation_task_run,
+    request_connector_remediation_run_permission,
+    resolve_connector_failure_escalation,
+    route_connector_failure_escalations,
+    route_connector_failure_reminders,
+    submit_connector_remediation_task_plan,
+)
+
+__all__ = [
+    "accept_connector_remediation_task_plan",
+    "check_connector_health",
+    "cleanup_connector_health_checks",
+    "connector_failure_escalation_candidates",
+    "connector_failure_reminder_candidates",
+    "connector_health_records",
+    "connector_operations_overview",
+    "connector_remediation_materialized_task_records",
+    "connector_remediation_run_records",
+    "connector_remediation_suggestions",
+    "connector_remediation_task_plan_records",
+    "launch_connector_remediation_task_run",
+    "request_connector_remediation_run_permission",
+    "resolve_connector_failure_escalation",
+    "route_connector_failure_escalations",
+    "route_connector_failure_reminders",
+    "submit_connector_remediation_task_plan",
+]

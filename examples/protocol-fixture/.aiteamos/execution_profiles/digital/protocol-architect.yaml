@@ -1,0 +1,15 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: DigitalExecutionProfile
+metadata:
+  name: protocol-architect
+spec:
+  member: protocol-architect
+  defaultModelProfile: demo-gpt-5.5-xhigh
+  allowedModelProfiles:
+    - demo-gpt-5.5-xhigh
+  workerRuntime:
+    defaultMode: assisted
+  toolPolicy:
+    permissionPolicy: digital-default
+  budgetPolicies:
+    - demo-budget

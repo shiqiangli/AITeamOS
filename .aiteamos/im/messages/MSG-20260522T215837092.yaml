@@ -1,0 +1,25 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemberMessage
+metadata:
+  id: MSG-20260522T215837092
+  createdAt: "2026-05-22T21:58:37.092+08:00"
+spec:
+  fromMember: aiteamos-manager
+  toMembers:
+    - architect
+  messageType: plan-recommendation
+  status: resolved
+  priority: high
+  project: aiteamos
+  body: Recommend closing the Project Eval dashboard visibility gap after EvalSuite gates are in place.
+  attachments:
+    - PLAN-20260522T215837092
+  resolvedAt: "2026-05-22T21:59:00.000+08:00"
+  resolvedByMember: architect
+  resolution: "accepted: recommendation aligned with the current dependency chain and became accepted cleanup evidence."
+  audit:
+    source: manager-eval-fixture
+    humanOutcome: accepted
+    modelProfile: openai-gpt-5.5-xhigh
+    evalSuite: aiteamos-manager-recommendation-quality
+    outcomeReason: Manager selected an unblocked prerequisite for the manager recommendation quality check.

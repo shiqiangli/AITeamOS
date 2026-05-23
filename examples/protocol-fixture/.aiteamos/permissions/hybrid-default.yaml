@@ -1,0 +1,26 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: PermissionPolicy
+metadata:
+  name: hybrid-default
+spec:
+  scope:
+    memberKind: hybrid
+  defaultMode: ask
+  allow:
+    - match: Read(/README.md)
+    - match: Read(/docs/**)
+    - match: Read(/src/**)
+    - match: Read(/tests/**)
+    - match: Edit(/docs/**)
+    - match: mcp__aiteamos__record_journal
+    - match: mcp__aiteamos__propose_memory
+      reason: Hybrid ingest creates pending proposals only.
+  ask:
+    - match: Edit(/src/**)
+    - match: Bash(pytest:*)
+  deny:
+    - match: EnvVar(*:read)
+    - match: Bash(rm -rf:*)
+  sensitivePaths:
+    - .env
+    - .git/**

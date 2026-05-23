@@ -1,0 +1,24 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: PermissionPolicy
+metadata:
+  name: service-ci-default
+spec:
+  scope:
+    memberKind: service
+  defaultMode: deny
+  allow:
+    - match: Automation(memory_health:protocol-memory-health-demo)
+      reason: Public demo service may dry-run memory health.
+    - match: Automation(task_planning:protocol-task-planning-demo)
+      reason: Public demo service may create draft task plans.
+    - match: Write(/.aiteamos/automations/runs/**)
+    - match: Write(/.aiteamos/automations/events/**)
+  ask:
+    - match: Write(/.aiteamos/task_plans/**)
+  deny:
+    - match: Edit(/src/**)
+    - match: Edit(/.aiteamos/memory/entries/**)
+    - match: EnvVar(*:read)
+  sensitivePaths:
+    - .env
+    - .git/**

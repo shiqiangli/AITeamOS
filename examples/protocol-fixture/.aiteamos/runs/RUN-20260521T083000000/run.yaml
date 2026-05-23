@@ -1,0 +1,33 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Run
+metadata:
+  id: RUN-20260521T083000000
+  createdAt: "2026-05-21T08:30:00+08:00"
+spec:
+  project: protocol-fixture
+  task: TASK-20260521T083000000
+  member: protocol-release-hybrid
+  assignment: release-handoff
+  memberKind: hybrid
+  roleContext: assisted-release-owner
+  mode: assisted
+  status: FINISHED
+  reviewTarget:
+    type: external_review
+    ref: local-demo-release-packet
+    description: Human-reviewed release packet for the Add i32 runtime handoff.
+  contextCapsule: prompt_capsule.md
+  contextManifest: context_manifest.yaml
+  eventLedger: events.jsonl
+  journal: journal.md
+  reviews:
+    - ../../reviews/REVIEW-20260521T084000000.yaml
+  outputs:
+    - ../../../README.md
+  memoryProposals:
+    - ../../memory/proposals/MP-20260521T083000000.yaml
+  ingest:
+    source: dashboard-assisted-ingest
+    diffPatch: artifacts/RUN-20260521T083000000.diff
+    testLog: artifacts/RUN-20260521T083000000-tests.log
+    reviewTarget: local-demo-release-packet

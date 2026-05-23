@@ -1,0 +1,24 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemoryProposal
+metadata:
+  id: MP-20260521T083000000
+  createdAt: "2026-05-21T08:42:00+08:00"
+spec:
+  project: protocol-fixture
+  member: protocol-release-hybrid
+  assignment: release-handoff
+  store: protocol-project-memory
+  sourceRun: RUN-20260521T083000000
+  sourceTask: TASK-20260521T083000000
+  dedupeKey: add-i32-release-note-v1
+  status: pending-review
+  kind: procedural
+  title: Release notes should name the reviewed runtime contract
+  content: >
+    Release notes for Add i32 runtime should reference the reviewed runtime
+    contract and its regression test before announcing readiness.
+  evidence:
+    - runs/RUN-20260521T083000000/journal.md
+    - im/handoffs/HANDOFF-20260521T083000000.yaml
+  confidence: 0.82
+  reviewGuidance: Keep pending until a human reviewer approves release-note memory.

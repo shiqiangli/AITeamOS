@@ -1,0 +1,6 @@
+{"seq":1,"type":"run.started","ts":"2026-05-20T00:00:00+08:00","run":"RUN-0001","task":"TASK-20260520T101022277","role":"architect","mode":"assisted"}
+{"seq":2,"type":"context.reviewed","ts":"2026-05-20T00:00:00+08:00","inputs":["README.md","LICENSE","user requirements"]}
+{"seq":3,"type":"document.created","ts":"2026-05-20T00:00:00+08:00","path":"docs/architecture.md"}
+{"seq":4,"type":"workspace.created","ts":"2026-05-20T00:00:00+08:00","path":".aitm"}
+{"seq":5,"type":"memory.proposed","ts":"2026-05-20T00:00:00+08:00","proposal":"MP-0001"}
+{"seq":6,"type":"run.finished","ts":"2026-05-20T00:00:00+08:00","status":"FINISHED"}

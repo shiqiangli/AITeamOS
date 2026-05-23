@@ -1,0 +1,32 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: TeamRetrospective
+metadata:
+  id: RETRO-20260521T085000000
+  createdAt: "2026-05-21T08:50:00+08:00"
+spec:
+  project: protocol-fixture
+  facilitatorMember: protocol-reviewer-human
+  participants:
+    - protocol-runtime-bot
+    - protocol-release-hybrid
+    - protocol-reviewer-human
+  sourceRuns:
+    - RUN-20260521T080000000
+    - RUN-20260521T083000000
+  sourceTasks:
+    - TASK-20260521T080000000
+    - TASK-20260521T083000000
+  sourceMessages:
+    - MSG-20260521T082000000
+  sourceHandoffs:
+    - HANDOFF-20260521T083000000
+  summary: The handoff worked because reviewed memory had a clear binding and grant.
+  lessons:
+    - Keep runtime contracts as reviewed project memory before release handoff.
+    - Hybrid ingest should propose release lessons without self-approving memory.
+  actionItems:
+    - Add one dashboard walkthrough that starts from Employee detail and lands on the approved memory.
+  proposedMemory: MP-20260521T083000000
+  status: reviewed
+  audit:
+    reviewedBy: protocol-reviewer-human

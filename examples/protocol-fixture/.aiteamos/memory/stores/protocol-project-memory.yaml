@@ -1,0 +1,30 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemoryStore
+metadata:
+  name: protocol-project-memory
+spec:
+  storeType: project
+  ownerProject: protocol-fixture
+  description: Reviewed project memory for the neutral Protocol fixture demo.
+  visibility: project
+  lifecycle: active
+  acl:
+    read:
+      - project:protocol-fixture
+      - member:protocol-architect
+      - member:protocol-runtime-bot
+      - member:protocol-reviewer-human
+      - member:protocol-release-hybrid
+    write:
+      - member:protocol-reviewer-human
+    reference:
+      - project:protocol-fixture
+    promote:
+      - member:protocol-reviewer-human
+    export:
+      - admin
+    share:
+      - member:protocol-reviewer-human
+  retention:
+    policy: public-demo
+    retainUntil: "2027-05-21T00:00:00+08:00"

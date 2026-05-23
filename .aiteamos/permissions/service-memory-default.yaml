@@ -1,0 +1,32 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: PermissionPolicy
+metadata:
+  name: service-memory-default
+spec:
+  scope:
+    memberKind: service
+    member: memory-service
+  defaultMode: ask
+  allow:
+  - match: Read(/.aiteamos/runs/**)
+  - match: Read(/.aiteamos/memory/**)
+  - match: Edit(/.aiteamos/memory/proposals/**)
+  - match: Automation(memory_health:*)
+    reason: Memory service may dry-run or request approved memory-health automation.
+  - match: mcp__aiteamos__propose_memory
+    reason: Memory service can propose memory but cannot approve it.
+  ask:
+  - match: Edit(/.aiteamos/memory/entries/**)
+  - match: Edit(/.aiteamos/memory/bindings/**)
+  deny:
+  - match: WebFetch
+  - match: Network(*)
+  - match: Connector(*)
+  - match: ArtifactStore(*)
+  - match: EnvVar(*)
+  - match: Bash(*)
+  - match: Edit(/.git/**)
+  sensitivePaths:
+  - .env
+  - .git/**
+  - '*.pem'

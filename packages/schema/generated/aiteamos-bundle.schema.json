@@ -1,0 +1,612 @@
+{
+  "$defs": {
+    "ReviewTarget": {
+      "additionalProperties": true,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "type": {
+          "enum": [
+            "pull_request",
+            "branch",
+            "commit",
+            "diff_patch",
+            "external_review"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ReviewTarget",
+      "type": "object"
+    },
+    "RunAssistanceBundleFile": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "mediaType": {
+          "default": "text/markdown",
+          "title": "Mediatype",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "sensitive": {
+          "default": false,
+          "title": "Sensitive",
+          "type": "boolean"
+        },
+        "sizeBytes": {
+          "minimum": 0,
+          "title": "Sizebytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "purpose",
+        "content",
+        "sizeBytes"
+      ],
+      "title": "RunAssistanceBundleFile",
+      "type": "object"
+    },
+    "RunAssistanceBundleRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "const": "aiteamos.dev/v1alpha1",
+          "default": "aiteamos.dev/v1alpha1",
+          "title": "Apiversion",
+          "type": "string"
+        },
+        "assignment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assignment"
+        },
+        "blockers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "bundleKind": {
+          "const": "human_hybrid_assisted_handoff_bundle",
+          "default": "human_hybrid_assisted_handoff_bundle",
+          "title": "Bundlekind",
+          "type": "string"
+        },
+        "fileCount": {
+          "minimum": 0,
+          "title": "Filecount",
+          "type": "integer"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/RunAssistanceBundleFile"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "generatedAt": {
+          "title": "Generatedat",
+          "type": "string"
+        },
+        "ingestInputSchema": {
+          "const": "RunAssistedIngestInput",
+          "default": "RunAssistedIngestInput",
+          "title": "Ingestinputschema",
+          "type": "string"
+        },
+        "instructions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Instructions",
+          "type": "array"
+        },
+        "kind": {
+          "const": "AiteamosBundle",
+          "default": "AiteamosBundle",
+          "title": "Kind",
+          "type": "string"
+        },
+        "member": {
+          "title": "Member",
+          "type": "string"
+        },
+        "memberKind": {
+          "enum": [
+            "human",
+            "digital",
+            "hybrid",
+            "service"
+          ],
+          "title": "Memberkind",
+          "type": "string"
+        },
+        "package": {
+          "$ref": "#/$defs/RunAssistancePackageRecord"
+        },
+        "project": {
+          "title": "Project",
+          "type": "string"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "run": {
+          "title": "Run",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": "aiteamos-bundle.v1",
+          "default": "aiteamos-bundle.v1",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "secretHandling": {
+          "const": "references-only-no-secret-values",
+          "default": "references-only-no-secret-values",
+          "title": "Secrethandling",
+          "type": "string"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        },
+        "totalSizeBytes": {
+          "minimum": 0,
+          "title": "Totalsizebytes",
+          "type": "integer"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "run",
+        "task",
+        "project",
+        "member",
+        "memberKind",
+        "generatedAt",
+        "ready",
+        "package",
+        "fileCount",
+        "totalSizeBytes"
+      ],
+      "title": "RunAssistanceBundleRecord",
+      "type": "object"
+    },
+    "RunAssistancePackageCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "title": "Command",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "command",
+        "purpose"
+      ],
+      "title": "RunAssistancePackageCommand",
+      "type": "object"
+    },
+    "RunAssistancePackageContract": {
+      "additionalProperties": false,
+      "properties": {
+        "durableMutationBoundary": {
+          "title": "Durablemutationboundary",
+          "type": "string"
+        },
+        "expectedArtifacts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expectedartifacts",
+          "type": "array"
+        },
+        "memoryProposalPolicy": {
+          "title": "Memoryproposalpolicy",
+          "type": "string"
+        },
+        "requiredInputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requiredinputs",
+          "type": "array"
+        },
+        "reviewTargetTypes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reviewtargettypes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "memoryProposalPolicy",
+        "durableMutationBoundary"
+      ],
+      "title": "RunAssistancePackageContract",
+      "type": "object"
+    },
+    "RunAssistancePackageRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Acceptance",
+          "type": "array"
+        },
+        "allowedWrites": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowedwrites",
+          "type": "array"
+        },
+        "assignment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assignment"
+        },
+        "blockers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "branch": {
+          "additionalProperties": true,
+          "title": "Branch",
+          "type": "object"
+        },
+        "contextSources": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Contextsources",
+          "type": "object"
+        },
+        "entrypoints": {
+          "items": {
+            "$ref": "#/$defs/RunAssistancePackageCommand"
+          },
+          "title": "Entrypoints",
+          "type": "array"
+        },
+        "generatedAt": {
+          "title": "Generatedat",
+          "type": "string"
+        },
+        "handoffs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Handoffs",
+          "type": "array"
+        },
+        "ideWorkspace": {
+          "additionalProperties": true,
+          "title": "Ideworkspace",
+          "type": "object"
+        },
+        "ingestContract": {
+          "$ref": "#/$defs/RunAssistancePackageContract"
+        },
+        "member": {
+          "title": "Member",
+          "type": "string"
+        },
+        "memberKind": {
+          "enum": [
+            "human",
+            "digital",
+            "hybrid",
+            "service"
+          ],
+          "title": "Memberkind",
+          "type": "string"
+        },
+        "mode": {
+          "title": "Mode",
+          "type": "string"
+        },
+        "packageKind": {
+          "const": "human_assisted_execution_package",
+          "default": "human_assisted_execution_package",
+          "title": "Packagekind",
+          "type": "string"
+        },
+        "project": {
+          "title": "Project",
+          "type": "string"
+        },
+        "readScope": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Readscope",
+          "type": "array"
+        },
+        "readyForAssistedExecution": {
+          "title": "Readyforassistedexecution",
+          "type": "boolean"
+        },
+        "responsibilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Responsibilities",
+          "type": "array"
+        },
+        "reviewContract": {
+          "additionalProperties": true,
+          "title": "Reviewcontract",
+          "type": "object"
+        },
+        "run": {
+          "title": "Run",
+          "type": "string"
+        },
+        "selectedMemory": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Selectedmemory",
+          "type": "array"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "task": {
+          "title": "Task",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "run",
+        "task",
+        "project",
+        "member",
+        "memberKind",
+        "mode",
+        "status",
+        "readyForAssistedExecution",
+        "generatedAt",
+        "summary",
+        "ingestContract"
+      ],
+      "title": "RunAssistancePackageRecord",
+      "type": "object"
+    },
+    "RunAssistedIngestInput": {
+      "additionalProperties": false,
+      "properties": {
+        "diffPatch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Diffpatch"
+        },
+        "journal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Journal"
+        },
+        "memoryProposal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunAssistedMemoryProposalInput"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reviewTarget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReviewTarget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "testLog": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Testlog"
+        }
+      },
+      "title": "RunAssistedIngestInput",
+      "type": "object"
+    },
+    "RunAssistedMemoryProposalInput": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content"
+        },
+        "kind": {
+          "default": "procedural",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reviewGuidance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewguidance"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "title": "RunAssistedMemoryProposalInput",
+      "type": "object"
+    }
+  },
+  "$id": "https://aiteamos.dev/schemas/aiteamos.dev/v1alpha1/aiteamos-bundle.schema.json",
+  "$ref": "#/$defs/RunAssistanceBundleRecord",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Generated from Pydantic RunAssistanceBundleRecord for IDE-assisted handoff and ingest.",
+  "title": "AITEAMOS Bundle v1",
+  "x-aiteamos-api-version": "aiteamos.dev/v1alpha1"
+}

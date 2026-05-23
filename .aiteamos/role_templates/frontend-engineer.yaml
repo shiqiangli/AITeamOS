@@ -1,0 +1,18 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: RoleTemplate
+metadata:
+  name: frontend-engineer
+  version: 0.1.0
+spec:
+  summary: Implements dashboard workflows for project, employee, task, run, review, and memory operations.
+  reusableAcrossProjects: true
+  defaultResponsibilities:
+    - implement dashboard views and interaction flows
+    - keep UI state aligned with indexed workspace data
+    - expose review and memory workflows clearly
+    - verify responsive behavior and visual polish
+  defaultOutputs:
+    - dashboard implementation patches
+    - UI tests or screenshots
+    - workflow notes
+    - run journals and memory proposals

@@ -1,0 +1,40 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: GitActivityImportReceipt
+metadata:
+  id: GITIMP-20260521T093000000
+spec:
+  project: aiteamos
+  repository: aiteamos
+  provider: local
+  sourceType: local-scan
+  status: imported
+  dedupeKey: local:branch:aiteamos/TASK-20260520T104310792/backend-digital/RUN-20260520T104310792
+  payloadDigest: sha256:metadata-only-local-branch-20260521
+  redactionPolicy: metadata-only
+  importPolicy: reviewed-import
+  payloadRetained: false
+  receivedAt: "2026-05-21T09:30:00+08:00"
+  reviewedByMember: frontend-human
+  reviewedAt: "2026-05-21T09:31:00+08:00"
+  importerMember: backend-digital
+  importedActivities:
+    - GIT-20260521T090500000
+  refs:
+    - aiteamos/TASK-20260520T104310792/backend-digital/RUN-20260520T104310792
+  normalized:
+    activityType: branch
+    member: backend-digital
+    assignment: aiteamos-backend-runtime
+  summary: Imported sanitized local branch metadata as reviewed GitActivity evidence without retaining raw provider payload.
+  evidence:
+    - git_activity/GIT-20260521T090500000.yaml
+    - runs/RUN-20260520T104310792/run.yaml
+  decisionAudit:
+    - decisionKind: human_approval
+      decision: approve
+      actorMember: frontend-human
+      actorMemberKind: human
+      authority: approve
+      decidedAt: "2026-05-21T09:31:00+08:00"
+      requiresHumanReview: true
+      rationale: Reviewed sanitized local branch metadata for demo workspace import.

@@ -1,0 +1,26 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: TaskPlan
+metadata:
+  id: PLAN-20260522T215837092
+  createdAt: "2026-05-22T21:58:37.092+08:00"
+spec:
+  goal: Add Project Eval visibility for self-hosting EvalSuites.
+  project: aiteamos
+  createdByMember: aiteamos-manager
+  status: accepted
+  subtasks:
+    - title: Surface EvalSuite and latest EvalResult state in the Project dashboard.
+      assignedMember: frontend-human
+      assignment: aiteamos-dashboard
+      priority: high
+      acceptance:
+        - Project detail shows EvalSuite and EvalResult status for the selected project.
+        - Dashboard uses read-only EvalSuite and EvalResult API projections.
+      risks:
+        - Dashboard projection drifts from source-of-truth .aiteamos manifests.
+      reviewGates:
+        - Project Eval dashboard interaction test passes.
+  risks:
+    - Manager recommendation must remain reviewable evidence before Task creation.
+  reviewGates:
+    - Human accepts the recommendation before any Task manifest is created.

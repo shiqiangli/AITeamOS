@@ -1,0 +1,47 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Project
+metadata:
+  name: aiteamos
+  title: AI Team Management System
+  createdAt: "2026-05-20T00:00:00+08:00"
+spec:
+  description: >
+    A model-agnostic AI team management system with versioned workspaces,
+    durable team members, project assignments, context compilation, run ledgers,
+    neutral memory fabric, and managed or assisted execution modes.
+  repositories:
+    - repositories/aiteamos.yaml
+  defaultRepository: aiteamos
+  workspaceMode: embedded
+  publicDataPolicy:
+    coreRepoContainsRealExternalProjectData: false
+    selfHostingWorkspaceMayBePublic: true
+    privateProjectsShouldUseShadowWorkspace: true
+  demoProjects:
+    - name: protocol-fixture
+      description: Synthetic protocol fixture for workspace, member, run, memory, and automation workflows.
+  ruleEntrypoints:
+    - README.md
+    - docs/architecture.md
+  defaultExecutionMode: assisted
+  deliveryStrategy:
+    name: ui-first-protocol-backed-thin-cli
+    firstSlice:
+      - dashboard workspace browser
+      - API workspace index
+      - SQLite derived cache
+      - task creation and member assignment UI
+      - run journal viewer
+      - memory proposal review UI
+      - assisted review ingest for PR, branch, commit, or external review links
+    thinCli:
+      - aiteamos serve
+      - aiteamos workspace validate
+      - aiteamos workspace index
+    schemaSourceOfTruth:
+      language: python
+      library: pydantic
+      generatedOutputs:
+        - JSON Schema
+        - OpenAPI
+        - TypeScript types

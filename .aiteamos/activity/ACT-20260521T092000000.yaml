@@ -1,0 +1,17 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemberActivity
+metadata:
+  id: ACT-20260521T092000000
+spec:
+  member: memory-service
+  project: aiteamos
+  assignment: aiteamos-memory-service
+  activityType: memory-health-dry-run
+  sourceType: automation
+  contributionKind: automation-work
+  sourceId: memory-health-dry-run
+  occurredAt: "2026-05-21T09:20:00+08:00"
+  summary: Ran memory health as a dry-run service activity without approving memory or mutating policy.
+  evidence:
+    - automations/memory-health-dry-run.yaml
+  visibility: project

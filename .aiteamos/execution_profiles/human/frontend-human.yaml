@@ -1,0 +1,14 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: HumanCollaborationProfile
+metadata:
+  name: frontend-human
+spec:
+  member: frontend-human
+  ideEntrypoints:
+  - dashboard
+  - local-ide
+  reviewAuthority:
+  - ui-review
+  - memory-review
+  approvalScopes:
+  - dashboard-information-architecture

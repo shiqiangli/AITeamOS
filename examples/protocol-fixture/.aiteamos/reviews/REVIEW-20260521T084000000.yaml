@@ -1,0 +1,33 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: Review
+metadata:
+  id: REVIEW-20260521T084000000
+  createdAt: "2026-05-21T08:40:00+08:00"
+spec:
+  project: protocol-fixture
+  task: TASK-20260521T083000000
+  run: RUN-20260521T083000000
+  reviewer: protocol-reviewer-human
+  reviewerMember: protocol-reviewer-human
+  reviewerKind: human
+  source: dashboard-review
+  verdict: approved
+  target:
+    type: external_review
+    ref: local-demo-release-packet
+    description: Handoff and assisted ingest packet for release notes.
+  findings:
+    - id: F-memory-pending
+      severity: info
+      summary: Release-note memory remains pending until a separate memory review.
+      action: Keep the proposal in the Memory/Reviews queue.
+  decisionAudit:
+    - decisionKind: human_approval
+      decision: approved
+      actorMember: protocol-reviewer-human
+      actorMemberKind: human
+      authority: approve
+      decidedAt: "2026-05-21T08:40:00+08:00"
+      reason: Assisted ingest is complete and memory approval remains separate.
+      policyRefs:
+        - human-default

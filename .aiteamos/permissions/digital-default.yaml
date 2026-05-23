@@ -1,0 +1,74 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: PermissionPolicy
+metadata:
+  name: digital-default
+spec:
+  scope:
+    memberKind: digital
+  defaultMode: ask
+  allow:
+  - match: Read(/docs/**)
+  - match: Read(/packages/**)
+  - match: Read(/services/**)
+  - match: Read(/apps/**)
+  - match: Edit(/docs/**)
+  - match: Edit(/packages/schema/**)
+  - match: mcp__aiteamos__record_journal
+    reason: Controlled MCP journal writes are bounded and audited.
+  - match: mcp__aiteamos__record_event
+    reason: Controlled MCP event writes reject governance, closeout, approval, and merge events.
+  - match: mcp__aiteamos__propose_memory
+    reason: MCP memory proposals stay pending-review and cannot approve memory.
+  - match: mcp__aiteamos__handoff
+    reason: MCP handoffs are audited and cannot approve memory or merge code.
+  - match: mcp__aiteamos__record_member_message
+    reason: Member messages are audited collaboration records, not memory mutation.
+  - match: mcp__aiteamos__create_patch
+    reason: Patch creation remains bounded by review-gate and patch-scope checks.
+  - match: mcp__aiteamos__grant_memory
+    reason: Temporary memory grants expire and do not create durable memory bindings.
+  - match: mcp__aiteamos__share_memory
+    reason: Memory sharing creates grants and audit messages, not recipient-owned memory.
+  - match: mcp__aiteamos__ask_member
+    reason: Ask-for-help messages are audited collaboration records.
+  - match: mcp__aiteamos__request_review
+    reason: Review requests are audited collaboration records and cannot approve their own outcome.
+  - match: mcp__aiteamos__create_retrospective
+    reason: Retrospectives only create pending memory proposals and cannot approve memory.
+  - match: EnvVar(OPENAI_API_KEY:use)
+    reason: Managed provider calls may use the configured secret without exposing its value to the member context.
+  ask:
+  - match: Edit(/services/**)
+  - match: Edit(/packages/workspace/**)
+  - match: Bash(npm run build)
+  - match: Bash(python -m unittest:*)
+  - match: WebFetch(docs.qoder.com)
+    reason: External documentation fetches should be human-visible and approval-backed.
+  - match: Network(api.github.com:443)
+    reason: Network calls must name the destination domain and port.
+  - match: mcp__github__create_issue
+    reason: External MCP writes require explicit review before execution.
+  - match: Connector(github:read)
+    reason: Connector access is scoped by connector id and operation.
+  - match: Connector(github:issues:read)
+    reason: Connector subscopes must name the external surface and operation.
+  - match: ArtifactStore(local-artifacts:write)
+    reason: Artifact writes must target a configured store and operation.
+  - match: ArtifactStore(local-artifacts:write:retention=reviewed-runs:redaction=sanitize)
+    reason: Artifact writes that declare retention and redaction can be approved as a bounded action.
+  deny:
+  - match: Edit(/.git/**)
+  - match: Read(*.pem)
+  - match: EnvVar(*:read)
+    reason: Secret values must not be injected into context or tool output.
+  - match: EnvVar(*:export)
+    reason: Environment dumps and secret exports are prohibited for digital members.
+  - match: EnvVar(*:write)
+    reason: Digital members must not mutate process secret state.
+  - match: Bash(rm -rf:*)
+  sensitivePaths:
+  - .env
+  - .git/**
+  - '*.pem'
+  inheritance:
+    projectPolicy: merge

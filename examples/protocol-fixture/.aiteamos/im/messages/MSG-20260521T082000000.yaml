@@ -1,0 +1,27 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: MemberMessage
+metadata:
+  id: MSG-20260521T082000000
+  createdAt: "2026-05-21T08:20:00+08:00"
+spec:
+  fromMember: protocol-runtime-bot
+  toMembers:
+    - protocol-release-hybrid
+    - protocol-reviewer-human
+  channel: demo-handoff
+  messageType: knowledge-share
+  status: resolved
+  priority: normal
+  project: protocol-fixture
+  task: TASK-20260521T080000000
+  run: RUN-20260521T080000000
+  body: >
+    The Add i32 runtime contract is verified and approved as memory. Release
+    notes should cite the memory pack instead of restating unreviewed behavior.
+  attachments:
+    - memory/entries/MEM-protocol-runtime-contract.yaml
+  resolvedAt: "2026-05-21T08:40:00+08:00"
+  resolvedByMember: protocol-reviewer-human
+  resolution: Handoff accepted for release ingest.
+  audit:
+    createdBy: protocol-runtime-bot

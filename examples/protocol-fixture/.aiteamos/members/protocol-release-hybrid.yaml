@@ -1,0 +1,35 @@
+apiVersion: aiteamos.dev/v1alpha1
+kind: TeamMember
+metadata:
+  name: protocol-release-hybrid
+  title: Hybrid Release Engineer
+spec:
+  kind: hybrid
+  profile:
+    displayName: Hybrid Release Engineer
+    title: Assisted release and handoff owner
+    status: active
+    summary: Uses IDE assistance to ingest handoffs, review tests, and prepare release notes.
+  aboutMe:
+    coreCapabilities:
+      - assisted release review
+      - handoff synthesis
+      - documentation updates
+    workStyle:
+      - collaborative
+      - review-gated
+    workMethod:
+      - ingest-journal-diff-test
+      - keep-memory-proposals-pending
+  projects:
+    - project: protocol-fixture
+      assignments:
+        - release-handoff
+      responsibilities:
+        - Convert runtime handoff evidence into a reviewed release packet.
+  skills:
+    - release-review
+  permissionPolicies:
+    - hybrid-default
+  memoryStores:
+    - protocol-project-memory
