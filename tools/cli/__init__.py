@@ -1,1 +1,0 @@
-"""Thin CLI for AITEAMOS."""

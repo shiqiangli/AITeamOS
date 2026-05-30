@@ -1,45 +1,68 @@
 [project]
 name = "aiteamos"
-version = "0.1.0"
-description = "AI Team Management System"
+version = "1.0.0"
+description = "AITeamOS - Experience-driven Cognitive Operating System"
 requires-python = ">=3.11"
 dependencies = [
-  "fastapi>=0.110",
-  "litellm>=1.75",
-  "pydantic>=2.0",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.7",
+  "asyncpg>=0.29",
+  "aiokafka>=0.10",
+  "litellm>=1.40",
+  "pgvector>=0.3",
   "PyYAML>=6.0",
-  "uvicorn>=0.27",
+  "httpx>=0.27",
 ]
 
-[project.scripts]
-aiteamos = "tools.cli.aiteamos:main"
-
-[project.entry-points."aiteamos.connectors"]
-builtin = "aiteamos_connectors:connector_package"
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "httpx>=0.27",
+]
+temporal = [
+  "temporalio>=1.6",
+]
 
 [tool.setuptools.packages.find]
 include = [
-  "aiteamos_connectors*",
-  "aiteamos_schema*",
-  "aiteamos_workspace*",
+  "aiteamos_shared*",
+  "aiteamos_knowledge*",
+  "aiteamos_capability*",
+  "aiteamos_workforce*",
+  "aiteamos_execution*",
+  "aiteamos_validation*",
+  "aiteamos_governance*",
   "aiteamos_api*",
-  "tools*",
+  "aiteamos_worker*",
+  "aiteamos_saga*",
 ]
 where = [
-  "packages/connectors",
-  "packages/schema",
-  "packages/workspace",
+  "packages/shared_kernel",
+  "packages/knowledge",
+  "packages/capability",
+  "packages/workforce",
+  "packages/execution",
+  "packages/validation",
+  "packages/governance",
   "services/api",
-  ".",
+  "services/worker",
+  "services/saga",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 pythonpath = [
-  "packages/connectors",
-  "packages/schema",
-  "packages/workspace",
+  "packages/shared_kernel",
+  "packages/knowledge",
+  "packages/capability",
+  "packages/workforce",
+  "packages/execution",
+  "packages/validation",
+  "packages/governance",
   "services/api",
   "services/worker",
-  ".",
+  "services/saga",
 ]

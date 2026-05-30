@@ -1,3 +1,946 @@
-// @ts-nocheck
-import{useState,useEffect}from"react";
-import{jsx as e,jsxs as i}from"react/jsx-runtime";import*as Se from"../../components/shared";const{ACTIVE_OPERATION_RUN_STATUSES:bt,AssignmentDetailWorkflowPanel:Ce,AssignmentPermissionOutcomePanel:ke,AutomationPermissionOutcomePanel:Ae,AutomationPermissionOutcomeTable:vt,AutomationRunTable:gt,AutomationScheduleProjectionPanel:we,AutomationScheduleProjectionTable:Rt,ConnectorEscalationProjectionPanel:De,ConnectorIncidentDetailPanel:ft,ConnectorIncidentFollowThroughTable:yt,ConnectorOperationsOpenTable:ht,ConnectorOperationsProjectionPanel:Te,ConnectorRemediationProjectionPanel:Ee,ConnectorRemediationRunProjectionPanel:Fe,ConnectorRemediationRunTable:Mt,ConnectorRemediationSuggestionTable:Pt,ConnectorRemediationTaskPlanProjectionPanel:xe,ConnectorRemediationTaskPlanTable:St,ConnectorRemediationTaskProjectionPanel:Oe,ConnectorRemediationTaskTable:Ct,ContextManifestExplorerPanel:kt,ContextSourceDetailPanel:At,CostModelPanel:wt,DASHBOARD_API_BASE_STORAGE_KEY:Dt,DASHBOARD_API_TOKEN_STORAGE_KEY:Tt,DASHBOARD_COOKIE_SESSION_STORAGE_KEY:Et,DASHBOARD_CSRF_TOKEN_STORAGE_KEY:Ft,DASHBOARD_LOCALE_STORAGE_KEY:xt,DashboardI18nContext:Ot,Definition:jt,Detail:je,GroupedRows:Ie,JsonPreview:It,ManagerPlanRecommendationsPanel:Ge,ManifestTable:c,MemberGrowthProjectionPanel:Ne,Panel:s,PermissionGrantTable:Gt,PermissionProjectionPanel:_e,PermissionRequestTable:Nt,ResourcePage:_t,RetrospectiveSuggestionReviewPanel:He,RunContextMemoryPanel:Ht,RunWorkerAuthorizationPanel:Ke,RunWorkerAuthorizationTable:Kt,RunWorkerReadinessPanel:Lt,SessionProjectionStrip:Bt,Status:d,TEAM_EXECUTION_TARGET_TYPES:Wt,WorkspaceOperationsPanel:Ut,appendViewerMember:qt,arrayRecords:zt,assignmentMember:Vt,assignmentProject:Yt,assignmentWorkMatchesSkill:$t,automationFocusFromProjection:Jt,automationMemberRole:Xt,automationNextControlPlaneAction:Qt,automationRunMatchesMember:Le,automationScheduleHealth:Zt,automationScheduleMatchesScope:eo,automationScheduleMemberRefs:to,automationScheduleProjectionRows:Be,canonicalDashboardPath:oo,collaborationRecordMatchesMember:B,collectDecisionAuditRecords:ao,connectorEscalationRecordMatchesScope:io,connectorEscalationReviewRequests:We,connectorEscalationRows:Ue,connectorIdFromRecord:no,connectorIdsFromRecord:ro,connectorIdsInWorkspace:so,connectorOperationRecordMatchesScope:lo,connectorOperationsRows:qe,connectorOperationsSummary:co,connectorRemediationRecordMatchesScope:mo,connectorRemediationRows:ze,connectorRemediationRunRecordMatchesScope:uo,connectorRemediationRunRows:Ve,connectorRemediationTaskPlanRecordMatchesScope:po,connectorRemediationTaskPlanRows:Ye,connectorRemediationTaskRecordMatchesScope:bo,connectorRemediationTaskRows:$e,contextExclusionCategory:vo,contextManifestBucketsForSource:go,contextManifestBudgetPolicyRows:Ro,contextManifestExclusionRows:fo,contextManifestMemoryRows:yo,contextManifestObjectRows:ho,contextManifestPriorityRows:Mo,contextManifestRawSourceForDecision:Po,contextManifestSourceDecisionRows:So,contextManifestSourceDetailRecord:Co,contextManifestSourceMatchesDecision:ko,contextManifestSourceRef:Ao,contextPreviewMentionsMemory:wo,contextSourceLineLabel:Do,costAlertRows:To,countByStatus:P,countRowsWithList:Eo,dashboardAuthStateFromStorage:Fo,dashboardAuthStateFromUrl:xo,dashboardFetch:W,dashboardHref:Oo,defaultAssignmentForMember:jo,defaultAutomationActionDraft:Io,defaultAutomationActorMember:Go,defaultAutomationEventDraft:No,defaultAutomationExecutorMember:_o,defaultAutomationProviderDeliveryRetryDraft:Ho,defaultAutomationRunExecutionDraft:Ko,defaultAutomationRunReviewReason:Lo,defaultAutomationSchedulerLeaseRecoverDraft:Bo,defaultAutomationSchedulerScanDraft:Wo,defaultAutomationTriggerType:Uo,defaultAutomationWebhookDraft:qo,defaultConnectorEscalationRoutingDraft:zo,defaultConnectorHealthDraft:Vo,defaultConnectorReminderRoutingDraft:Yo,defaultGovernanceActorId:Je,defaultMemberByKind:$o,defaultMemberManagementDraft:U,defaultMemoryHealthRemediationAction:Jo,defaultPermissionGrantLifecycleDraft:Xo,defaultPermissionReviewDraft:Qo,defaultProductUserDraft:Zo,defaultRetentionCleanupDraft:ea,defaultTeamExecutionApprovalGate:ta,defaultTeamExecutionAutomationDraft:oa,defaultTeamExecutionTitle:aa,defaultWorkspaceRoute:ia,downloadBlob:na,draftNumber:ra,emptyManifestRecord:sa,endpointForDashboardAuth:la,endpointForDashboardBackend:ca,endpointForViewer:ma,evalResultRecencyKey:da,filenameFromDisposition:ua,filterByLifecycle:pa,findMemoryResource:ba,firstDeniedPermissionCanonical:va,firstDeniedPermissionDecisionCanonical:ga,firstString:Ra,formatDashboardColumnLabel:fa,formatPercentRatio:ya,formatValue:ha,gateCheckRecords:Ma,gitActivityCorrelationGroupMatchesMember:Xe,gitActivityCorrelationGroups:Qe,gitActivityCorrelationPromotionCandidateMatchesMember:Ze,gitActivityCorrelationPromotionCandidateRecords:et,gitActivityCorrelationReviewMatchesMember:tt,gitActivityImportMatchesMember:ot,gitActivityRetentionCandidateRecords:at,gitRetentionTriggerForPreset:Pa,governedViewerForFetch:Sa,groupRecordsByValue:Ca,growthPlanActionRows:ka,isConnectorEscalationReviewRequest:Aa,isManagerMember:wa,isRecord:Da,isRecoverableSchedulerLease:Ta,isRedactedRecord:Ea,isRetryableProviderDelivery:Fa,isSameOriginDashboardEndpoint:xa,knowledgeHealthSummary:Oa,latestAuditSummary:ja,latestEvalResultForSuite:Ia,latestManifestRecord:Ga,latestRiskLevel:Na,managerPlanRecommendationRows:_a,manifestRecencyKey:Ha,memberCapabilityTokens:Ka,memberCreatePayloadFromDraft:it,memberGrowthItems:nt,memberManagementDraftFromRecord:q,memberMatchesAutomationTarget:La,memberSkillRefs:Ba,memberUpdatePayloadFromDraft:rt,memoryEntryMatchesAssignment:Wa,memoryEntryMatchesMember:Ua,memoryEntryMatchesProject:qa,memoryHealthIssueMatchesScope:za,memoryHealthIssueRecords:st,memoryRecordsForScope:lt,memoryResourceMatchesAssignment:Va,memoryResourceMatchesMember:Ya,memoryResourceMatchesProject:$a,memoryResourceMatchesScope:Ja,memoryStoreMatchesMember:Xa,memoryStoreMatchesProject:Qa,metric:Za,modelCostRows:ei,normalizeAttachedManifestId:ti,normalizeDashboardApiBaseUrl:oi,normalizeMemberKind:ct,normalizeMemberStatus:z,normalizeSkillToken:ai,numberPrompt:ii,numericPath:ni,parseCsv:ri,parseDashboardAuthState:si,parseJsonDraft:li,parsePage:ci,permissionActionCanonical:mi,permissionDecisionRequiresApproval:di,permissionOverviewRecords:E,permissionPoliciesForAutomationTarget:ui,planRecommendationProjectionRecord:pi,projectEvalStatusRows:bi,providerDeliveryDecisionAuditRows:vi,providerDeliveryRetryAttemptRows:gi,providerDeliveryRetryHeaderSummary:Ri,providerDeliveryRetryHeaders:fi,readDashboardApiBaseUrl:yi,readDashboardApiToken:hi,readDashboardCookieSessionConfigured:Mi,readDashboardCsrfToken:Pi,readDashboardLocale:Si,readDashboardRoute:Ci,readHealthIssueField:ki,readPath:V,readProjection:Ai,readSpec:mt,readStoredDashboardApiToken:wi,readStoredDashboardCookieSessionConfigured:Di,recommendationRecipients:Ti,recordMatchesAssignment:Ei,recordMatchesConnector:Fi,recordMatchesMember:p,recordMatchesProject:xi,recordValue:Oi,recoverableSchedulerLeases:ji,retrospectivePayloadFromDraft:Ii,retrospectiveRecordMatchesMember:Y,retrospectiveSuggestionDraftFromRecord:Gi,retrospectiveSuggestionRecords:dt,retryableProviderDeliveries:Ni,runMember:_i,runProject:Hi,runStatus:Ki,sessionCanSelectViewer:Li,setActiveDashboardWorkspaceId:Bi,skillAssignmentFitRows:Wi,skillCapabilityMatches:Ui,skillCapabilityTokens:qi,skillFitReasonsForAssignment:zi,skillFitReasonsForMember:Vi,skillFitReasonsForRun:Yi,skillFitReasonsForTask:$i,skillFitSignal:Ji,skillMatchesAssignment:Xi,skillMatchesMember:Qi,skillMatchesProject:Zi,skillMatchesRun:en,skillMatchesScope:tn,skillMatchesTask:on,skillMemberFitRows:an,skillProjectionManifestRecords:ut,skillProjectionRows:pt,skillRelatedRunRows:nn,skillRelatedTaskRows:rn,skillTextMatchesFields:sn,sourceForAutomationTriggerType:ln,splitMemberDraftList:cn,splitRetrospectiveList:mn,stringList:dn,stringParam:un,stringValue:pn,sumRecordMetric:bn,taskMember:vn,taskPlanCreatedByManager:gn,taskPlanExecutionSubtaskRows:Rn,taskPlanExecutionViewFor:fn,taskPlanIdsForRecommendationMessage:yn,taskPlanSubtaskMatchKey:hn,taskPlanSubtaskRows:Mn,taskProject:Pn,taskWorkMatchesSkill:Sn,tasksLinkedToTaskPlan:Cn,teamExecutionDisplayName:kn,teamExecutionMemberKinds:An,tokenMatches:wn,uniqueManifestRecords:Dn,uniqueStrings:Tn,useDashboardI18n:En,viewerScopedEndpoints:Fn,withDashboardAuth:xn,wordsFromValue:On,workspaceManifestLoadFailureRows:jn,workspaceOperationRows:In,workspaceRouteCandidates:Gn,writeDashboardApiBaseUrl:Nn,writeDashboardApiToken:_n,writeDashboardCookieSessionConfigured:Hn,writeDashboardCsrfToken:Kn,writeDashboardLocale:Ln,writeDashboardRoute:Bn}=Se;function Wn({data:a,onRefresh:v,selectedMemberId:$,onMemberSelect:R,selectedAssignmentId:f,onAssignmentSelect:F,onAutomationDrilldown:S,onTaskSelect:x,onTaskPlanSelect:J,onRunSelect:X,onMemorySelect:Q,onSkillSelect:Z}){const O=f?a.assignments.find(t=>t.id===f):void 0,ee=O?String(mt(O,"member")??""):"",g=a.members.find(t=>t.id===$)??a.members.find(t=>t.id===ee)??a.members[0],o=g?.id,C=o?a.assignments.filter(t=>p(t,o)):[],k=f?C.find(t=>t.id===f):void 0,A=o?a.memberPermissionOverviews[o]:null,j=o?E(A,"policies",a.permissions.filter(t=>p(t,o))):[],I=o?E(A,"requests",a.permissionRequests.filter(t=>p(t,o))):[],G=o?E(A,"grants",a.permissionGrants.filter(t=>p(t,o))):[],N=o?a.runWorkerAuthorizations.filter(t=>p(t,o)):[],_=o?a.automationRuns.filter(t=>Le(t,o)):[],te=o?Be(a,{member:o}):[],oe=qe(a,"byConnector",{member:o}),ae=Ue(a,{member:o}),ie=We(a,{member:o}),ne=ze(a,{member:o}),re=Ye(a,{member:o}),se=$e(a,{member:o}),le=Ve(a,{member:o}),y=o?a.memberMessages.filter(t=>B(t,o)):[],h=o?a.handoffs.filter(t=>B(t,o)):[],H=o?a.teamRetrospectives.filter(t=>Y(t,o)):[],ce=o?a.memberActivities.filter(t=>p(t,o)):[],me=o?a.gitActivities.filter(t=>p(t,o)):[],w=o?a.gitActivityImports.filter(t=>ot(t,a.gitActivities,o)):[],de=o?Qe(a.gitActivityCorrelationPreview).filter(t=>Xe(t,o,w)):[],ue=o?a.gitActivityCorrelationReviews.filter(t=>tt(t,o,w)):[],pe=o?et(a.gitActivityCorrelationPromotionCandidates).filter(t=>Ze(t,o)):[],be=o?at(a.gitActivityRetentionCandidates).filter(t=>p(t,o)):[],D=o?dt(a.retrospectiveSuggestions).filter(t=>Y(t,o)):[],ve=o?nt(a.memberGrowth).filter(t=>V(t,"member")===o):[],ge=o?lt(a,{member:o}):[],Re=o?st(a,{member:o}):[],fe=o?ut(a.memberSkillProjections[o])??pt(a,{member:o}):[],[n,K]=useState(()=>({...U(),permissionPolicies:"human-default"})),[r,L]=useState(()=>q(g));useEffect(()=>{L(q(g))},[g]);function l(t){K(u=>({...u,...t}))}function m(t){L(u=>({...u,...t}))}async function T(t,u,M="POST"){const b=await W(t,{method:M,headers:{"Content-Type":"application/json"},...u?{body:JSON.stringify(u)}:{}});return b.ok?await b.json():(window.alert(`Employee operation failed: ${await b.text()}`),null)}async function ye(){if(!n.name.trim())return;const t=await T("/members",it(n));t&&(await v(),R(t.id),K({...U(),kind:n.kind,permissionPolicies:n.permissionPolicies}))}async function he(){if(!o)return;const t=await T(`/members/${encodeURIComponent(o)}`,rt(r),"PATCH");t&&(await v(),R(t.id))}async function Me(){if(!o)return;const t=await T(`/members/${encodeURIComponent(o)}/archive`);t&&(await v(),R(t.id))}async function Pe(t,u){const M=String(V(t,"member")??o??"");if(!M)return;const b=await W(`/members/${encodeURIComponent(M)}/growth-records`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(u)});if(!b.ok){window.alert(`Growth note failed: ${await b.text()}`);return}await v()}return i("div",{className:"grid two-wide-left",children:[i(s,{title:"Employee List",children:[e("div",{className:"button-row",children:a.members.slice(0,16).map(t=>e("button",{className:t.id===o?"recommended-action table-action":"secondary-action table-action",onClick:()=>R(t.id),children:t.id},t.id))}),e(Ie,{records:a.members,groupBy:"kind",columns:["status","title","projects"]})]}),e(s,{title:"About Me",children:e(je,{record:g})}),e(Ge,{data:a,memberId:o,onTaskPlanSelect:J,onTaskSelect:x}),i(s,{title:"Employee Management Console",full:!0,children:[i("div",{className:"metric-grid",children:[e(d,{label:"Selected Employee",value:o??"none"}),e(d,{label:"Selected Kind",value:r.kind}),e(d,{label:"Selected Status",value:r.status,tone:r.status==="archived"?"warn":void 0}),e(d,{label:"Create Kind",value:n.kind})]}),e("div",{className:"section-title-row",children:e("h4",{children:"Create TeamMember"})}),i("div",{className:"ingest-form",children:[i("label",{children:[e("span",{children:"Create Member Name"}),e("input",{value:n.name,onChange:t=>l({name:t.target.value})})]}),i("label",{children:[e("span",{children:"Create Member Kind"}),i("select",{value:n.kind,onChange:t=>l({kind:ct(t.target.value)}),children:[e("option",{value:"human",children:"human"}),e("option",{value:"digital",children:"digital"}),e("option",{value:"hybrid",children:"hybrid"}),e("option",{value:"service",children:"service"})]})]}),i("label",{children:[e("span",{children:"Create Member Status"}),i("select",{value:n.status,onChange:t=>l({status:z(t.target.value)}),children:[e("option",{value:"active",children:"active"}),e("option",{value:"inactive",children:"inactive"}),e("option",{value:"archived",children:"archived"})]})]}),i("label",{children:[e("span",{children:"Create Display Name"}),e("input",{value:n.displayName,onChange:t=>l({displayName:t.target.value})})]}),i("label",{children:[e("span",{children:"Create Title"}),e("input",{value:n.title,onChange:t=>l({title:t.target.value})})]}),i("label",{children:[e("span",{children:"Create Timezone"}),e("input",{value:n.timezone,onChange:t=>l({timezone:t.target.value})})]}),i("label",{className:"wide",children:[e("span",{children:"Create Summary"}),e("input",{value:n.summary,onChange:t=>l({summary:t.target.value})})]}),i("label",{children:[e("span",{children:"Create Core Capabilities"}),e("textarea",{value:n.coreCapabilities,onChange:t=>l({coreCapabilities:t.target.value})})]}),i("label",{children:[e("span",{children:"Create Work Style"}),e("textarea",{value:n.workStyle,onChange:t=>l({workStyle:t.target.value})})]}),i("label",{children:[e("span",{children:"Create Work Method"}),e("textarea",{value:n.workMethod,onChange:t=>l({workMethod:t.target.value})})]}),i("label",{children:[e("span",{children:"Create Skills"}),e("textarea",{value:n.skills,onChange:t=>l({skills:t.target.value})})]}),i("label",{children:[e("span",{children:"Create Permission Policies"}),e("textarea",{value:n.permissionPolicies,onChange:t=>l({permissionPolicies:t.target.value})})]}),i("label",{children:[e("span",{children:"Create Memory Stores"}),e("textarea",{value:n.memoryStores,onChange:t=>l({memoryStores:t.target.value})})]}),i("label",{children:[e("span",{children:"Create Default Assignments"}),e("textarea",{value:n.defaultAssignments,onChange:t=>l({defaultAssignments:t.target.value})})]})]}),e("div",{className:"button-row top-gap",children:e("button",{className:"recommended-action",disabled:!n.name.trim(),onClick:()=>void ye(),children:"Create TeamMember"})}),e("div",{className:"section-title-row top-gap",children:e("h4",{children:"Update Selected TeamMember"})}),i("div",{className:"ingest-form",children:[i("label",{children:[e("span",{children:"Selected Member Id"}),e("input",{disabled:!0,value:o??""})]}),i("label",{children:[e("span",{children:"Selected Member Status"}),i("select",{disabled:!o,value:r.status,onChange:t=>m({status:z(t.target.value)}),children:[e("option",{value:"active",children:"active"}),e("option",{value:"inactive",children:"inactive"}),e("option",{value:"archived",children:"archived"})]})]}),i("label",{children:[e("span",{children:"Selected Display Name"}),e("input",{disabled:!o,value:r.displayName,onChange:t=>m({displayName:t.target.value})})]}),i("label",{children:[e("span",{children:"Selected Title"}),e("input",{disabled:!o,value:r.title,onChange:t=>m({title:t.target.value})})]}),i("label",{children:[e("span",{children:"Selected Timezone"}),e("input",{disabled:!o,value:r.timezone,onChange:t=>m({timezone:t.target.value})})]}),i("label",{className:"wide",children:[e("span",{children:"Selected Summary"}),e("input",{disabled:!o,value:r.summary,onChange:t=>m({summary:t.target.value})})]}),i("label",{children:[e("span",{children:"Selected Core Capabilities"}),e("textarea",{disabled:!o,value:r.coreCapabilities,onChange:t=>m({coreCapabilities:t.target.value})})]}),i("label",{children:[e("span",{children:"Selected Work Style"}),e("textarea",{disabled:!o,value:r.workStyle,onChange:t=>m({workStyle:t.target.value})})]}),i("label",{children:[e("span",{children:"Selected Work Method"}),e("textarea",{disabled:!o,value:r.workMethod,onChange:t=>m({workMethod:t.target.value})})]}),i("label",{children:[e("span",{children:"Selected Skills"}),e("textarea",{disabled:!o,value:r.skills,onChange:t=>m({skills:t.target.value})})]}),i("label",{children:[e("span",{children:"Selected Permission Policies"}),e("textarea",{disabled:!o,value:r.permissionPolicies,onChange:t=>m({permissionPolicies:t.target.value})})]}),i("label",{children:[e("span",{children:"Selected Memory Stores"}),e("textarea",{disabled:!o,value:r.memoryStores,onChange:t=>m({memoryStores:t.target.value})})]}),i("label",{children:[e("span",{children:"Selected Default Assignments"}),e("textarea",{disabled:!o,value:r.defaultAssignments,onChange:t=>m({defaultAssignments:t.target.value})})]})]}),i("div",{className:"button-row top-gap",children:[e("button",{className:"recommended-action",disabled:!o,onClick:()=>void he(),children:"Update Selected TeamMember"}),e("button",{className:"secondary-action",disabled:!o||r.status==="archived",onClick:()=>void Me(),children:"Archive Selected TeamMember"})]})]}),e(s,{title:"Projects / Assignments",full:!0,children:e(c,{records:C,columns:["member","project","roleTemplate","modules","features","status"],selectedId:k?.id,onSelect:t=>F(t.id)})}),e(Ce,{data:a,assignment:k,onAutomationDrilldown:S}),e(s,{title:"Employee Memory",full:!0,children:e(c,{records:ge,columns:["store","scope","targetType","targetId","granteeMember","lifecycle","status"]})}),e(s,{title:"Employee Memory Health",full:!0,children:e(c,{records:Re,columns:["severity","ref","message","action"]})}),e(s,{title:"Employee Skills",full:!0,children:e(c,{records:fe,columns:["ownerMember","lifecycle","projectCount","assignmentCount","taskCount","runCount","memberFitReasons","requiredPermissions"]})}),e(s,{title:"Employee Permissions / Automations",full:!0,children:e(c,{records:[...j,...a.automations],columns:["scope","ownerMember","serviceMember","defaultMode","targetType","status"]})}),e(_e,{title:"Employee Permission Projection",policies:j,requests:I,grants:G}),e(Ke,{title:"Employee Worker Permission Outcomes",authorizations:N}),e(Ae,{title:"Employee Automation Permission Outcomes",runs:_}),e(we,{title:"Employee Automation Schedule / Status",rows:te,onOpenControlPlane:S,includeMemberRole:!0}),e(ke,{title:"Employee Assignment Permission Outcomes",assignments:C,runAuthorizations:N,automationRuns:_,requests:I,grants:G,selectedAssignmentId:k?.id,onAssignmentSelect:F}),e(Ne,{title:"Performance / Growth",projection:a.memberGrowth,items:ve,onTaskSelect:x,onRunSelect:X,onMemorySelect:Q,onSkillSelect:Z,onRecordGrowth:Pe,defaultReviewerMember:Je(a)}),e(s,{title:"Employee Activity Sources",full:!0,children:e(c,{records:ce,columns:["project","assignment","task","run","activityType","sourceType","contributionKind","occurredAt","visibility"]})}),e(s,{title:"Employee Git Activity",full:!0,children:e(c,{records:me,columns:["project","repository","assignment","activityType","provider","refs","occurredAt","visibility","lifecycle","exportPolicy","redactionPolicy","archivedAt","redactedAt"]})}),e(s,{title:"Employee Git Activity Retention Candidates",full:!0,children:e(c,{records:be,columns:["project","activity","assignment","repository","activityType","retainedUntil","recommendedLifecycle","recommendedExportPolicy","eligible","blockers","warnings"]})}),e(s,{title:"Employee Git Activity Imports",full:!0,children:e(c,{records:w,columns:["project","repository","provider","sourceType","status","dedupeKey","redactionPolicy","importPolicy","importedActivities","receivedAt"]})}),e(s,{title:"Employee Git Activity Correlation Preview",full:!0,children:e(c,{records:de,columns:["project","repository","provider","receipts","importedActivities","eventFamilies","members","assignments","refs","commits","pullRequests","forcePushRisk","squashMergeRisk","multiEventRisk","warnings"]})}),e(s,{title:"Employee Git Activity Correlation Reviews",full:!0,children:e(c,{records:ue,columns:["project","repository","provider","correlationKey","decision","reviewerMember","reviewerMemberKind","receipts","importedActivities","riskFlags","reviewedAt","summary"]})}),e(s,{title:"Employee Git Activity Promotion Candidates",full:!0,children:e(c,{records:pe,columns:["eligible","project","review","automation","serviceMember","targetMember","targetAssignment","activityType","approvalAgeHours","riskFlags","blockers","warnings"]})}),e(Te,{title:"Employee Connector Operations",rows:oe,onOpenConnector:t=>S({member:o,connector:t,source:"employee-connector-operations"})}),e(De,{title:"Employee Connector Escalations",candidates:ae,reviewRequests:ie}),e(Ee,{title:"Employee Connector Remediation Suggestions",suggestions:ne}),e(xe,{title:"Employee Connector Remediation TaskPlans",taskPlans:re}),e(Oe,{title:"Employee Connector Remediation Tasks",tasks:se}),e(Fe,{title:"Employee Connector Remediation Runs",runs:le}),i(s,{title:"Messages / Growth",full:!0,children:[i("div",{className:"metric-grid",children:[e(d,{label:"Messages",value:y.length}),e(d,{label:"Open Messages",value:P(y,["open","acknowledged"]),tone:P(y,["open","acknowledged"])?"warn":void 0}),e(d,{label:"Handoffs",value:h.length}),e(d,{label:"Open Handoffs",value:P(h,["requested","accepted"]),tone:P(h,["requested","accepted"])?"warn":void 0}),e(d,{label:"Retrospectives",value:H.length}),e(d,{label:"Suggestions",value:D.length})]}),e(c,{records:[...y,...h,...H],columns:["fromMember","toMembers","toMember","facilitatorMember","messageType","status","priority","project","task","run","proposedMemory"]}),e("div",{className:"section-title-row",children:e("h4",{children:"Suggested Retrospectives"})}),e(c,{records:D,columns:["facilitatorMember","participants","sourceRuns","sourceMessages","sourceHandoffs","score","confidence","summary"]}),e(He,{records:D,onRefresh:v})]})]})}export{Wn as EmployeesPage};
+/**
+ * AITeamOS Dashboard - Member Management Page
+ */
+
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Activity,
+  Archive,
+  Brain,
+  Clock,
+  ExternalLink,
+  ListTodo,
+  Plus,
+  Trash2,
+  UserRound,
+  Wrench,
+} from "lucide-react";
+import { Panel, DataTable, Definition, FormField, LoadingState, ErrorState, navigateTo, ComboInput, Status, type Column } from "../../components/shared";
+import { useToast } from "../../components/ui/use-toast";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Select } from "../../components/ui/select";
+import { Badge } from "../../components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "../../components/ui/tabs";
+import {
+  listMembers,
+  listDepartments,
+  listTasks,
+  listSkills,
+  getMemberDetail,
+  getMemberProfileView,
+  createMember,
+  assignSkillToMember,
+  deleteMember,
+  type MemberSummary,
+  type MemberDetail,
+  type MemberProfileView,
+  type DepartmentSummary,
+  type TaskSummary,
+  type SkillSummary,
+} from "../../api/client";
+
+type MemberActivity = {
+  id: string;
+  kind: string;
+  label: string;
+  at: string | null;
+  targetPage?: string;
+  targetId?: string;
+};
+
+function formatShortId(id: string | null | undefined): string {
+  if (!id) return "-";
+  return id.length > 12 ? `${id.slice(0, 8)}...` : id;
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString();
+}
+
+function statusVariant(state: string): "success" | "warning" | "secondary" | "danger" {
+  switch (state) {
+    case "done":
+      return "success";
+    case "running":
+    case "verifying":
+    case "in_review":
+      return "warning";
+    case "failed":
+    case "cancelled":
+      return "danger";
+    default:
+      return "secondary";
+  }
+}
+
+function activityTone(count: number): string {
+  if (count >= 4) return "bg-primary";
+  if (count >= 2) return "bg-primary/70";
+  if (count === 1) return "bg-primary/35";
+  return "bg-muted";
+}
+
+function pageForTarget(kind: string | null | undefined): string | undefined {
+  switch (kind) {
+    case "task":
+      return "tasks";
+    case "skill":
+      return "skills";
+    case "memory":
+      return "memories";
+    case "project":
+      return "projects";
+    default:
+      return undefined;
+  }
+}
+
+function buildActivityEvents(
+  detail: MemberDetail,
+  tasks: TaskSummary[],
+  profile: MemberProfileView | null,
+): MemberActivity[] {
+  const events: MemberActivity[] = [];
+  const seen = new Set<string>();
+
+  for (const activity of profile?.activities ?? []) {
+    const targetPage = pageForTarget(activity.target_kind);
+    events.push({
+      id: `activity-${activity.id}`,
+      kind: activity.kind,
+      label: activity.label,
+      at: activity.occurred_at,
+      targetPage,
+      targetId: targetPage ? activity.target_id ?? undefined : undefined,
+    });
+    seen.add(`activity-${activity.id}`);
+  }
+
+  if (detail.created_at) {
+    events.push({
+      id: `profile-${detail.id}`,
+      kind: "profile",
+      label: "Profile created",
+      at: detail.created_at,
+    });
+  }
+  for (const task of tasks) {
+    if (seen.has(`task-${task.id}`)) continue;
+    events.push({
+      id: `task-${task.id}`,
+      kind: "task",
+      label: task.title,
+      at: task.created_at,
+      targetPage: "tasks",
+      targetId: task.id,
+    });
+  }
+  const capabilityChanges = profile?.capability_changes ?? [];
+  if (capabilityChanges.length > 0) {
+    for (const change of capabilityChanges) {
+      const targetPage = pageForTarget(change.target_kind);
+      events.push({
+        id: `change-${change.id}`,
+        kind: change.kind,
+        label: change.label,
+        at: change.occurred_at,
+        targetPage,
+        targetId: targetPage ? change.target_id : undefined,
+      });
+    }
+    return events.sort((a, b) => {
+      const aTime = a.at ? new Date(a.at).getTime() : 0;
+      const bTime = b.at ? new Date(b.at).getTime() : 0;
+      return bTime - aTime;
+    });
+  }
+
+  for (const skillId of detail.base_skill_set ?? []) {
+    events.push({
+      id: `skill-${skillId}`,
+      kind: "skill",
+      label: formatShortId(skillId),
+      at: null,
+      targetPage: "skills",
+      targetId: skillId,
+    });
+  }
+  for (const memoryId of detail.assigned_memories ?? []) {
+    events.push({
+      id: `memory-${memoryId}`,
+      kind: "memory",
+      label: formatShortId(memoryId),
+      at: null,
+      targetPage: "memories",
+      targetId: memoryId,
+    });
+  }
+  return events.sort((a, b) => {
+    const aTime = a.at ? new Date(a.at).getTime() : 0;
+    const bTime = b.at ? new Date(b.at).getTime() : 0;
+    return bTime - aTime;
+  });
+}
+
+function buildActivityCalendar(events: MemberActivity[]) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setDate(today.getDate() - 83);
+
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    if (!event.at) continue;
+    const date = new Date(event.at);
+    if (Number.isNaN(date.getTime())) continue;
+    date.setHours(0, 0, 0, 0);
+    if (date < start || date > today) continue;
+    const key = date.toISOString().slice(0, 10);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  return Array.from({ length: 12 }, (_, weekIndex) =>
+    Array.from({ length: 7 }, (_, dayIndex) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + weekIndex * 7 + dayIndex);
+      const key = date.toISOString().slice(0, 10);
+      return {
+        key,
+        label: date.toLocaleDateString(),
+        count: counts.get(key) ?? 0,
+      };
+    }),
+  );
+}
+
+function EmptyInline({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
+function LinkBadge({
+  id,
+  page,
+  label,
+  meta,
+  icon,
+}: {
+  id: string;
+  page: string;
+  label?: string;
+  meta?: string | null;
+  icon: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="inline-flex min-w-0 items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+      onClick={() => navigateTo(page, id)}
+      title={id}
+    >
+      {icon}
+      <span className="truncate">{label || formatShortId(id)}</span>
+      {meta && <span className="text-muted-foreground">{meta}</span>}
+      <ExternalLink className="h-3 w-3 text-muted-foreground" />
+    </button>
+  );
+}
+
+function ActivityHeatmap({ events }: { events: MemberActivity[] }) {
+  const weeks = useMemo(() => buildActivityCalendar(events), [events]);
+  const total = events.filter((event) => event.at).length;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Activity</span>
+        </div>
+        <span className="text-xs text-muted-foreground">{total} dated events</span>
+      </div>
+      <div className="overflow-x-auto">
+        <div className="grid w-max grid-flow-col grid-rows-7 gap-1">
+          {weeks.flat().map((day) => (
+            <span
+              key={day.key}
+              className={`h-3 w-3 rounded-[3px] ${activityTone(day.count)}`}
+              title={`${day.label}: ${day.count}`}
+              aria-label={`${day.label}: ${day.count} activities`}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MemberDetailSurface({
+  selectedId,
+  detail,
+  profile,
+  tasks,
+  departments,
+  detailError,
+  tasksLoading,
+  onClose,
+  onDelete,
+  onAssignSkill,
+  availableSkills,
+}: {
+  selectedId: string | null;
+  detail: MemberDetail | null;
+  profile: MemberProfileView | null;
+  tasks: TaskSummary[];
+  departments: DepartmentSummary[];
+  detailError: string | null;
+  tasksLoading: boolean;
+  onClose: () => void;
+  onDelete: () => void;
+  onAssignSkill: (skillName: string) => Promise<void>;
+  availableSkills: SkillSummary[];
+}) {
+  const [assignSkillName, setAssignSkillName] = useState("");
+  const [showAssignSkill, setShowAssignSkill] = useState(false);
+
+  useEffect(() => {
+    setAssignSkillName("");
+    setShowAssignSkill(false);
+  }, [selectedId]);
+
+  const deptName = useCallback((id: string | null) => {
+    if (!id) return "-";
+    const d = departments.find((dep) => dep.id === id);
+    return d ? d.name : formatShortId(id);
+  }, [departments]);
+
+  const events = useMemo(() => (detail ? buildActivityEvents(detail, tasks, profile) : []), [detail, profile, tasks]);
+  const doneTasks = profile?.stats.done_task_count ?? tasks.filter((task) => task.state === "done").length;
+  const activeTasks = profile?.stats.active_task_count ?? tasks.filter((task) => !["done", "failed", "cancelled"].includes(task.state)).length;
+  const lastDatedEvent = events.find((event) => event.at);
+  const doneRate = profile?.stats.done_rate != null
+    ? `${Math.round(profile.stats.done_rate * 100)}%`
+    : tasks.length > 0 ? `${Math.round((doneTasks / tasks.length) * 100)}%` : "-";
+  const lastActivityAt = profile?.stats.last_activity_at ?? lastDatedEvent?.at ?? null;
+  const skillRecords = profile?.skills ?? [];
+  const memoryRecords = profile?.memories ?? [];
+  const projectRecords = profile?.projects ?? [];
+  const capabilityChanges = profile?.capability_changes ?? [];
+
+  async function handleAssignSkill() {
+    if (!assignSkillName.trim()) return;
+    await onAssignSkill(assignSkillName.trim());
+    setAssignSkillName("");
+    setShowAssignSkill(false);
+  }
+
+  return (
+    <Dialog open={Boolean(selectedId)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="block max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-6xl overflow-hidden p-0">
+        {detailError && (
+          <div className="space-y-4 p-6">
+            <DialogHeader>
+              <DialogTitle>Member Details</DialogTitle>
+              <DialogDescription>Member detail could not be loaded.</DialogDescription>
+            </DialogHeader>
+            <ErrorState message={detailError} />
+          </div>
+        )}
+
+        {!detail && !detailError && (
+          <div className="space-y-4 p-6">
+            <DialogHeader>
+              <DialogTitle>Member Details</DialogTitle>
+              <DialogDescription>Loading member detail.</DialogDescription>
+            </DialogHeader>
+            <LoadingState />
+          </div>
+        )}
+
+        {detail && (
+          <div className="flex max-h-[calc(100vh-2rem)] flex-col">
+            <div className="border-b px-6 py-5">
+              <DialogHeader>
+                <DialogTitle className="flex flex-wrap items-center gap-3 text-xl">
+                  <span>{detail.display_name}</span>
+                  <Badge variant={detail.is_archived ? "secondary" : "success"}>
+                    {detail.is_archived ? "archived" : "active"}
+                  </Badge>
+                  <Badge variant="secondary">{detail.kind}</Badge>
+                </DialogTitle>
+                <DialogDescription>
+                  {detail.role || "Member"} in {deptName(detail.department_id)}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <Status label="Active Tasks" value={activeTasks} tone={activeTasks > 0 ? "warn" : undefined} />
+                <Status label="Done Rate" value={doneRate} tone={doneTasks > 0 ? "ok" : undefined} />
+                <Status label="Skills" value={profile?.stats.skill_count ?? detail.base_skill_set?.length ?? 0} />
+                <Status label="Memories" value={profile?.stats.memory_count ?? detail.assigned_memories?.length ?? 0} />
+                <Status label="Last Activity" value={lastActivityAt ? formatDate(lastActivityAt) : "-"} />
+              </div>
+            </div>
+
+            <div className="overflow-y-auto px-6 py-5">
+              <Tabs defaultValue="overview" className="space-y-5">
+                <TabsList className="flex h-auto flex-wrap justify-start">
+                  <TabsTrigger value="overview">Overview</TabsTrigger>
+                  <TabsTrigger value="knowledge">Knowledge & Skills</TabsTrigger>
+                  <TabsTrigger value="work">Work</TabsTrigger>
+                  <TabsTrigger value="changes">Change Log</TabsTrigger>
+                  <TabsTrigger value="profile">Profile</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="overview" className="space-y-5">
+                  <ActivityHeatmap events={events} />
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Timeline</span>
+                    </div>
+                    {events.length === 0 ? (
+                      <EmptyInline>No activity recorded</EmptyInline>
+                    ) : (
+                      <div className="divide-y rounded-md border">
+                        {events.slice(0, 12).map((event) => (
+                          <div key={event.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="secondary">{event.kind}</Badge>
+                                <span className="truncate font-medium">{event.label}</span>
+                              </div>
+                              <p className="mt-1 text-xs text-muted-foreground">{formatDate(event.at)}</p>
+                            </div>
+                            {event.targetPage && event.targetId && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => navigateTo(event.targetPage!, event.targetId!)}
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="knowledge" className="space-y-5">
+                  <section className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Wrench className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Skills</span>
+                    </div>
+                    {skillRecords.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {skillRecords.map((skill) => (
+                          <LinkBadge
+                            key={skill.id}
+                            id={skill.id}
+                            page="skills"
+                            label={skill.name}
+                            meta={skill.version}
+                            icon={<Wrench className="h-3 w-3" />}
+                          />
+                        ))}
+                      </div>
+                    ) : detail.base_skill_set?.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {detail.base_skill_set.map((skillId) => (
+                          <LinkBadge key={skillId} id={skillId} page="skills" icon={<Wrench className="h-3 w-3" />} />
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyInline>No skills assigned</EmptyInline>
+                    )}
+                  </section>
+
+                  <section className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Brain className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Memories</span>
+                    </div>
+                    {memoryRecords.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {memoryRecords.map((memory) => (
+                          <LinkBadge
+                            key={memory.id}
+                            id={memory.id}
+                            page="memories"
+                            label={memory.title}
+                            meta={memory.lifecycle_state}
+                            icon={<Brain className="h-3 w-3" />}
+                          />
+                        ))}
+                      </div>
+                    ) : detail.assigned_memories?.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {detail.assigned_memories.map((memoryId) => (
+                          <LinkBadge key={memoryId} id={memoryId} page="memories" icon={<Brain className="h-3 w-3" />} />
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyInline>No memories assigned</EmptyInline>
+                    )}
+                  </section>
+
+                  <div className="flex flex-wrap items-center gap-2 border-t pt-4">
+                    {showAssignSkill ? (
+                      <>
+                        <ComboInput
+                          value={assignSkillName}
+                          onChange={setAssignSkillName}
+                          options={availableSkills.map((skill) => ({
+                            value: skill.name,
+                            label: `${skill.name} (${skill.version})`,
+                          }))}
+                          placeholder="Select or type skill name"
+                          className="w-64"
+                        />
+                        <Button variant="recommended" disabled={!assignSkillName.trim()} onClick={handleAssignSkill}>
+                          <Wrench className="h-4 w-4" />
+                          Confirm
+                        </Button>
+                        <Button variant="outline" onClick={() => { setShowAssignSkill(false); setAssignSkillName(""); }}>
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <Button variant="outline" onClick={() => setShowAssignSkill(true)}>
+                        <Wrench className="h-4 w-4" />
+                        Assign Skill
+                      </Button>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="work" className="space-y-5">
+                  <section className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <ListTodo className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">Tasks</span>
+                      </div>
+                      {tasksLoading && <span className="text-xs text-muted-foreground">Loading</span>}
+                    </div>
+                    {tasks.length ? (
+                      <div className="divide-y rounded-md border">
+                        {tasks.map((task) => (
+                          <button
+                            key={task.id}
+                            type="button"
+                            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
+                            onClick={() => navigateTo("tasks", task.id)}
+                          >
+                            <span className="min-w-0 truncate font-medium">{task.title}</span>
+                            <span className="flex shrink-0 items-center gap-2">
+                              <Badge variant={statusVariant(task.state)}>{task.state}</Badge>
+                              <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyInline>No task records</EmptyInline>
+                    )}
+                  </section>
+
+                  <section className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Archive className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Projects</span>
+                    </div>
+                    {projectRecords.length ? (
+                      <div className="divide-y rounded-md border">
+                        {projectRecords.map((project) => (
+                          <button
+                            key={project.id}
+                            type="button"
+                            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
+                            onClick={() => navigateTo("projects", project.id)}
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">{project.name}</span>
+                              <span className="block text-xs text-muted-foreground">{project.role || "contributor"}</span>
+                            </span>
+                            <span className="flex shrink-0 items-center gap-2">
+                              {project.status && <Badge variant="secondary">{project.status}</Badge>}
+                              <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyInline>No linked project records</EmptyInline>
+                    )}
+                  </section>
+                </TabsContent>
+
+                <TabsContent value="changes" className="space-y-5">
+                  <section className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Activity className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Capability Changes</span>
+                    </div>
+                    {capabilityChanges.length ? (
+                      <div className="divide-y rounded-md border">
+                        {capabilityChanges.map((change) => (
+                          <div key={change.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                            <div className="min-w-0">
+                              <Badge variant="secondary">{change.kind}</Badge>
+                              <span className="ml-2 font-medium">{change.label}</span>
+                              <p className="mt-1 text-xs text-muted-foreground">{formatDate(change.occurred_at)}</p>
+                            </div>
+                            {pageForTarget(change.target_kind) && (
+                              <Button variant="outline" size="sm" onClick={() => navigateTo(pageForTarget(change.target_kind)!, change.target_id)}>
+                                <ExternalLink className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyInline>No capability changes recorded</EmptyInline>
+                    )}
+                  </section>
+                </TabsContent>
+
+                <TabsContent value="profile" className="space-y-5">
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <Definition label="Display Name" value={detail.display_name} />
+                    <Definition label="Kind" value={detail.kind} />
+                    <Definition label="Role" value={detail.role} />
+                    <Definition label="Department" value={deptName(detail.department_id)} />
+                    <Definition label="Concurrency Limit" value={detail.concurrency_limit} />
+                    <Definition label="Archived" value={detail.is_archived ? "Yes" : "No"} />
+                    <Definition label="Created" value={detail.created_at} />
+                    <Definition label="Member ID" value={detail.id} />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 border-t pt-4">
+                    <Button variant="outline" onClick={onDelete} className="border-destructive text-destructive">
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function MemberPage({ selectedId }: { selectedId: string | null }) {
+  const [members, setMembers] = useState<MemberSummary[]>([]);
+  const [departments, setDepartments] = useState<DepartmentSummary[]>([]);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [detail, setDetail] = useState<MemberDetail | null>(null);
+  const [memberProfile, setMemberProfile] = useState<MemberProfileView | null>(null);
+  const [memberTasks, setMemberTasks] = useState<TaskSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  const [formDisplayName, setFormDisplayName] = useState("");
+  const [formKind, setFormKind] = useState("ai");
+  const [formDepartmentId, setFormDepartmentId] = useState("");
+  const [formRole, setFormRole] = useState("");
+  const [formSkills, setFormSkills] = useState("");
+  const [search, setSearch] = useState("");
+  const [filterKind, setFilterKind] = useState("");
+  const [filterDepartment, setFilterDepartment] = useState("");
+  const [filterArchived, setFilterArchived] = useState("active");
+
+  const deptName = useCallback((id: string | null) => {
+    if (!id) return "-";
+    const d = departments.find((dep) => dep.id === id);
+    return d ? d.name : formatShortId(id);
+  }, [departments]);
+
+  const filteredMembers = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    return members.filter((member) => {
+      const matchesSearch = !normalizedSearch
+        || member.display_name.toLowerCase().includes(normalizedSearch)
+        || member.id.toLowerCase().includes(normalizedSearch);
+      const matchesKind = !filterKind || member.kind === filterKind;
+      const matchesDepartment = !filterDepartment || member.department_id === filterDepartment;
+      const matchesArchived =
+        filterArchived === "all"
+        || (filterArchived === "active" && !member.is_archived)
+        || (filterArchived === "archived" && member.is_archived);
+      return matchesSearch && matchesKind && matchesDepartment && matchesArchived;
+    });
+  }, [filterArchived, filterDepartment, filterKind, members, search]);
+
+  const activeCount = members.filter((member) => !member.is_archived).length;
+  const archivedCount = members.length - activeCount;
+  const aiCount = members.filter((member) => member.kind === "ai").length;
+
+  const columns: Column<MemberSummary>[] = [
+    {
+      key: "display_name",
+      label: "Name",
+      render: (r) => (
+        <div className="flex min-w-0 items-center gap-2">
+          <UserRound className="h-4 w-4 text-muted-foreground" />
+          <span className="truncate font-medium">{r.display_name}</span>
+        </div>
+      ),
+    },
+    { key: "kind", label: "Kind", render: (r) => <Badge variant="secondary">{r.kind}</Badge> },
+    { key: "department_id", label: "Department", render: (r) => deptName(r.department_id) },
+    { key: "concurrency_limit", label: "Concurrency" },
+    { key: "is_archived", label: "State", render: (r) => <Badge variant={r.is_archived ? "secondary" : "success"}>{r.is_archived ? "archived" : "active"}</Badge> },
+    { key: "created_at", label: "Created", render: (r) => formatDate(r.created_at) },
+  ];
+
+  const loadList = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [m, d, s] = await Promise.all([
+        listMembers({ limit: 100 }),
+        listDepartments(0, 100),
+        listSkills({ limit: 100 }),
+      ]);
+      setMembers(m);
+      setDepartments(d);
+      setSkills(s);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadDetail = useCallback(async (id: string) => {
+    setDetail(null);
+    setMemberProfile(null);
+    setMemberTasks([]);
+    setDetailError(null);
+    setTasksLoading(true);
+    try {
+      const profile = await getMemberProfileView(id);
+      setMemberProfile(profile);
+      setDetail(profile.member);
+      setMemberTasks(profile.tasks);
+    } catch {
+      try {
+        const [nextDetail, tasks] = await Promise.all([
+          getMemberDetail(id),
+          listTasks({ assigned_member_id: id, limit: 100 }),
+        ]);
+        setDetail(nextDetail);
+        setMemberTasks(tasks);
+      } catch (err) {
+        setDetail(null);
+        setMemberProfile(null);
+        setMemberTasks([]);
+        setDetailError(err instanceof Error ? err.message : "Failed to load member detail");
+      }
+    } finally {
+      setTasksLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadList(); }, [loadList]);
+  useEffect(() => {
+    if (selectedId) {
+      loadDetail(selectedId);
+    } else {
+      setDetail(null);
+      setMemberProfile(null);
+      setMemberTasks([]);
+      setDetailError(null);
+    }
+  }, [selectedId, loadDetail]);
+
+  function handleSelect(row: MemberSummary) {
+    navigateTo("members", row.id);
+  }
+
+  const { toast } = useToast();
+
+  async function handleDelete() {
+    if (!detail) return;
+    if (!confirm(`Delete member "${detail.display_name}"? This cannot be undone.`)) return;
+    try {
+      await deleteMember(detail.id);
+      setDetail(null);
+      navigateTo("members");
+      toast({ title: "Member deleted" });
+      await loadList();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    }
+  }
+
+  async function handleCreate() {
+    if (!formDisplayName.trim() || !formDepartmentId) return;
+    const dept = departments.find((d) => d.name === formDepartmentId || d.id === formDepartmentId);
+    if (!dept) {
+      setError("Department not found");
+      return;
+    }
+    try {
+      const skills = formSkills.split(",").map((s) => s.trim()).filter(Boolean);
+      const created = await createMember({
+        kind: formKind,
+        display_name: formDisplayName.trim(),
+        department_id: dept.id,
+        role: formRole.trim() || undefined,
+        base_skill_set: skills.length > 0 ? skills : undefined,
+      });
+      setShowCreate(false);
+      setFormDisplayName("");
+      setFormDepartmentId("");
+      setFormRole("");
+      setFormSkills("");
+      await loadList();
+      navigateTo("members", created.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Create failed");
+    }
+  }
+
+  async function handleAssignSkill(skillName: string) {
+    if (!detail) return;
+    try {
+      await assignSkillToMember(detail.id, skillName);
+      await loadDetail(detail.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Assign skill failed");
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <Panel title="Members">
+        <div className="mb-4 flex flex-wrap items-center gap-4">
+          <Status label="Active" value={activeCount} tone={activeCount > 0 ? "ok" : undefined} />
+          <Status label="Archived" value={archivedCount} />
+          <Status label="AI" value={aiCount} />
+          <Status label="Visible" value={filteredMembers.length} />
+        </div>
+
+        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_10rem_12rem_10rem_auto]">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search members"
+          />
+          <Select value={filterKind} onChange={(e) => setFilterKind(e.target.value)}>
+            <option value="">All Kinds</option>
+            <option value="ai">AI</option>
+            <option value="human">Human</option>
+          </Select>
+          <Select value={filterDepartment} onChange={(e) => setFilterDepartment(e.target.value)}>
+            <option value="">All Departments</option>
+            {departments.map((department) => (
+              <option key={department.id} value={department.id}>{department.name}</option>
+            ))}
+          </Select>
+          <Select value={filterArchived} onChange={(e) => setFilterArchived(e.target.value)}>
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+            <option value="all">All States</option>
+          </Select>
+          <Button variant="recommended" onClick={() => setShowCreate(!showCreate)}>
+            {showCreate ? (
+              "Cancel"
+            ) : (
+              <>
+                <Plus className="h-4 w-4" />
+                Create Member
+              </>
+            )}
+          </Button>
+        </div>
+
+        {error && <ErrorState message={error} />}
+
+        {showCreate && (
+          <div className="mb-4 grid gap-4 rounded-md border p-4 lg:grid-cols-2">
+            <FormField label="Display Name">
+              <Input value={formDisplayName} onChange={(e) => setFormDisplayName(e.target.value)} placeholder="Alice" />
+            </FormField>
+            <FormField label="Kind">
+              <Select value={formKind} onChange={(e) => setFormKind(e.target.value)}>
+                <option value="ai">AI</option>
+                <option value="human">Human</option>
+              </Select>
+            </FormField>
+            <FormField label="Department *">
+              <ComboInput
+                value={formDepartmentId}
+                onChange={setFormDepartmentId}
+                options={departments.map((d) => ({ value: d.name, label: d.name }))}
+                placeholder="Select or type department name"
+              />
+            </FormField>
+            <FormField label="Role">
+              <Input value={formRole} onChange={(e) => setFormRole(e.target.value)} placeholder="developer" />
+            </FormField>
+            <FormField label="Base Skills" wide>
+              <Input value={formSkills} onChange={(e) => setFormSkills(e.target.value)} placeholder="python, testing" />
+            </FormField>
+            <div className="col-span-full flex items-center gap-2">
+              <Button variant="recommended" disabled={!formDisplayName.trim() || !formDepartmentId} onClick={handleCreate}>
+                <Plus className="h-4 w-4" />
+                Create
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <DataTable data={filteredMembers} columns={columns} selectedId={selectedId ?? undefined} onSelect={handleSelect} />
+        )}
+      </Panel>
+
+      <MemberDetailSurface
+        selectedId={selectedId}
+        detail={detail}
+        profile={memberProfile}
+        tasks={memberTasks}
+        departments={departments}
+        detailError={detailError}
+        tasksLoading={tasksLoading}
+        onClose={() => navigateTo("members")}
+        onDelete={handleDelete}
+        onAssignSkill={handleAssignSkill}
+        availableSkills={skills}
+      />
+    </div>
+  );
+}
