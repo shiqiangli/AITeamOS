@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import "./styles.css";
+import "./styles/globals.css";
 import { App } from "./state/App";
 
 export { App };

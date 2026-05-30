@@ -1,8 +1,9 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 
-const apiProxyTarget = process.env.AITEAMOS_API_PROXY_TARGET ?? "http://127.0.0.1:8765";
+const apiProxyTarget = process.env.AITEAMOS_API_PROXY_TARGET ?? "http://127.0.0.1:8000";
 const httpsKey = process.env.AITEAMOS_DASHBOARD_HTTPS_KEY;
 const httpsCert = process.env.AITEAMOS_DASHBOARD_HTTPS_CERT;
 
@@ -21,11 +22,21 @@ function dashboardHttpsConfig() {
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  test: {
+    environment: "jsdom",
+    include: ["src/__tests__/**/*.test.{ts,tsx}"],
+    exclude: ["e2e/**"],
+  },
   server: {
     https: dashboardHttpsConfig(),
     proxy: {
-      "/session": apiProxyTarget,
-      "/workspaces": apiProxyTarget
+      "/api": apiProxyTarget,
+      "/health": apiProxyTarget,
     }
   }
 });

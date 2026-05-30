@@ -1,3 +1,6 @@
-from .app import create_app
+"""
+AITeamOS API Gateway.
 
-__all__ = ["create_app"]
+Unified REST API entry point with CQRS read/write route separation,
+authentication middleware, and dependency injection composition root.
+"""

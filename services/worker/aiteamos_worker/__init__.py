@@ -1,6 +1,4 @@
-from .runner import run_worker_once, worker_process_result
+"""AITeamOS Worker — 后台 Worker 进程。
 
-__all__ = [
-    "run_worker_once",
-    "worker_process_result",
-]
+负责 Outbox Relay（事件投递到 Kafka）和投影消费。
+"""

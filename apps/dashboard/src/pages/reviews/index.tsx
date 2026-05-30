@@ -1,3 +1,579 @@
-// @ts-nocheck
-import{useState,useEffect}from"react";
-import{jsx as o,jsxs as i}from"react/jsx-runtime";import*as $ from"../../components/shared";const{ACTIVE_OPERATION_RUN_STATUSES:ne,AssignmentDetailWorkflowPanel:re,AssignmentPermissionOutcomePanel:ae,AutomationPermissionOutcomePanel:ie,AutomationPermissionOutcomeTable:se,AutomationRunTable:ce,AutomationScheduleProjectionPanel:le,AutomationScheduleProjectionTable:de,ConnectorEscalationProjectionPanel:me,ConnectorIncidentDetailPanel:ue,ConnectorIncidentFollowThroughTable:Re,ConnectorOperationsOpenTable:pe,ConnectorOperationsProjectionPanel:be,ConnectorRemediationProjectionPanel:ve,ConnectorRemediationRunProjectionPanel:J,ConnectorRemediationRunTable:we,ConnectorRemediationSuggestionTable:fe,ConnectorRemediationTaskPlanProjectionPanel:Q,ConnectorRemediationTaskPlanTable:Pe,ConnectorRemediationTaskProjectionPanel:X,ConnectorRemediationTaskTable:Me,ContextManifestExplorerPanel:he,ContextSourceDetailPanel:ge,CostModelPanel:ye,DASHBOARD_API_BASE_STORAGE_KEY:Se,DASHBOARD_API_TOKEN_STORAGE_KEY:ke,DASHBOARD_COOKIE_SESSION_STORAGE_KEY:Ae,DASHBOARD_CSRF_TOKEN_STORAGE_KEY:Ce,DASHBOARD_LOCALE_STORAGE_KEY:De,DashboardI18nContext:Te,Definition:Ee,Detail:Z,GroupedRows:Fe,JsonPreview:je,ManagerPlanRecommendationsPanel:Ie,ManifestTable:f,MemberGrowthProjectionPanel:Oe,Panel:l,PermissionGrantTable:xe,PermissionProjectionPanel:Ne,PermissionRequestTable:_e,ResourcePage:qe,RetrospectiveSuggestionReviewPanel:Le,RunContextMemoryPanel:Be,RunWorkerAuthorizationPanel:Ke,RunWorkerAuthorizationTable:Ge,RunWorkerReadinessPanel:He,SessionProjectionStrip:Ue,Status:d,TEAM_EXECUTION_TARGET_TYPES:We,WorkspaceOperationsPanel:Ve,appendViewerMember:ze,arrayRecords:Ye,assignmentMember:$e,assignmentProject:Je,assignmentWorkMatchesSkill:Qe,automationFocusFromProjection:Xe,automationMemberRole:Ze,automationNextControlPlaneAction:eo,automationRunMatchesMember:oo,automationScheduleHealth:to,automationScheduleMatchesScope:no,automationScheduleMemberRefs:ro,automationScheduleProjectionRows:ao,canonicalDashboardPath:io,collaborationRecordMatchesMember:so,collectDecisionAuditRecords:co,connectorEscalationRecordMatchesScope:lo,connectorEscalationReviewRequests:mo,connectorEscalationRows:uo,connectorIdFromRecord:Ro,connectorIdsFromRecord:po,connectorIdsInWorkspace:bo,connectorOperationRecordMatchesScope:vo,connectorOperationsRows:wo,connectorOperationsSummary:fo,connectorRemediationRecordMatchesScope:Po,connectorRemediationRows:Mo,connectorRemediationRunRecordMatchesScope:ho,connectorRemediationRunRows:ee,connectorRemediationTaskPlanRecordMatchesScope:go,connectorRemediationTaskPlanRows:oe,connectorRemediationTaskRecordMatchesScope:yo,connectorRemediationTaskRows:te,contextExclusionCategory:So,contextManifestBucketsForSource:ko,contextManifestBudgetPolicyRows:Ao,contextManifestExclusionRows:Co,contextManifestMemoryRows:Do,contextManifestObjectRows:To,contextManifestPriorityRows:Eo,contextManifestRawSourceForDecision:Fo,contextManifestSourceDecisionRows:jo,contextManifestSourceDetailRecord:Io,contextManifestSourceMatchesDecision:Oo,contextManifestSourceRef:xo,contextPreviewMentionsMemory:No,contextSourceLineLabel:_o,costAlertRows:qo,countByStatus:Lo,countRowsWithList:Bo,dashboardAuthStateFromStorage:Ko,dashboardAuthStateFromUrl:Go,dashboardFetch:K,dashboardHref:Ho,defaultAssignmentForMember:Uo,defaultAutomationActionDraft:Wo,defaultAutomationActorMember:Vo,defaultAutomationEventDraft:zo,defaultAutomationExecutorMember:Yo,defaultAutomationProviderDeliveryRetryDraft:$o,defaultAutomationRunExecutionDraft:Jo,defaultAutomationRunReviewReason:Qo,defaultAutomationSchedulerLeaseRecoverDraft:Xo,defaultAutomationSchedulerScanDraft:Zo,defaultAutomationTriggerType:et,defaultAutomationWebhookDraft:ot,defaultConnectorEscalationRoutingDraft:tt,defaultConnectorHealthDraft:nt,defaultConnectorReminderRoutingDraft:rt,defaultGovernanceActorId:at,defaultMemberByKind:it,defaultMemberManagementDraft:st,defaultMemoryHealthRemediationAction:ct,defaultPermissionGrantLifecycleDraft:lt,defaultPermissionReviewDraft:dt,defaultProductUserDraft:mt,defaultRetentionCleanupDraft:ut,defaultTeamExecutionApprovalGate:Rt,defaultTeamExecutionAutomationDraft:pt,defaultTeamExecutionTitle:bt,defaultWorkspaceRoute:vt,downloadBlob:wt,draftNumber:ft,emptyManifestRecord:Pt,endpointForDashboardAuth:Mt,endpointForDashboardBackend:ht,endpointForViewer:gt,evalResultRecencyKey:yt,filenameFromDisposition:St,filterByLifecycle:kt,findMemoryResource:At,firstDeniedPermissionCanonical:Ct,firstDeniedPermissionDecisionCanonical:Dt,firstString:Tt,formatDashboardColumnLabel:Et,formatPercentRatio:Ft,formatValue:jt,gateCheckRecords:It,gitActivityCorrelationGroupMatchesMember:Ot,gitActivityCorrelationGroups:xt,gitActivityCorrelationPromotionCandidateMatchesMember:Nt,gitActivityCorrelationPromotionCandidateRecords:_t,gitActivityCorrelationReviewMatchesMember:qt,gitActivityImportMatchesMember:Lt,gitActivityRetentionCandidateRecords:Bt,gitRetentionTriggerForPreset:Kt,governedViewerForFetch:Gt,groupRecordsByValue:Ht,growthPlanActionRows:Ut,isConnectorEscalationReviewRequest:G,isManagerMember:Wt,isRecord:Vt,isRecoverableSchedulerLease:zt,isRedactedRecord:Yt,isRetryableProviderDelivery:$t,isSameOriginDashboardEndpoint:Jt,knowledgeHealthSummary:Qt,latestAuditSummary:Xt,latestEvalResultForSuite:Zt,latestManifestRecord:en,latestRiskLevel:on,managerPlanRecommendationRows:tn,manifestRecencyKey:nn,memberCapabilityTokens:rn,memberCreatePayloadFromDraft:an,memberGrowthItems:sn,memberManagementDraftFromRecord:cn,memberMatchesAutomationTarget:ln,memberSkillRefs:dn,memberUpdatePayloadFromDraft:mn,memoryEntryMatchesAssignment:un,memoryEntryMatchesMember:Rn,memoryEntryMatchesProject:pn,memoryHealthIssueMatchesScope:bn,memoryHealthIssueRecords:vn,memoryRecordsForScope:wn,memoryResourceMatchesAssignment:fn,memoryResourceMatchesMember:Pn,memoryResourceMatchesProject:Mn,memoryResourceMatchesScope:hn,memoryStoreMatchesMember:gn,memoryStoreMatchesProject:yn,metric:Sn,modelCostRows:kn,normalizeAttachedManifestId:An,normalizeDashboardApiBaseUrl:Cn,normalizeMemberKind:Dn,normalizeMemberStatus:Tn,normalizeSkillToken:En,numberPrompt:Fn,numericPath:jn,parseCsv:In,parseDashboardAuthState:On,parseJsonDraft:xn,parsePage:Nn,permissionActionCanonical:_n,permissionDecisionRequiresApproval:qn,permissionOverviewRecords:Ln,permissionPoliciesForAutomationTarget:Bn,planRecommendationProjectionRecord:Kn,projectEvalStatusRows:Gn,providerDeliveryDecisionAuditRows:Hn,providerDeliveryRetryAttemptRows:Un,providerDeliveryRetryHeaderSummary:Wn,providerDeliveryRetryHeaders:Vn,readDashboardApiBaseUrl:zn,readDashboardApiToken:Yn,readDashboardCookieSessionConfigured:$n,readDashboardCsrfToken:Jn,readDashboardLocale:Qn,readDashboardRoute:Xn,readHealthIssueField:Zn,readPath:H,readProjection:er,readSpec:a,readStoredDashboardApiToken:or,readStoredDashboardCookieSessionConfigured:tr,recommendationRecipients:nr,recordMatchesAssignment:rr,recordMatchesConnector:ar,recordMatchesMember:ir,recordMatchesProject:sr,recordValue:cr,recoverableSchedulerLeases:lr,retrospectivePayloadFromDraft:dr,retrospectiveRecordMatchesMember:mr,retrospectiveSuggestionDraftFromRecord:ur,retrospectiveSuggestionRecords:Rr,retryableProviderDeliveries:pr,runMember:br,runProject:vr,runStatus:wr,sessionCanSelectViewer:fr,setActiveDashboardWorkspaceId:Pr,skillAssignmentFitRows:Mr,skillCapabilityMatches:hr,skillCapabilityTokens:gr,skillFitReasonsForAssignment:yr,skillFitReasonsForMember:Sr,skillFitReasonsForRun:kr,skillFitReasonsForTask:Ar,skillFitSignal:Cr,skillMatchesAssignment:Dr,skillMatchesMember:Tr,skillMatchesProject:Er,skillMatchesRun:Fr,skillMatchesScope:jr,skillMatchesTask:Ir,skillMemberFitRows:Or,skillProjectionManifestRecords:xr,skillProjectionRows:Nr,skillRelatedRunRows:_r,skillRelatedTaskRows:qr,skillTextMatchesFields:Lr,sourceForAutomationTriggerType:Br,splitMemberDraftList:Kr,splitRetrospectiveList:Gr,stringList:U,stringParam:Hr,stringValue:Ur,sumRecordMetric:Wr,taskMember:Vr,taskPlanCreatedByManager:zr,taskPlanExecutionSubtaskRows:Yr,taskPlanExecutionViewFor:$r,taskPlanIdsForRecommendationMessage:Jr,taskPlanSubtaskMatchKey:Qr,taskPlanSubtaskRows:Xr,taskProject:Zr,taskWorkMatchesSkill:ea,tasksLinkedToTaskPlan:oa,teamExecutionDisplayName:ta,teamExecutionMemberKinds:na,tokenMatches:ra,uniqueManifestRecords:aa,uniqueStrings:ia,useDashboardI18n:sa,viewerScopedEndpoints:ca,withDashboardAuth:la,wordsFromValue:da,workspaceManifestLoadFailureRows:ma,workspaceOperationRows:ua,workspaceRouteCandidates:Ra,writeDashboardApiBaseUrl:pa,writeDashboardApiToken:ba,writeDashboardCookieSessionConfigured:va,writeDashboardCsrfToken:wa,writeDashboardLocale:fa,writeDashboardRoute:Pa}=$;function Ma({data:n,onRefresh:u,selectedReviewId:W,onReviewSelect:p,onMemorySelect:T,viewerMemberId:P}){const R=n.memberMessages.filter(e=>a(e,"messageType")==="review-request"),m=R.filter(G),V=R.filter(e=>!G(e)),M=oe(n),h=te(n),b=ee(n),E=[...n.reviews,...n.memoryProposals,...R,...M,...h,...b],t=E.find(e=>e.id===W)??n.memoryProposals.find(e=>a(e,"status")==="pending-review")??E[0],v=t?.id,c=t?.kind==="MemoryProposal"&&a(t,"status")==="pending-review",g=t?.kind==="MemoryProposal"?String(a(t,"approvedMemory")??""):"",[F,y]=useState(""),[j,S]=useState(""),[I,k]=useState("");useEffect(()=>{if(!c){y(""),S(""),k("");return}y(P||String(a(t,"member")??"")||"frontend-human"),S("Approved from Reviews page"),k("Rejected from Reviews queue")},[t,c,P]);const z=c?P||String(a(t,"member")??"")||"frontend-human":"",A=F.trim()||z,w=c&&A.length>0;async function C(e,s){const r=await K(e,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(s??{})});return r.ok?await r.json():(window.alert(`Memory review operation failed: ${await r.text()}`),null)}async function O(e){await C(`/memory/proposals/${encodeURIComponent(e)}/repair`,{reason:"Repair evidence/confidence from Reviews page"})&&await u()}async function x(e){const s=await C(`/memory/proposals/${encodeURIComponent(e)}/approve`,{reviewerMember:A,reason:j.trim()||"Approved from Reviews page"});if(!s)return;const r=String(H(s,"memory.id")||H(s,"proposal.spec.approvedMemory")||"");await u(),r&&T(r)}async function N(e){await C(`/memory/proposals/${encodeURIComponent(e)}/reject`,{reviewerMember:A,reason:I.trim()||"Rejected from Reviews queue"})&&await u()}async function Y(){const e=m.find(D=>["open","acknowledged"].includes(String(a(D,"status")??""))),s=window.prompt("Connector review request id",e?.id??"");if(!s)return;const r=m.find(D=>D.id===s);if(!r){window.alert("Review request is not loaded in the current connector review projection.");return}const _=window.prompt("Resolving member",String(a(r,"toMembers.0")??a(r,"fromMember")??""));if(!_)return;const q=window.prompt("Resolution summary","Reviewed connector evidence, reminder trail, and follow-up needs.");if(!q)return;const L=window.prompt("Follow-up review notes","connector policy reviewed"),B=await K(`/connectors/operations/escalations/${encodeURIComponent(s)}/resolve`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({actorMember:_,resolution:q,evidenceReviewed:U(a(r,"audit.evidenceIds")),reminderMessagesReviewed:U(a(r,"audit.existingReminderMessages")),followUpReviewed:L?{notes:L}:{}})});B.ok||window.alert(`Connector review resolution failed: ${await B.text()}`),await u()}return i("div",{className:"grid two-wide-left",children:[i(l,{title:"Review Queue",children:[i("div",{className:"metric-grid",children:[o(d,{label:"Code Reviews",value:n.reviews.length}),o(d,{label:"Memory Proposals",value:n.memoryProposals.length,tone:n.memoryProposals.length?"warn":void 0}),o(d,{label:"Review Requests",value:R.length,tone:R.length?"warn":void 0}),o(d,{label:"Connector Reviews",value:m.length,tone:m.length?"warn":void 0}),o(d,{label:"Remediation Plans",value:M.length}),o(d,{label:"Remediation Tasks",value:h.length}),o(d,{label:"Remediation Runs",value:b.length,tone:b.some(e=>a(e,"nextControlPlaneAction")!=="none")?"warn":void 0})]}),o("button",{type:"button",onClick:Y,disabled:!m.length,children:"Resolve Connector Review Request"})]}),i(l,{title:"Selected Review",children:[o(Z,{record:t}),i("div",{className:"button-row top-gap",children:[o("button",{className:"recommended-action",disabled:!w||!t,onClick:()=>t&&void x(t.id),children:"Approve Proposal"}),o("button",{className:"secondary-action",disabled:!c||!t,onClick:()=>t&&void O(t.id),children:"Repair Proposal"}),o("button",{className:"secondary-action",disabled:!w||!t,onClick:()=>t&&void N(t.id),children:"Reject Proposal"}),o("button",{className:"secondary-action",disabled:!g,onClick:()=>g&&T(g),children:"Open Approved Memory"})]})]}),i(l,{title:"Memory Review Console",full:!0,children:[i("div",{className:"ingest-form",children:[i("label",{children:[o("span",{children:"Proposal For Review"}),o("input",{disabled:!0,value:c&&t?t.id:""})]}),i("label",{children:[o("span",{children:"Memory Reviewer Member"}),o("input",{disabled:!c,value:F,onChange:e=>y(e.target.value)})]}),i("label",{className:"wide",children:[o("span",{children:"Memory Approval Reason"}),o("input",{disabled:!c,value:j,onChange:e=>S(e.target.value)})]}),i("label",{className:"wide",children:[o("span",{children:"Memory Rejection Reason"}),o("input",{disabled:!c,value:I,onChange:e=>k(e.target.value)})]})]}),i("div",{className:"button-row top-gap",children:[o("button",{className:"recommended-action",disabled:!w||!t,onClick:()=>t&&void x(t.id),children:"Approve Proposal With Review"}),o("button",{className:"secondary-action",disabled:!c||!t,onClick:()=>t&&void O(t.id),children:"Repair Proposal"}),o("button",{className:"secondary-action",disabled:!w||!t,onClick:()=>t&&void N(t.id),children:"Reject Proposal With Review"})]})]}),o(l,{title:"Code Reviews",full:!0,children:o(f,{records:n.reviews,columns:["project","task","run","reviewer","reviewerKind","verdict"],selectedId:v,onSelect:e=>p(e.id)})}),o(l,{title:"Memory Review Queue",full:!0,children:o(f,{records:n.memoryProposals,columns:["project","member","assignment","sourceRun","kind","status","confidence"],selectedId:v,onSelect:e=>p(e.id)})}),o(l,{title:"Connector Failure Review Requests",full:!0,children:o(f,{records:m,columns:["project","fromMember","toMembers","status","priority","audit.connector","audit.evidenceIds","audit.existingReminderMessages"],selectedId:v,onSelect:e=>p(e.id)})}),o(Q,{title:"Connector Remediation TaskPlan Review Inputs",taskPlans:M}),o(X,{title:"Connector Remediation Task Launch Readiness",tasks:h}),o(J,{title:"Connector Remediation Run Follow-through",runs:b,onRequestPermission:e=>void requestConnectorRemediationRunPermission(e,u)}),o(l,{title:"Other Review Requests",full:!0,children:o(f,{records:V,columns:["project","fromMember","toMembers","status","priority","task","run","audit.reviewKind"],selectedId:v,onSelect:e=>p(e.id)})})]})}export{Ma as ReviewsPage};
+/**
+ * AITeamOS Dashboard — Review, Proposal & Conflict Management Page (plan.md §3.4)
+ *
+ * Deliverables:
+ * 1. Review list + pending queue
+ * 2. Memory proposal review queue
+ * 3. Conflict list + resolution workflow
+ */
+
+import { useEffect, useState, useCallback } from "react";
+import {
+  Panel,
+  DataTable,
+  Definition,
+  FormField,
+  Status,
+  LoadingState,
+  ErrorState,
+  navigateTo,
+  ComboInput,
+  type Column,
+} from "../../components/shared";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Select } from "../../components/ui/select";
+import { Textarea } from "../../components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
+import {
+  listPendingReviews,
+  createReview,
+  decideReview,
+  listUnresolvedConflicts,
+  reportConflict,
+  resolveConflict,
+  listPendingProposals,
+  listMembers,
+  listMemories,
+  type ReviewCaseSummary,
+  type ConflictCaseSummary,
+  type MemorySummary,
+  type MemberSummary,
+} from "../../api/client";
+
+// ─── Review columns ──────────────────────────────────────────────────────────
+
+const reviewColumns: Column<ReviewCaseSummary>[] = [
+  { key: "target_kind", label: "Target Kind" },
+  
+  { key: "verdict", label: "Verdict", render: (r) => r.verdict ?? "pending" },
+  { key: "reason", label: "Reason", render: (r) => r.reason ?? "—" },
+  {
+    key: "decision_at",
+    label: "Decided",
+    render: (r) => (r.decision_at ? new Date(r.decision_at).toLocaleDateString() : "—"),
+  },
+];
+
+// ─── Conflict columns ────────────────────────────────────────────────────────
+
+const conflictColumns: Column<ConflictCaseSummary>[] = [
+  { key: "memory_a_id", label: "Memory A" },
+  { key: "memory_b_id", label: "Memory B" },
+  { key: "conflict_kind", label: "Kind" },
+  { key: "detected_by", label: "Detector" },
+  {
+    key: "resolution",
+    label: "Resolution",
+    render: (r) => r.resolution ?? "unresolved",
+  },
+];
+
+// ─── Proposal columns ──────────────────────────────────────────────────────────
+
+const proposalColumns: Column<MemorySummary>[] = [
+  { key: "title", label: "Title", render: (r) => r.title.length > 60 ? r.title.slice(0, 60) + "..." : r.title },
+  { key: "tier", label: "Tier" },
+  { key: "confidence_value", label: "Confidence", render: (r) => r.confidence_value.toFixed(2) },
+  { key: "scope_kind", label: "Scope" },
+  {
+    key: "created_at",
+    label: "Created",
+    render: (r) => (r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"),
+  },
+];
+
+// ─── Verdict badge tone helper ───────────────────────────────────────────────
+
+function verdictTone(verdict: string | null): "ok" | "warn" | undefined {
+  if (!verdict) return undefined;
+  if (verdict === "approve" || verdict === "merge") return "ok";
+  if (verdict === "reject") return "warn";
+  return undefined;
+}
+
+// ─── Review Page ─────────────────────────────────────────────────────────────
+
+export function ReviewPage({ selectedId }: { selectedId: string | null }) {
+  const [tab, setTab] = useState<string>("reviews");
+
+  // ── Review state ──
+  const [reviews, setReviews] = useState<ReviewCaseSummary[]>([]);
+  const [selectedReview, setSelectedReview] = useState<ReviewCaseSummary | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(true);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [showCreateReview, setShowCreateReview] = useState(false);
+  const [members, setMembers] = useState<MemberSummary[]>([]);
+  const [memories, setMemories] = useState<MemorySummary[]>([]);
+
+  // Create review form
+  const [formTargetKind, setFormTargetKind] = useState("memory_candidate");
+  const [formTargetId, setFormTargetId] = useState("");
+  const [formReviewerId, setFormReviewerId] = useState("");
+
+  // Decide review form
+  const [decideVerdict, setDecideVerdict] = useState("approve");
+  const [decideReason, setDecideReason] = useState("");
+  const [decideCorrection, setDecideCorrection] = useState("");
+
+  // ── Conflict state ──
+  const [conflicts, setConflicts] = useState<ConflictCaseSummary[]>([]);
+  const [selectedConflict, setSelectedConflict] = useState<ConflictCaseSummary | null>(null);
+  const [conflictLoading, setConflictLoading] = useState(true);
+  const [conflictError, setConflictError] = useState<string | null>(null);
+  const [showReportConflict, setShowReportConflict] = useState(false);
+
+  // Report conflict form
+  const [formMemA, setFormMemA] = useState("");
+  const [formMemB, setFormMemB] = useState("");
+  const [formConflictKind, setFormConflictKind] = useState("semantic");
+  const [formDetectedBy, setFormDetectedBy] = useState("embedding_similarity");
+
+  // Resolve conflict form
+  const [resolveKind, setResolveKind] = useState("keep_a");
+  const [resolveWinner, setResolveWinner] = useState("");
+  const [resolveBy, setResolveBy] = useState("");
+
+  // ── Proposal state ──
+  const [proposals, setProposals] = useState<MemorySummary[]>([]);
+  const [selectedProposal, setSelectedProposal] = useState<MemorySummary | null>(null);
+  const [proposalLoading, setProposalLoading] = useState(true);
+  const [proposalError, setProposalError] = useState<string | null>(null);
+
+  // ── Loaders ──
+
+  const loadReviews = useCallback(async () => {
+    setReviewLoading(true);
+    setReviewError(null);
+    try {
+      const [r, m, mem] = await Promise.all([
+        listPendingReviews(),
+        listMembers({ limit: 100 }),
+        listMemories({ limit: 100 }),
+      ]);
+      setReviews(r);
+      setMembers(m);
+      setMemories(mem);
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : "Failed to load reviews");
+    } finally {
+      setReviewLoading(false);
+    }
+  }, []);
+
+  const loadConflicts = useCallback(async () => {
+    setConflictLoading(true);
+    setConflictError(null);
+    try {
+      setConflicts(await listUnresolvedConflicts());
+    } catch (err) {
+      setConflictError(err instanceof Error ? err.message : "Failed to load conflicts");
+    } finally {
+      setConflictLoading(false);
+    }
+  }, []);
+
+  const loadProposals = useCallback(async () => {
+    setProposalLoading(true);
+    setProposalError(null);
+    try {
+      setProposals(await listPendingProposals());
+    } catch (err) {
+      setProposalError(err instanceof Error ? err.message : "Failed to load proposals");
+    } finally {
+      setProposalLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "reviews") loadReviews();
+    else if (tab === "conflicts") loadConflicts();
+    else loadProposals();
+  }, [tab, loadReviews, loadConflicts, loadProposals]);
+
+  useEffect(() => {
+    if (selectedId && tab === "reviews") {
+      const found = reviews.find((r) => r.id === selectedId);
+      if (found) setSelectedReview(found);
+    }
+  }, [selectedId, tab, reviews]);
+
+  // ── Review handlers ──
+
+  async function handleCreateReview() {
+    if (!formTargetId.trim() || !formReviewerId.trim()) return;
+    const mem = members.find((m) => m.display_name === formReviewerId || m.id === formReviewerId);
+    if (!mem) {
+      setReviewError("Reviewer not found");
+      return;
+    }
+    // Look up target: could be memory title or UUID
+    const memTarget = memories.find((m) => m.title === formTargetId || m.id === formTargetId);
+    const targetId = memTarget ? memTarget.id : formTargetId.trim();
+    try {
+      const created = await createReview({
+        target_kind: formTargetKind,
+        target_id: targetId,
+        reviewer_member_id: mem.id,
+      });
+      setShowCreateReview(false);
+      setFormTargetId("");
+      setFormReviewerId("");
+      await loadReviews();
+      setSelectedReview(created);
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : "Create review failed");
+    }
+  }
+
+  async function handleDecideReview() {
+    if (!selectedReview) return;
+    try {
+      const decided = await decideReview(selectedReview.id, {
+        verdict: decideVerdict,
+        reason: decideReason.trim() || undefined,
+        correction: decideCorrection.trim() || undefined,
+      });
+      setSelectedReview(decided);
+      setDecideReason("");
+      setDecideCorrection("");
+      await loadReviews();
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : "Decide review failed");
+    }
+  }
+
+  // ── Conflict handlers ──
+
+  async function handleReportConflict() {
+    if (!formMemA.trim() || !formMemB.trim()) return;
+    const memA = memories.find((m) => m.title === formMemA || m.id === formMemA);
+    const memB = memories.find((m) => m.title === formMemB || m.id === formMemB);
+    if (!memA || !memB) {
+      setConflictError("Memory not found");
+      return;
+    }
+    try {
+      const created = await reportConflict({
+        memory_a_id: memA.id,
+        memory_b_id: memB.id,
+        conflict_kind: formConflictKind,
+        detected_by: formDetectedBy,
+      });
+      setShowReportConflict(false);
+      setFormMemA("");
+      setFormMemB("");
+      await loadConflicts();
+      setSelectedConflict(created);
+    } catch (err) {
+      setConflictError(err instanceof Error ? err.message : "Report conflict failed");
+    }
+  }
+
+  async function handleResolveConflict() {
+    if (!selectedConflict || !resolveBy.trim()) return;
+    const resolver = members.find((m) => m.display_name === resolveBy || m.id === resolveBy);
+    if (!resolver) {
+      setConflictError("Resolver not found");
+      return;
+    }
+    const winnerMem = resolveWinner ? memories.find((m) => m.title === resolveWinner || m.id === resolveWinner) : null;
+    try {
+      const resolved = await resolveConflict(selectedConflict.id, {
+        resolution: resolveKind,
+        winner_id: winnerMem ? winnerMem.id : (resolveWinner.trim() || undefined),
+        resolved_by: resolver.id,
+      });
+      setSelectedConflict(resolved);
+      setResolveWinner("");
+      setResolveBy("");
+      await loadConflicts();
+    } catch (err) {
+      setConflictError(err instanceof Error ? err.message : "Resolve conflict failed");
+    }
+  }
+
+  // ── Stats ──
+
+  const pendingCount = reviews.filter((r) => !r.verdict).length;
+  const approvedCount = reviews.filter((r) => r.verdict === "approve").length;
+  const conflictCount = conflicts.filter((c) => !c.resolution).length;
+  const proposalCount = proposals.length;
+
+  const panelTitle = tab === "reviews" ? "Reviews" : tab === "conflicts" ? "Conflicts" : "Memory Proposals";
+
+  // ── Render ──
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
+      {/* Left: Tab switcher + list */}
+      <Panel title={panelTitle}>
+        {/* Tabs */}
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="mb-3">
+            <TabsTrigger value="reviews">Reviews</TabsTrigger>
+            <TabsTrigger value="proposals">Proposals</TabsTrigger>
+            <TabsTrigger value="conflicts">Conflicts</TabsTrigger>
+          </TabsList>
+
+          {/* Stats */}
+          <div className="flex items-center gap-4 mb-3">
+            {tab === "reviews" ? (
+              <>
+                <Status label="Pending" value={pendingCount} tone={pendingCount > 0 ? "warn" : "ok"} />
+                <Status label="Approved" value={approvedCount} tone="ok" />
+              </>
+            ) : tab === "proposals" ? (
+              <Status label="Pending Proposals" value={proposalCount} tone={proposalCount > 0 ? "warn" : "ok"} />
+            ) : (
+              <Status label="Unresolved" value={conflictCount} tone={conflictCount > 0 ? "warn" : "ok"} />
+            )}
+          </div>
+
+          <TabsContent value="reviews">
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 mb-3">
+              <Button variant="outline" onClick={() => setShowCreateReview(!showCreateReview)}>
+                {showCreateReview ? "Cancel" : "Create Review"}
+              </Button>
+            </div>
+
+            {reviewError && <ErrorState message={reviewError} />}
+
+            {showCreateReview && (
+              <div className="space-y-4 mb-4">
+                <FormField label="Target Kind">
+                  <Select value={formTargetKind} onChange={(e) => setFormTargetKind(e.target.value)}>
+                    <option value="memory_candidate">Memory Candidate</option>
+                    <option value="task_deliverable">Task Deliverable</option>
+                    <option value="memory_promotion">Memory Promotion</option>
+                  </Select>
+                </FormField>
+                <FormField label="Target">
+                  <ComboInput
+                    value={formTargetId}
+                    onChange={setFormTargetId}
+                    options={memories.map((m) => ({ value: m.title, label: m.title }))}
+                    placeholder="Select memory or type title"
+                  />
+                </FormField>
+                <FormField label="Reviewer">
+                  <ComboInput
+                    value={formReviewerId}
+                    onChange={setFormReviewerId}
+                    options={members.map((m) => ({ value: m.display_name, label: m.display_name }))}
+                    placeholder="Select member or type name"
+                  />
+                </FormField>
+                <div className="flex items-center gap-2">
+                  <Button variant="recommended" disabled={!formTargetId.trim() || !formReviewerId.trim()} onClick={handleCreateReview}>
+                    Create
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {reviewLoading ? (
+              <LoadingState />
+            ) : (
+              <DataTable data={reviews} columns={reviewColumns} selectedId={selectedReview?.id} onSelect={(row) => { navigateTo("reviews", row.id); setSelectedReview(row); }} />
+            )}
+          </TabsContent>
+
+          <TabsContent value="proposals">
+            {proposalError && <ErrorState message={proposalError} />}
+
+            {proposalLoading ? (
+              <LoadingState />
+            ) : proposals.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No pending memory proposals</p>
+            ) : (
+              <DataTable data={proposals} columns={proposalColumns} selectedId={selectedProposal?.id} onSelect={(row) => setSelectedProposal(row)} />
+            )}
+          </TabsContent>
+
+          <TabsContent value="conflicts">
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 mb-3">
+              <Button variant="outline" onClick={() => setShowReportConflict(!showReportConflict)}>
+                {showReportConflict ? "Cancel" : "Report Conflict"}
+              </Button>
+            </div>
+
+            {conflictError && <ErrorState message={conflictError} />}
+
+            {showReportConflict && (
+              <div className="space-y-4 mb-4">
+                <FormField label="Memory A">
+                  <ComboInput
+                    value={formMemA}
+                    onChange={setFormMemA}
+                    options={memories.map((m) => ({ value: m.title, label: m.title }))}
+                    placeholder="Select memory A or type title"
+                  />
+                </FormField>
+                <FormField label="Memory B">
+                  <ComboInput
+                    value={formMemB}
+                    onChange={setFormMemB}
+                    options={memories.map((m) => ({ value: m.title, label: m.title }))}
+                    placeholder="Select memory B or type title"
+                  />
+                </FormField>
+                <FormField label="Conflict Kind">
+                  <Select value={formConflictKind} onChange={(e) => setFormConflictKind(e.target.value)}>
+                    <option value="semantic">Semantic</option>
+                    <option value="contradiction">Contradiction</option>
+                    <option value="scope_overlap">Scope Overlap</option>
+                  </Select>
+                </FormField>
+                <FormField label="Detected By">
+                  <Select value={formDetectedBy} onChange={(e) => setFormDetectedBy(e.target.value)}>
+                    <option value="embedding_similarity">Embedding Similarity</option>
+                    <option value="manual_report">Manual Report</option>
+                    <option value="reflection_engine">Reflection Engine</option>
+                  </Select>
+                </FormField>
+                <div className="flex items-center gap-2">
+                  <Button variant="recommended" disabled={!formMemA.trim() || !formMemB.trim()} onClick={handleReportConflict}>
+                    Report
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {conflictLoading ? (
+              <LoadingState />
+            ) : (
+              <DataTable data={conflicts} columns={conflictColumns} selectedId={selectedConflict?.id} onSelect={(row) => setSelectedConflict(row)} />
+            )}
+          </TabsContent>
+        </Tabs>
+      </Panel>
+
+      {/* Right: Detail panel */}
+      <Panel title={tab === "reviews" ? "Review Detail" : tab === "proposals" ? "Proposal Detail" : "Conflict Detail"}>
+        {tab === "reviews" ? (
+          selectedReview ? (
+            <div className="space-y-4">
+              <Definition label="ID" value={selectedReview.id} />
+              <Definition label="Target Kind" value={selectedReview.target_kind} />
+              <Definition label="Target ID" value={selectedReview.target_id} />
+              <Definition label="Reviewer" value={selectedReview.reviewer_member_id} />
+              <Definition
+                label="Verdict"
+                value={
+                  <Status
+                    label=""
+                    value={selectedReview.verdict ?? "pending"}
+                    tone={verdictTone(selectedReview.verdict)}
+                  />
+                }
+              />
+              <Definition label="Reason" value={selectedReview.reason} />
+              <Definition label="Decided At" value={selectedReview.decision_at} />
+
+              {/* Decide form — only show if not yet decided */}
+              {!selectedReview.verdict && (
+                <div className="space-y-4 mt-4">
+                  <FormField label="Verdict">
+                    <Select value={decideVerdict} onChange={(e) => setDecideVerdict(e.target.value)}>
+                      <option value="approve">Approve</option>
+                      <option value="reject">Reject</option>
+                      <option value="merge">Merge</option>
+                      <option value="revise">Revise</option>
+                    </Select>
+                  </FormField>
+                  <FormField label="Reason" wide>
+                    <Textarea value={decideReason} onChange={(e) => setDecideReason(e.target.value)} placeholder="Decision reason..." />
+                  </FormField>
+                  {(decideVerdict === "revise" || decideVerdict === "reject") && (
+                    <FormField label="Correction" wide>
+                      <Textarea value={decideCorrection} onChange={(e) => setDecideCorrection(e.target.value)} placeholder="Suggested correction..." />
+                    </FormField>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Button variant="recommended" onClick={handleDecideReview}>
+                      Submit Decision
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Select a review to view details</p>
+          )
+        ) : tab === "proposals" ? (
+          selectedProposal ? (
+            <div className="space-y-4">
+              <Definition label="ID" value={selectedProposal.id} />
+              <Definition label="Title" value={selectedProposal.title} />
+              <Definition label="Tier" value={selectedProposal.tier} />
+              <Definition label="Confidence" value={selectedProposal.confidence_value.toFixed(3)} />
+              <Definition label="Scope" value={selectedProposal.scope_kind} />
+              <Definition label="Tags" value={selectedProposal.tags.join(", ") || "—"} />
+              <Definition label="Created" value={selectedProposal.created_at ?? "—"} />
+              <Definition label="Status" value="candidate" />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Select a proposal to view details</p>
+          )
+        ) : selectedConflict ? (
+          <div className="space-y-4">
+            <Definition label="ID" value={selectedConflict.id} />
+            <Definition label="Memory A" value={selectedConflict.memory_a_id} />
+            <Definition label="Memory B" value={selectedConflict.memory_b_id} />
+            <Definition label="Kind" value={selectedConflict.conflict_kind} />
+            <Definition label="Detected By" value={selectedConflict.detected_by} />
+            <Definition
+              label="Resolution"
+              value={
+                <Status
+                  label=""
+                  value={selectedConflict.resolution ?? "unresolved"}
+                  tone={selectedConflict.resolution ? "ok" : "warn"}
+                />
+              }
+            />
+            <Definition label="Winner" value={selectedConflict.winner_id} />
+            <Definition label="Resolved By" value={selectedConflict.resolved_by} />
+
+            {/* Resolve form — only show if not yet resolved */}
+            {!selectedConflict.resolution && (
+              <div className="space-y-4 mt-4">
+                <FormField label="Resolution">
+                  <Select value={resolveKind} onChange={(e) => setResolveKind(e.target.value)}>
+                    <option value="keep_a">Keep A</option>
+                    <option value="keep_b">Keep B</option>
+                    <option value="merge">Merge</option>
+                    <option value="deprecate_both">Deprecate Both</option>
+                  </Select>
+                </FormField>
+                {(resolveKind === "keep_a" || resolveKind === "keep_b") && (
+                  <FormField label="Winner Memory ID">
+                    <Input value={resolveWinner} onChange={(e) => setResolveWinner(e.target.value)} placeholder="UUID of winning memory" />
+                  </FormField>
+                )}
+                <FormField label="Resolved By">
+                  <ComboInput
+                    value={resolveBy}
+                    onChange={setResolveBy}
+                    options={members.map((m) => ({ value: m.display_name, label: m.display_name }))}
+                    placeholder="Select member or type name"
+                  />
+                </FormField>
+                <div className="flex items-center gap-2">
+                  <Button variant="recommended" disabled={!resolveBy.trim()} onClick={handleResolveConflict}>
+                    Resolve
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Select a conflict to view details</p>
+        )}
+      </Panel>
+    </div>
+  );
+}

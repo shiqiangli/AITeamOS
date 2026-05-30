@@ -1,34 +1,105 @@
 # AITeamOS
 
-> **把 AI 当作长期同事来管理的团队操作系统。**
+> 以经验和能力为双核资产的团队操作系统。
 
-AITeamOS 是一个面向工程团队的 AI 协作管理平台。它让人类工程师和 AI 数字员工共享统一的身份、任务、权限、记忆与审查体系——像管理一支真实团队一样管理你的 AI 同事。
+AITeamOS 解决团队在人员切换和 Human-to-AI 转型过程中，隐性经验无法有效沉淀、流转和复用的问题。它让人类工程师和 AI 数字员工共享统一的身份、任务、权限、记忆与审查体系。
 
 ---
 
-## 为什么需要 AITeamOS
+## 核心理念
 
-当前的 AI 编程工具围绕"一次会话"设计，每次都要重新交代背景、重新把控质量。当你想让 AI 真正融入团队日常时：
+AITeamOS 的资产模型围绕两个核心概念构建：
 
-| 痛点 | AITeamOS 的解法 |
-|------|----------------|
-| AI 没有持久身份，换会话就失忆 | 长期存在的 TeamMember，积累技能、记忆与工作履历 |
-| 缺少统一的任务分派和产出审查 | 任务 → 运行 → 审查闭环，人机共用一套流程 |
-| AI 行为无边界、无审计 | allow / ask / deny 三态权限引擎 + 全链路决策审计 |
-| 团队知识散落各处 | 中立记忆体系，按 ACL 精确投影到人/项目/任务 |
-| 多 IDE、多模型无法统一治理 | 模型无关，Cursor / VSCode / Codex / Qoder / 任何 LLM 统一接入 |
+- **Memory（经验）** — 有状态的业务上下文，代表"在特定战场上怎么干"。分三层：Facts（事实）、Patterns（模式）、Principles（原则），带置信度、生命周期和关系图。
+- **Skill（能力）** — 无状态的通用能力组件，代表"会干什么"。可插拔、可版本化、跨项目复用。
+
+核心公式：
+
+```
+Capability = Skill (How to do) x Memory (What we know)
+Evolution  = Capability --[Execute]--> Harness (Right or Wrong) --[Reflect]--> Delta Memory
+```
+
+**Harness（验证系统）** 是外部真理源，确保非确定性 AI 输出确定性结果，同时驱动 Memory 持续演进。
+
+---
+
+## 系统架构
+
+### 边界上下文（Bounded Contexts）
+
+基于 DDD 划分为 6 个边界上下文，跨上下文通过领域事件 + DTO 通信，同步读取通过 Anti-Corruption Layer（ACL）+ 依赖倒置：
+
+| 上下文 | 聚合根 | 职责 |
+|--------|--------|------|
+| **Knowledge** | `MemoryNode`, `MemoryEdge` | Memory 提炼、关系图、置信度演进、生命周期管理 |
+| **Capability** | `Skill` | Skill 注册、版本、加载、健康度、熔断 |
+| **Workforce** | `Member`, `Department` | 成员管理、组织归属、能力画像 |
+| **Execution** | `Task` | Task 状态机、Run、Deliverable、Context Snapshot |
+| **Validation** | `HarnessAdapter` | 验证适配、回调、结果归一、Flaky 检测 |
+| **Governance** | `ReviewCase`, `ConflictCase` | 审核流程、冲突仲裁、归因度量 |
+
+### 三层逻辑架构
+
+1. **Context/State Layer（上下文与状态层）** — Context Assembler 从 Knowledge + Capability 召回并组装不可变的 Context Snapshot，受 Token 预算硬约束。
+2. **Driver/Execution Layer（驱动与执行层）** — Task 状态机驱动执行，Saga 编排异步流程，Cost Interceptor 全程计量。
+3. **Assertion/Validation Layer（断言与验证层）** — Harness Gateway 路由到对应 Adapter，Reflection Engine 从执行结果中提炼 Memory 候选。
+
+### 关键技术决策
+
+- **CQRS + Event Sourcing Outbox**：写路径走 Command + Domain Event（PostgreSQL Outbox），读路径走幂等投影消费者（Kafka -> 多读模型）。
+- **混合存储**：PostgreSQL（主存储）+ pgvector（语义向量检索 HNSW）+ 图库（Memory 关系拓扑多跳遍历）。
+- **不可变快照**：Task 装配阶段产出的 Context Snapshot 一旦写入即只读，反思、归因、回放一律以快照为准。
+- **幂等投影**：所有读侧投影消费者基于全局事件序列号实现 CAS 条件写，保证 At-least-once 投递下绝对幂等。
 
 ---
 
 ## 核心特性
 
-- **统一成员目录** — human / digital / hybrid / service 四种角色，共享档案、技能、活动、成长记录
-- **项目化协作** — 仓库、模块、Assignment、任务、运行、审查、知识健康度，一站管理
-- **中立团队记忆** — store → entry → binding → grant，带 ACL、生命周期与审计；不会悄悄注入过期/冲突内容
-- **任务-运行-审查闭环** — 每次执行产生可追溯的 context capsule、diff/PR、日志与记忆提议
-- **Review-First 安全模型** — Worker 隔离执行，所有产出必须通过审查；Secret 永不进入 prompt/log/界面
-- **自动化控制面** — webhook、定时任务、CI 事件先落审批门，再决定执行
-- **三种执行模式** — Managed（托管执行）/ Assisted IDE（接收 IDE 产出）/ Manual（人工登记）
+- **多通道 Memory 召回** — assigned / scope / vector / graph 四通道并行召回，单通道降级不阻塞整体，排序综合置信度、语义相似度、作用域匹配和新鲜度。
+- **置信度动态演进** — 基于使用反馈（正向提升 / 负向降低）+ 时间衰减的 4 因子方程，Facts 不衰减仅由级联失效驱动。
+- **级联失效检测** — 代码/架构变更时沿 Memory 关系图 BFS 传播降级，带扇出上限和分批写回，超限自动降级为异步处理。
+- **Review-First 安全模型** — Worker 隔离执行，所有产出必须通过审查；Secret 永不进入 prompt/log/界面。
+- **Task 完整生命周期** — Draft -> Ready -> Assigned -> Running -> Verifying -> InReview -> Done，支持异步验证挂起和审核拒绝回退。
+
+---
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| 后端 | Python 3.11+ / FastAPI / Pydantic v2 |
+| 存储 | PostgreSQL + pgvector |
+| 事件总线 | Kafka（Outbox Pattern） |
+| Worker | aiokafka + 投影消费者 + Saga 引擎 |
+| 前端 | React / TypeScript / Vite / Tailwind CSS / Radix UI |
+| 测试 | pytest (887) + Vitest (92) |
+
+---
+
+## 项目结构
+
+```
+AITeamOS/
+├── packages/                 # DDD 边界上下文（独立 Python 包）
+│   ├── knowledge/            #   Knowledge Context — Memory 领域
+│   ├── capability/           #   Capability Context — Skill 领域
+│   ├── workforce/            #   Workforce Context — Member/Department 领域
+│   ├── execution/            #   Execution Context — Task/Run 领域
+│   ├── validation/           #   Validation Context — Harness 领域
+│   ├── governance/           #   Governance Context — Review/Conflict 领域
+│   └── shared_kernel/        #   跨上下文共享值对象与工具
+├── services/
+│   ├── api/                  # FastAPI 服务（Composition Root + CQRS 读写分离）
+│   ├── worker/               # Worker 进程（投影消费者 + Kafka + Saga）
+│   └── saga/                 # Saga 编排引擎
+├── apps/
+│   └── dashboard/            # Web Dashboard（React + Vite + Tailwind）
+├── migrations/               # PostgreSQL 增量迁移脚本
+├── tests/                    # 测试套件
+├── docs/                     # 架构与设计文档
+└── docker/                   # 容器化配置
+```
 
 ---
 
@@ -37,175 +108,107 @@ AITeamOS 是一个面向工程团队的 AI 协作管理平台。它让人类工�
 ### 环境要求
 
 - Python 3.11+
-- Node.js 20+（Dashboard 构建）
-- Git
+- Node.js 18+
+- Docker（用于 PostgreSQL）
 
-### 一键启动
-
-```bash
-# 1. 克隆项目
-git clone https://github.com/your-org/AITeamOS.git && cd AITeamOS
-
-# 2. 校验工作区协议
-./aiteamos workspace validate --workspace .aiteamos
-
-# 3. 重建派生索引（SQLite + 向量索引，可重建的缓存）
-./aiteamos workspace index --workspace .aiteamos
-
-# 4. 构建 Dashboard
-cd apps/dashboard && npm install && npm run build && cd ../..
-
-# 5. 启动 API + Dashboard
-./aiteamos serve --workspace .aiteamos
-```
-
-打开 **http://127.0.0.1:8765** 即可进入 Dashboard。
-
-### 启用模型调用（可选）
+### 1. 启动 PostgreSQL
 
 ```bash
-export OPENAI_API_KEY=sk-...
-./aiteamos serve --workspace .aiteamos
+docker run -d \
+  --name aiteamos-postgres \
+  -p 5432:5432 \
+  -e POSTGRES_DB=aiteamos \
+  -e POSTGRES_USER=aiteamos \
+  -e POSTGRES_PASSWORD=dev_password \
+  pgvector/pgvector:pg15
 ```
 
-Dashboard 会按 Model Profile 配置自动路由模型调用，结果写回 run journal。Secret 永远不会显示在界面上。
-
----
-
-## 三种工作模式
-
-| 模式 | 适合场景 | AITeamOS 的角色 |
-|------|---------|----------------|
-| **Managed** | 全自动执行 + 严格审查 | 创建隔离 worktree、调用模型、生成 diff/PR、登记 review |
-| **Assisted IDE** | 你在 IDE 里写代码 | 准备 context capsule、接收 ingest 后走审查流程 |
-| **Manual** | 人工完成的工作 | 登记 task/run、关联评审目标、沉淀记忆提议 |
-
----
-
-## 工作区（Workspace）
-
-AITeamOS 把所有可追溯的协作数据存储在 `.aiteamos/` 目录中。
-
-### 两种部署形态
-
-| 形态 | 说明 | 推荐场景 |
-|------|------|---------|
-| **Embedded** | `.aiteamos/` 直接放在源码仓库根目录 | 开源项目、demo、个人自托管 |
-| **Shadow** | 独立仓库 `<project>-aiteamos-shadow/` 存放 `.aiteamos/`，通过 `repositories/` 引用源码仓库 | **私有/商业项目**（避免成员档案、记忆、运行历史泄漏到源码仓库） |
-
-### 数据分层
-
-```
-.aiteamos/                  ← Source of Truth（入 Git）
-├── members/                ← 成员定义
-├── assignments/            ← 任务分配
-├── tasks/ & runs/          ← 任务与运行记录
-├── memory/                 ← 团队记忆
-├── permissions/            ← 权限策略
-├── reviews/                ← 审查记录
-├── automations/            ← 自动化配置
-├── project.yaml            ← 项目配置
-├── workspace.yaml          ← 工作区配置
-└── indexes/                ← 🚫 派生缓存（.gitignore 排除）
-    ├── aiteamos.sqlite     ← 可重建的 SQLite 投影
-    └── vector_*.json       ← 可重建的向量索引
-```
-
-> **核心原则：** `.aiteamos/` YAML 文件是 source of truth。SQLite、向量索引、Dashboard 缓存全部是可重建的派生状态。
-
-### 重建派生数据
-
-当你从远程拉取代码、还原备份或清理缓存后，只需一条命令重建所有派生状态：
+等待 PostgreSQL 就绪（约 5 秒）：
 
 ```bash
-./aiteamos workspace index --workspace .aiteamos
+docker exec aiteamos-postgres pg_isready -U aiteamos -d aiteamos
 ```
 
----
+### 2. 初始化数据库
 
-## 安全边界
-
-AITeamOS 默认 **Review-First**，遵循最小权限原则：
-
-- Worker 只能在隔离 worktree/分支中操作，patch 逐路径审批
-- 不会自动合并 PR、批准记忆或修改治理面
-- Secret 值通过环境变量传递，永不进入 prompt、log、Dashboard 或 export 包
-- 非交互模式下 `ask` 权限自动转 `deny`
-- 跨成员的记忆共享必须通过有时限的 grant + 审计记录
-
----
-
-## 项目结构
-
-```
-AITeamOS/
-├── .aiteamos/              # 工作区数据（Source of Truth）
-├── apps/dashboard/         # Web Dashboard（React + Vite）
-├── packages/
-│   ├── schema/             # Pydantic 模型 → JSON Schema → TypeScript 类型
-│   ├── workspace/          # 工作区加载、校验、索引
-│   └── connectors/         # 连接器注册表与适配器
-├── services/
-│   ├── api/                # FastAPI 服务（HTTP + MCP）
-│   └── worker/             # 受管 Worker 进程
-├── tools/cli/              # 极薄 CLI 入口
-├── extensions/             # VSCode/Cursor 扩展
-├── docs/                   # 架构与部署文档
-├── tests/                  # 测试套件
-└── aiteamos                # Shell 入口脚本
-```
-
----
-
-## 面向开发者
-
-### 自举（Self-Bootstrapping）
-
-本仓库自身使用 embedded `.aiteamos/` 工作区来管理 AITeamOS 的开发——这意味着 AITeamOS 用自己来管理自己的开发团队。Worker 可以推进 `aiteamos-architecture`、`aiteamos-backend-runtime`、`aiteamos-dashboard` 等 assignment，但不能无审查地修改自己的治理规则、安全边界或生产部署配置。
-
-### 影子工作区（Shadow Workspace）
-
-对于私有项目，推荐单独建仓存放 `.aiteamos/`：
+按序执行所有迁移脚本：
 
 ```bash
-# 源码仓库不包含 .aiteamos/
-my-project/
-  └── src/ ...
-
-# 独立的影子仓库
-my-project-aiteamos-shadow/
-  └── .aiteamos/
-      ├── repositories/aiteamos.yaml   ← 引用源码仓库
-      ├── members/
-      └── ...
+for f in migrations/*.sql; do
+  docker exec -i aiteamos-postgres psql -U aiteamos -d aiteamos < "$f"
+done
 ```
 
-这样源码仓库保持干净，协作数据独立管理与审计。
-
-### CLI 速查
+### 3. 安装后端依赖
 
 ```bash
-./aiteamos serve --workspace .aiteamos          # 启动 API + Dashboard
-./aiteamos workspace validate --workspace .aiteamos  # 校验清单
-./aiteamos workspace index --workspace .aiteamos     # 重建索引
-./aiteamos worker --workspace .aiteamos              # 启动 Worker
-./aiteamos schema export                             # 重新生成 Schema
+# 创建虚拟环境（推荐）
+python -m venv .venv
+source .venv/bin/activate
+
+# 安装项目依赖
+pip install -e ".[dev]"
 ```
 
-### 技术栈
+### 4. 启动后端服务
 
-- **后端：** Python 3.11+ / FastAPI / Pydantic / SQLite / LiteLLM
-- **前端：** React / Vite / TypeScript
-- **协议：** YAML manifests → JSON Schema → OpenAPI → TypeScript types
-- **模型：** 通过 LiteLLM 网关支持 OpenAI / Anthropic / Gemini / 本地模型
+```bash
+export AITEAMOS_DATABASE_URL="postgresql://aiteamos:dev_password@localhost:5432/aiteamos"
+uvicorn aiteamos_api.main:create_app --factory --host 0.0.0.0 --port 8000 --reload
+```
+
+验证后端健康：
+
+```bash
+curl http://localhost:8000/health
+# 预期输出: {"status":"ok","database":"connected"}
+```
+
+### 5. 启动前端开发服务器
+
+另开终端：
+
+```bash
+cd apps/dashboard
+npm install
+npm run dev
+```
+
+### 6. 访问
+
+- **前端 Dashboard**: http://localhost:5173
+- **后端 API**: http://localhost:8000
+- **API 文档 (Swagger)**: http://localhost:8000/docs
+
+### 运行测试
+
+```bash
+# 后端测试
+pytest
+
+# 前端测试
+cd apps/dashboard && npm run test
+```
 
 ---
 
-## 当前状态
+## 环境变量
 
-AITeamOS 的第一切片是 **UI-first、协议优先、CLI 极薄**。Dashboard + API + Workspace 校验已可用，受管 Worker 支持隔离执行与 diff 校验。
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `AITEAMOS_DATABASE_URL` | PostgreSQL 连接字符串 | `postgresql://postgres:postgres@localhost:5432/aiteamos` |
+| `AITEAMOS_ADMIN_API_KEY` | Admin API 密钥（未设置时放行所有请求） | 空（开发模式） |
+| `AITEAMOS_EMBEDDING_MODEL` | Embedding 模型 | `text-embedding-3-small` |
+| `AITEAMOS_LLM_MODEL` | LLM 模型 | `gpt-4o-mini` |
+| `OPENAI_API_KEY` | OpenAI API 密钥（未设置时使用 mock） | 空 |
 
-整体仍处于活跃迭代中。终态语义以 [`docs/architecture.md`](./docs/architecture.md) 为准。
+---
+
+## 文档
+
+- [产品需求文档 (PRD)](./docs/PRD-core.md) — 产品定位、核心概念、功能需求
+- [系统架构文档 (ADD/TDD)](./docs/arch.md) — 领域模型、存储策略、运行时引擎、设计纪律
+- [用户指南 (User Guide)](./docs/USER_GUIDE.md) — 管理员操作手册，Dashboard 使用流程
 
 ---
 

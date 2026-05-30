@@ -1,2 +1,466 @@
-// @ts-nocheck
-import{jsx as t,jsxs as l}from"react/jsx-runtime";import*as Q from"../../components/shared";const{ACTIVE_OPERATION_RUN_STATUSES:le,AssignmentDetailWorkflowPanel:de,AssignmentPermissionOutcomePanel:me,AutomationPermissionOutcomePanel:ue,AutomationPermissionOutcomeTable:Re,AutomationRunTable:ke,AutomationScheduleProjectionPanel:Pe,AutomationScheduleProjectionTable:pe,ConnectorEscalationProjectionPanel:fe,ConnectorIncidentDetailPanel:be,ConnectorIncidentFollowThroughTable:he,ConnectorOperationsOpenTable:Me,ConnectorOperationsProjectionPanel:ge,ConnectorRemediationProjectionPanel:ve,ConnectorRemediationRunProjectionPanel:Se,ConnectorRemediationRunTable:we,ConnectorRemediationSuggestionTable:Ae,ConnectorRemediationTaskPlanProjectionPanel:Z,ConnectorRemediationTaskPlanTable:ye,ConnectorRemediationTaskProjectionPanel:ee,ConnectorRemediationTaskTable:Te,ContextManifestExplorerPanel:De,ContextSourceDetailPanel:Ce,CostModelPanel:Ee,DASHBOARD_API_BASE_STORAGE_KEY:Fe,DASHBOARD_API_TOKEN_STORAGE_KEY:je,DASHBOARD_COOKIE_SESSION_STORAGE_KEY:Oe,DASHBOARD_CSRF_TOKEN_STORAGE_KEY:Ie,DASHBOARD_LOCALE_STORAGE_KEY:xe,DashboardI18nContext:_e,Definition:Be,Detail:x,GroupedRows:Le,JsonPreview:Ge,ManagerPlanRecommendationsPanel:Ne,ManifestTable:s,MemberGrowthProjectionPanel:He,Panel:c,PermissionGrantTable:Ke,PermissionProjectionPanel:qe,PermissionRequestTable:We,ResourcePage:Ve,RetrospectiveSuggestionReviewPanel:Ue,RunContextMemoryPanel:ze,RunWorkerAuthorizationPanel:Ye,RunWorkerAuthorizationTable:$e,RunWorkerReadinessPanel:Je,SessionProjectionStrip:Xe,Status:n,TEAM_EXECUTION_TARGET_TYPES:Qe,WorkspaceOperationsPanel:Ze,appendViewerMember:et,arrayRecords:tt,assignmentMember:ot,assignmentProject:at,assignmentWorkMatchesSkill:st,automationFocusFromProjection:nt,automationMemberRole:rt,automationNextControlPlaneAction:it,automationRunMatchesMember:ct,automationScheduleHealth:lt,automationScheduleMatchesScope:dt,automationScheduleMemberRefs:mt,automationScheduleProjectionRows:ut,canonicalDashboardPath:Rt,collaborationRecordMatchesMember:kt,collectDecisionAuditRecords:Pt,connectorEscalationRecordMatchesScope:pt,connectorEscalationReviewRequests:ft,connectorEscalationRows:bt,connectorIdFromRecord:ht,connectorIdsFromRecord:Mt,connectorIdsInWorkspace:gt,connectorOperationRecordMatchesScope:vt,connectorOperationsRows:St,connectorOperationsSummary:wt,connectorRemediationRecordMatchesScope:At,connectorRemediationRows:yt,connectorRemediationRunRecordMatchesScope:Tt,connectorRemediationRunRows:Dt,connectorRemediationTaskPlanRecordMatchesScope:Ct,connectorRemediationTaskPlanRows:te,connectorRemediationTaskRecordMatchesScope:Et,connectorRemediationTaskRows:oe,contextExclusionCategory:Ft,contextManifestBucketsForSource:jt,contextManifestBudgetPolicyRows:Ot,contextManifestExclusionRows:It,contextManifestMemoryRows:xt,contextManifestObjectRows:_t,contextManifestPriorityRows:Bt,contextManifestRawSourceForDecision:Lt,contextManifestSourceDecisionRows:Gt,contextManifestSourceDetailRecord:Nt,contextManifestSourceMatchesDecision:Ht,contextManifestSourceRef:Kt,contextPreviewMentionsMemory:qt,contextSourceLineLabel:Wt,costAlertRows:Vt,countByStatus:Ut,countRowsWithList:zt,dashboardAuthStateFromStorage:Yt,dashboardAuthStateFromUrl:$t,dashboardFetch:ae,dashboardHref:Jt,defaultAssignmentForMember:Xt,defaultAutomationActionDraft:Qt,defaultAutomationActorMember:Zt,defaultAutomationEventDraft:eo,defaultAutomationExecutorMember:to,defaultAutomationProviderDeliveryRetryDraft:oo,defaultAutomationRunExecutionDraft:ao,defaultAutomationRunReviewReason:so,defaultAutomationSchedulerLeaseRecoverDraft:no,defaultAutomationSchedulerScanDraft:ro,defaultAutomationTriggerType:io,defaultAutomationWebhookDraft:co,defaultConnectorEscalationRoutingDraft:lo,defaultConnectorHealthDraft:mo,defaultConnectorReminderRoutingDraft:uo,defaultGovernanceActorId:Ro,defaultMemberByKind:ko,defaultMemberManagementDraft:Po,defaultMemoryHealthRemediationAction:po,defaultPermissionGrantLifecycleDraft:fo,defaultPermissionReviewDraft:bo,defaultProductUserDraft:ho,defaultRetentionCleanupDraft:Mo,defaultTeamExecutionApprovalGate:go,defaultTeamExecutionAutomationDraft:vo,defaultTeamExecutionTitle:So,defaultWorkspaceRoute:wo,downloadBlob:Ao,draftNumber:yo,emptyManifestRecord:To,endpointForDashboardAuth:Do,endpointForDashboardBackend:Co,endpointForViewer:Eo,evalResultRecencyKey:Fo,filenameFromDisposition:jo,filterByLifecycle:Oo,findMemoryResource:Io,firstDeniedPermissionCanonical:xo,firstDeniedPermissionDecisionCanonical:_o,firstString:Bo,formatDashboardColumnLabel:Lo,formatPercentRatio:se,formatValue:Go,gateCheckRecords:No,gitActivityCorrelationGroupMatchesMember:Ho,gitActivityCorrelationGroups:Ko,gitActivityCorrelationPromotionCandidateMatchesMember:qo,gitActivityCorrelationPromotionCandidateRecords:Wo,gitActivityCorrelationReviewMatchesMember:Vo,gitActivityImportMatchesMember:Uo,gitActivityRetentionCandidateRecords:zo,gitRetentionTriggerForPreset:Yo,governedViewerForFetch:$o,groupRecordsByValue:Jo,growthPlanActionRows:Xo,isConnectorEscalationReviewRequest:Qo,isManagerMember:Zo,isRecord:_,isRecoverableSchedulerLease:ea,isRedactedRecord:ta,isRetryableProviderDelivery:oa,isSameOriginDashboardEndpoint:aa,knowledgeHealthSummary:sa,latestAuditSummary:na,latestEvalResultForSuite:ra,latestManifestRecord:ia,latestRiskLevel:ca,managerPlanRecommendationRows:la,manifestRecencyKey:da,memberCapabilityTokens:ma,memberCreatePayloadFromDraft:ua,memberGrowthItems:Ra,memberManagementDraftFromRecord:ka,memberMatchesAutomationTarget:Pa,memberSkillRefs:pa,memberUpdatePayloadFromDraft:fa,memoryEntryMatchesAssignment:ba,memoryEntryMatchesMember:ha,memoryEntryMatchesProject:Ma,memoryHealthIssueMatchesScope:ga,memoryHealthIssueRecords:va,memoryRecordsForScope:Sa,memoryResourceMatchesAssignment:wa,memoryResourceMatchesMember:Aa,memoryResourceMatchesProject:ya,memoryResourceMatchesScope:Ta,memoryStoreMatchesMember:Da,memoryStoreMatchesProject:Ca,metric:Ea,modelCostRows:Fa,normalizeAttachedManifestId:ja,normalizeDashboardApiBaseUrl:Oa,normalizeMemberKind:Ia,normalizeMemberStatus:xa,normalizeSkillToken:_a,numberPrompt:Ba,numericPath:La,parseCsv:Ga,parseDashboardAuthState:Na,parseJsonDraft:Ha,parsePage:Ka,permissionActionCanonical:qa,permissionDecisionRequiresApproval:Wa,permissionOverviewRecords:Va,permissionPoliciesForAutomationTarget:Ua,planRecommendationProjectionRecord:za,projectEvalStatusRows:Ya,providerDeliveryDecisionAuditRows:$a,providerDeliveryRetryAttemptRows:Ja,providerDeliveryRetryHeaderSummary:Xa,providerDeliveryRetryHeaders:Qa,readDashboardApiBaseUrl:Za,readDashboardApiToken:es,readDashboardCookieSessionConfigured:ts,readDashboardCsrfToken:os,readDashboardLocale:as,readDashboardRoute:ss,readHealthIssueField:ns,readPath:rs,readProjection:is,readSpec:a,readStoredDashboardApiToken:cs,readStoredDashboardCookieSessionConfigured:ls,recommendationRecipients:ds,recordMatchesAssignment:ms,recordMatchesConnector:us,recordMatchesMember:Rs,recordMatchesProject:ks,recordValue:Ps,recoverableSchedulerLeases:ps,retrospectivePayloadFromDraft:fs,retrospectiveRecordMatchesMember:bs,retrospectiveSuggestionDraftFromRecord:hs,retrospectiveSuggestionRecords:Ms,retryableProviderDeliveries:gs,runMember:vs,runProject:Ss,runStatus:ws,sessionCanSelectViewer:As,setActiveDashboardWorkspaceId:ys,skillAssignmentFitRows:Ts,skillCapabilityMatches:Ds,skillCapabilityTokens:Cs,skillFitReasonsForAssignment:Es,skillFitReasonsForMember:Fs,skillFitReasonsForRun:js,skillFitReasonsForTask:Os,skillFitSignal:Is,skillMatchesAssignment:xs,skillMatchesMember:_s,skillMatchesProject:Bs,skillMatchesRun:Ls,skillMatchesScope:Gs,skillMatchesTask:Ns,skillMemberFitRows:Hs,skillProjectionManifestRecords:Ks,skillProjectionRows:qs,skillRelatedRunRows:Ws,skillRelatedTaskRows:Vs,skillTextMatchesFields:Us,sourceForAutomationTriggerType:zs,splitMemberDraftList:Ys,splitRetrospectiveList:$s,stringList:m,stringParam:Js,stringValue:Xs,sumRecordMetric:Qs,taskMember:Zs,taskPlanCreatedByManager:en,taskPlanExecutionSubtaskRows:ne,taskPlanExecutionViewFor:re,taskPlanIdsForRecommendationMessage:tn,taskPlanSubtaskMatchKey:on,taskPlanSubtaskRows:ie,taskProject:an,taskWorkMatchesSkill:sn,tasksLinkedToTaskPlan:nn,teamExecutionDisplayName:rn,teamExecutionMemberKinds:cn,tokenMatches:ln,uniqueManifestRecords:dn,uniqueStrings:B,useDashboardI18n:mn,viewerScopedEndpoints:un,withDashboardAuth:Rn,wordsFromValue:kn,workspaceManifestLoadFailureRows:Pn,workspaceOperationRows:pn,workspaceRouteCandidates:fn,writeDashboardApiBaseUrl:bn,writeDashboardApiToken:hn,writeDashboardCookieSessionConfigured:Mn,writeDashboardCsrfToken:gn,writeDashboardLocale:vn,writeDashboardRoute:Sn}=Q;function wn({data:o,onRefresh:L,selectedTaskId:G,onTaskSelect:N,selectedTaskPlanId:H,onTaskPlanSelect:K}){const q=te(o),W=oe(o),M=o.tasks.find(e=>e.id===G)??o.tasks[0],r=M?.id,d=o.taskPlans.find(e=>e.id===H)??o.taskPlans[0],i=d?.id,u=ie(d),P=re(o,i),p=ne(P),g=P?a(P,"summary"):void 0,R=_(g)?g:{},v=Number(R.completedSubtasks??0),S=Number(R.completionRate??0),k=i?o.teamRetrospectives.filter(e=>a(e,"sourceTaskPlan")===i):[],V=new Set(k.flatMap(e=>m(a(e,"proposedMemory")))),f=i?o.memoryProposals.filter(e=>V.has(e.id)||m(a(e,"evidence")).includes(`task-plan:${i}`)):[],w=i?o.automationRuns.filter(e=>a(e,"createdTaskPlan")===i):[],A=d?String(a(d,"project")??""):"",y=A?o.projects.find(e=>e.id===A):void 0,T=B(u.map(e=>String(a(e,"assignedMember")??"")).filter(Boolean)),D=B(u.map(e=>String(a(e,"assignment")??"")).filter(Boolean)),U=o.members.filter(e=>T.includes(e.id)),z=o.assignments.filter(e=>D.includes(e.id)),C=r?o.runs.filter(e=>a(e,"task")===r):[],E=r?o.reviews.filter(e=>a(e,"task")===r):[],b=r?o.memoryProposals.filter(e=>a(e,"sourceTask")===r):[],h=r?o.permissionRequests.filter(e=>a(e,"task")===r):[];async function Y(e){const F=window.prompt("Actor TeamMember for reviewed Run creation","frontend-human");if(!F)return;const j=m(a(e,"actionableEvidenceIds")),$=m(a(e,"sourceReviewRequest")).concat(m(a(e,"latestResolvedReviewRequest"))).filter((I,J,X)=>I&&X.indexOf(I)===J);if(!window.confirm(`Create a normal Run for ${e.id} with ${j.length} reviewed connector evidence item(s)?`))return;const O=await ae(`/connectors/operations/remediation-tasks/${encodeURIComponent(e.id)}/run`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({actorMember:F,reviewedEvidenceIds:j,reviewedReviewRequests:$,dryRun:!1})});if(!O.ok){window.alert(`Run creation failed: ${await O.text()}`);return}await L()}return l("div",{className:"grid two-wide-left",children:[t(c,{title:"Tasks",children:t(s,{records:o.tasks,columns:["project","assignedMember","assignment","status","priority","createdByMember"],selectedId:r,onSelect:e=>N(e.id)})}),t(c,{title:"Task Detail",children:t(x,{record:M})}),l(c,{title:"Task Main Path",full:!0,children:[l("div",{className:"metric-grid",children:[t(n,{label:"Runs",value:C.length}),t(n,{label:"Reviews",value:E.length}),t(n,{label:"Memory Proposals",value:b.length,tone:b.length?"warn":void 0}),t(n,{label:"Permission Requests",value:h.length,tone:h.length?"warn":void 0})]}),t(s,{records:C,columns:["project","member","assignment","mode","status","reviewTarget.type"]}),t(s,{records:E,columns:["project","task","run","reviewer","reviewerKind","verdict"]}),t(s,{records:b,columns:["project","member","assignment","sourceRun","kind","status","confidence"]}),t(s,{records:h,columns:["member","project","assignment","status","action","currentDecision.decision"]})]}),t(c,{title:"Task Plans",children:t(s,{records:o.taskPlans,columns:["project","createdByMember","status","subtasks","reviewGates"],selectedId:i,onSelect:e=>K(e.id)})}),t(c,{title:"TaskPlan Detail",children:t(x,{record:d})}),l(c,{title:"TaskPlan Main Path",full:!0,children:[l("div",{className:"metric-grid",children:[t(n,{label:"Subtasks",value:u.length}),t(n,{label:"Assigned Members",value:T.length}),t(n,{label:"Assignments",value:D.length}),t(n,{label:"Automation Runs",value:w.length})]}),t(s,{records:u,columns:["project","assignedMember","assignment","priority","acceptance","risks","reviewGates","dependsOn"]}),t(s,{records:w,columns:["automation","project","targetType","status","requestedByMember","serviceMember","summary"]}),t(s,{records:y?[y]:[],columns:["status","description"]}),t(s,{records:U,columns:["kind","profile.title","profile.status","skills"]}),t(s,{records:z,columns:["project","member","roleContext","modules","features","writeScopes"]})]}),l(c,{title:"Plan vs Actual",full:!0,children:[l("div",{className:"metric-grid",children:[t(n,{label:"Actual Subtasks",value:p.length}),t(n,{label:"Completed",value:v,tone:v===p.length?"ok":"warn"}),t(n,{label:"Completion Rate",value:se(S),tone:S>=1?"ok":"warn"}),t(n,{label:"Drift States",value:Object.keys(_(R.driftCounts)?R.driftCounts:{}).length}),t(n,{label:"Retrospectives",value:k.length,tone:k.length?"ok":void 0}),t(n,{label:"Memory Proposals",value:f.length,tone:f.length?"warn":void 0})]}),t(s,{records:p,columns:["title","assignedMember","actualState","drift","tasks","runs","reviews","memoryProposals","acceptanceCoverage.rate","reviewGateCoverage.reviews"]}),t(s,{records:k,columns:["project","facilitatorMember","sourceTaskPlan","sourceTasks","sourceRuns","proposedMemory","status"]}),t(s,{records:f,columns:["project","member","assignment","sourceRun","sourceTask","kind","status","confidence"]})]}),t(Z,{title:"Connector Remediation TaskPlans",taskPlans:q}),t(ee,{title:"Connector Remediation Materialized Tasks",tasks:W,onCreateRun:e=>void Y(e)})]})}export{wn as TasksPage};
+/**
+ * AITeamOS Dashboard - Task Management Page
+ */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ListTodo, Play, Plus, RotateCcw, Square, Trash2 } from "lucide-react";
+import {
+  Panel,
+  DataTable,
+  Definition,
+  FormField,
+  Status,
+  LoadingState,
+  ErrorState,
+  navigateTo,
+  ComboInput,
+  type Column,
+} from "../../components/shared";
+import { useToast } from "../../components/ui/use-toast";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Select } from "../../components/ui/select";
+import { Textarea } from "../../components/ui/textarea";
+import { Badge } from "../../components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
+import {
+  listTasks,
+  listDepartments,
+  listMembers,
+  getTaskDetail,
+  createTask,
+  assignTask,
+  startTaskRun,
+  cancelTask,
+  requeueTask,
+  deleteTask,
+  type TaskSummary,
+  type TaskDetail,
+  type DepartmentSummary,
+  type MemberSummary,
+} from "../../api/client";
+
+function stateBadgeVariant(state: string): "success" | "warning" | "secondary" | "danger" {
+  switch (state) {
+    case "done": return "success";
+    case "running":
+    case "verifying":
+    case "in_review":
+      return "warning";
+    case "failed":
+    case "cancelled":
+      return "danger";
+    default:
+      return "secondary";
+  }
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+}
+
+export function TaskPage({ selectedId }: { selectedId: string | null }) {
+  const [tasks, setTasks] = useState<TaskSummary[]>([]);
+  const [departments, setDepartments] = useState<DepartmentSummary[]>([]);
+  const [members, setMembers] = useState<MemberSummary[]>([]);
+  const [detail, setDetail] = useState<TaskDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [filterState, setFilterState] = useState("");
+  const [search, setSearch] = useState("");
+
+  const [formTitle, setFormTitle] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+  const [formDepartmentId, setFormDepartmentId] = useState("");
+  const [formPriority, setFormPriority] = useState("P2");
+  const [formDeliverableKind, setFormDeliverableKind] = useState("code_change");
+
+  const [showAssign, setShowAssign] = useState(false);
+  const [assignMemberId, setAssignMemberId] = useState("");
+
+  const deptName = useCallback((id: string | null) => {
+    if (!id) return "-";
+    const d = departments.find((dep) => dep.id === id);
+    return d ? d.name : id.length > 8 ? `${id.slice(0, 8)}...` : id;
+  }, [departments]);
+
+  const memberName = useCallback((id: string | null) => {
+    if (!id) return "-";
+    const m = members.find((mem) => mem.id === id);
+    return m ? m.display_name : id.length > 8 ? `${id.slice(0, 8)}...` : id;
+  }, [members]);
+
+  const filteredTasks = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return tasks.filter((task) => {
+      const matchesSearch = !needle
+        || task.title.toLowerCase().includes(needle)
+        || task.id.toLowerCase().includes(needle);
+      return matchesSearch;
+    });
+  }, [search, tasks]);
+
+  const columns: Column<TaskSummary>[] = [
+    { key: "title", label: "Name", render: (r) => r.title.length > 56 ? `${r.title.slice(0, 56)}...` : r.title },
+    { key: "state", label: "State", render: (r) => <Badge variant={stateBadgeVariant(r.state)}>{r.state}</Badge> },
+    { key: "priority", label: "Priority" },
+    { key: "assigned_member_id", label: "Assignee", render: (r) => memberName(r.assigned_member_id) },
+    { key: "department_id", label: "Department", render: (r) => deptName(r.department_id) },
+    { key: "retry_count", label: "Retries" },
+  ];
+
+  const loadList = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [t, d, m] = await Promise.all([
+        listTasks({ state: filterState || undefined, limit: 100 }),
+        listDepartments(0, 100),
+        listMembers({ limit: 100 }),
+      ]);
+      setTasks(t);
+      setDepartments(d);
+      setMembers(m);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load");
+    } finally {
+      setLoading(false);
+    }
+  }, [filterState]);
+
+  const loadDetail = useCallback(async (id: string) => {
+    setDetail(null);
+    setDetailError(null);
+    try {
+      setDetail(await getTaskDetail(id));
+    } catch (err) {
+      setDetail(null);
+      setDetailError(err instanceof Error ? err.message : "Failed to load task detail");
+    }
+  }, []);
+
+  useEffect(() => { loadList(); }, [loadList]);
+  useEffect(() => {
+    if (selectedId) {
+      loadDetail(selectedId);
+    } else {
+      setDetail(null);
+      setDetailError(null);
+    }
+  }, [selectedId, loadDetail]);
+
+  function handleSelect(row: TaskSummary) {
+    navigateTo("tasks", row.id);
+  }
+
+  const { toast } = useToast();
+
+  async function handleDelete() {
+    if (!detail) return;
+    if (!confirm(`Delete task "${detail.title}"? This cannot be undone.`)) return;
+    try {
+      await deleteTask(detail.id);
+      setDetail(null);
+      navigateTo("tasks");
+      toast({ title: "Task deleted" });
+      await loadList();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    }
+  }
+
+  async function handleCreate() {
+    if (!formTitle.trim() || !formDepartmentId) return;
+    const dept = departments.find((d) => d.name === formDepartmentId || d.id === formDepartmentId);
+    if (!dept) {
+      setError("Department not found");
+      return;
+    }
+    try {
+      const result = await createTask({
+        title: formTitle.trim(),
+        description: formDescription.trim(),
+        department_id: dept.id,
+        priority: formPriority,
+        deliverable_kind: formDeliverableKind,
+      });
+      setShowCreate(false);
+      setFormTitle("");
+      setFormDescription("");
+      setFormDepartmentId("");
+      await loadList();
+      navigateTo("tasks", result.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Create failed");
+    }
+  }
+
+  async function handleAssign() {
+    if (!detail || !assignMemberId) return;
+    const mem = members.find((m) => m.display_name === assignMemberId || m.id === assignMemberId);
+    if (!mem) {
+      setError("Member not found");
+      return;
+    }
+    try {
+      await assignTask(detail.id, mem.id);
+      setShowAssign(false);
+      setAssignMemberId("");
+      await loadList();
+      await loadDetail(detail.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Assign failed");
+    }
+  }
+
+  async function handleStart() {
+    if (!detail) return;
+    try {
+      await startTaskRun(detail.id);
+      await loadList();
+      await loadDetail(detail.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Start failed");
+    }
+  }
+
+  async function handleCancel() {
+    if (!detail) return;
+    try {
+      await cancelTask(detail.id);
+      await loadList();
+      await loadDetail(detail.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed");
+    }
+  }
+
+  async function handleRequeue() {
+    if (!detail) return;
+    try {
+      await requeueTask(detail.id);
+      await loadList();
+      await loadDetail(detail.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Requeue failed");
+    }
+  }
+
+  const readyCount = tasks.filter((t) => t.state === "ready").length;
+  const runningCount = tasks.filter((t) => t.state === "running").length;
+  const doneCount = tasks.filter((t) => t.state === "done").length;
+
+  return (
+    <div className="space-y-6">
+      <Panel title="Tasks">
+        <div className="mb-4 flex flex-wrap items-center gap-4">
+          <Status label="Ready" value={readyCount} />
+          <Status label="Running" value={runningCount} tone={runningCount > 0 ? "warn" : undefined} />
+          <Status label="Done" value={doneCount} tone="ok" />
+          <Status label="Visible" value={filteredTasks.length} />
+        </div>
+
+        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_12rem_auto]">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks" />
+          <Select value={filterState} onChange={(e) => setFilterState(e.target.value)}>
+            <option value="">All States</option>
+            <option value="draft">Draft</option>
+            <option value="ready">Ready</option>
+            <option value="assigned">Assigned</option>
+            <option value="running">Running</option>
+            <option value="verifying">Verifying</option>
+            <option value="in_review">In Review</option>
+            <option value="done">Done</option>
+            <option value="failed">Failed</option>
+            <option value="cancelled">Cancelled</option>
+          </Select>
+          <Button variant="recommended" onClick={() => setShowCreate(!showCreate)}>
+            {showCreate ? "Cancel" : <><Plus className="h-4 w-4" />Create Task</>}
+          </Button>
+        </div>
+
+        {error && <ErrorState message={error} />}
+
+        {showCreate && (
+          <div className="mb-4 grid gap-4 rounded-md border p-4 lg:grid-cols-2">
+            <FormField label="Task Name" wide>
+              <Input value={formTitle} onChange={(e) => setFormTitle(e.target.value)} placeholder="Unique task name" />
+            </FormField>
+            <FormField label="Department">
+              <ComboInput
+                value={formDepartmentId}
+                onChange={setFormDepartmentId}
+                options={departments.map((d) => ({ value: d.name, label: d.name }))}
+                placeholder="Select or type department name"
+              />
+            </FormField>
+            <FormField label="Priority">
+              <Select value={formPriority} onChange={(e) => setFormPriority(e.target.value)}>
+                <option value="P0">P0 - Critical</option>
+                <option value="P1">P1 - High</option>
+                <option value="P2">P2 - Medium</option>
+                <option value="P3">P3 - Low</option>
+              </Select>
+            </FormField>
+            <FormField label="Deliverable Kind">
+              <Select value={formDeliverableKind} onChange={(e) => setFormDeliverableKind(e.target.value)}>
+                <option value="code_change">Code Change</option>
+                <option value="document">Document</option>
+                <option value="design">Design</option>
+                <option value="config">Configuration</option>
+              </Select>
+            </FormField>
+            <FormField label="Description" wide>
+              <Textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="Describe what needs to be done..." />
+            </FormField>
+            <div className="col-span-full flex items-center gap-2">
+              <Button variant="recommended" disabled={!formTitle.trim() || !formDepartmentId} onClick={handleCreate}>
+                <Plus className="h-4 w-4" />Create
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <DataTable data={filteredTasks} columns={columns} selectedId={selectedId ?? undefined} onSelect={handleSelect} />
+        )}
+      </Panel>
+
+      <Dialog open={Boolean(selectedId)} onOpenChange={(open) => { if (!open) navigateTo("tasks"); }}>
+        <DialogContent className="block max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-5xl overflow-hidden p-0">
+          {detailError && (
+            <div className="space-y-4 p-6">
+              <DialogHeader>
+                <DialogTitle>Task Details</DialogTitle>
+                <DialogDescription>Task detail could not be loaded.</DialogDescription>
+              </DialogHeader>
+              <ErrorState message={detailError} />
+            </div>
+          )}
+          {!detail && !detailError && (
+            <div className="space-y-4 p-6">
+              <DialogHeader>
+                <DialogTitle>Task Details</DialogTitle>
+                <DialogDescription>Loading task detail.</DialogDescription>
+              </DialogHeader>
+              <LoadingState />
+            </div>
+          )}
+          {detail && (
+            <div className="flex max-h-[calc(100vh-2rem)] flex-col">
+              <div className="border-b px-6 py-5">
+                <DialogHeader>
+                  <DialogTitle className="flex flex-wrap items-center gap-3 text-xl">
+                    <ListTodo className="h-5 w-5 text-muted-foreground" />
+                    <span>{detail.title}</span>
+                    <Badge variant={stateBadgeVariant(detail.state)}>{detail.state}</Badge>
+                  </DialogTitle>
+                  <DialogDescription>{detail.priority} in {deptName(detail.department_id)}</DialogDescription>
+                </DialogHeader>
+              </div>
+              <div className="overflow-y-auto px-6 py-5">
+                <Tabs defaultValue="overview" className="space-y-5">
+                  <TabsList className="flex h-auto flex-wrap justify-start">
+                    <TabsTrigger value="overview">Overview</TabsTrigger>
+                    <TabsTrigger value="description">Description</TabsTrigger>
+                    <TabsTrigger value="runs">Runs</TabsTrigger>
+                    <TabsTrigger value="actions">Actions</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="overview">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      <Definition label="Name" value={detail.title} />
+                      <Definition label="State" value={<Badge variant={stateBadgeVariant(detail.state)}>{detail.state}</Badge>} />
+                      <Definition label="Priority" value={detail.priority} />
+                      <Definition label="Department" value={deptName(detail.department_id)} />
+                      <Definition label="Assignee" value={memberName(detail.assigned_member_id)} />
+                      <Definition label="Deliverable Kind" value={detail.deliverable_kind || "-"} />
+                      <Definition label="Retry Count" value={`${detail.retry_count} / ${detail.max_retry_count}`} />
+                      <Definition label="Review Rounds" value={`${detail.review_round} / ${detail.max_review_rounds}`} />
+                      <Definition label="Created" value={formatDate(detail.created_at)} />
+                      <Definition label="Task ID" value={detail.id} />
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="description">
+                    {detail.description ? (
+                      <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{detail.description}</pre>
+                    ) : (
+                      <div className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No description</div>
+                    )}
+                  </TabsContent>
+                  <TabsContent value="runs">
+                    {detail.runs?.length ? (
+                      <div className="divide-y rounded-md border">
+                        {detail.runs.map((run) => (
+                          <div key={run.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                            <span className="font-medium">{run.id}</span>
+                            <span className="flex items-center gap-2">
+                              <Badge variant="secondary">{run.state}</Badge>
+                              <span className="text-muted-foreground">{formatDate(run.started_at)}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No runs</div>
+                    )}
+                  </TabsContent>
+                  <TabsContent value="actions">
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(detail.state === "ready" || detail.state === "draft") && !showAssign && (
+                          <Button variant="outline" onClick={() => setShowAssign(true)}><UsersIcon />Assign</Button>
+                        )}
+                        {detail.state === "assigned" && (
+                          <Button variant="recommended" onClick={handleStart}><Play className="h-4 w-4" />Start Run</Button>
+                        )}
+                        {detail.state === "failed" && (
+                          <Button variant="outline" onClick={handleRequeue}><RotateCcw className="h-4 w-4" />Requeue</Button>
+                        )}
+                        {!["done", "cancelled", "failed"].includes(detail.state) && (
+                          <Button variant="outline" onClick={handleCancel}><Square className="h-4 w-4" />Cancel</Button>
+                        )}
+                        <Button variant="outline" onClick={handleDelete} className="border-destructive text-destructive">
+                          <Trash2 className="h-4 w-4" />Delete
+                        </Button>
+                      </div>
+                      {showAssign && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <ComboInput
+                            value={assignMemberId}
+                            onChange={setAssignMemberId}
+                            options={members.map((m) => ({ value: m.display_name, label: `${m.display_name} (${m.kind})` }))}
+                            placeholder="Select or type member name"
+                            className="w-64"
+                          />
+                          <Button variant="recommended" onClick={handleAssign}>Confirm</Button>
+                          <Button variant="outline" onClick={() => { setShowAssign(false); setAssignMemberId(""); }}>Cancel</Button>
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function UsersIcon() {
+  return <ListTodo className="h-4 w-4" />;
+}
