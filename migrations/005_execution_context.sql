@@ -8,7 +8,43 @@
 --   task_deliverable       — 交付物记录
 --   task_dependency        — Task 依赖关系
 --   task_project           — Task ↔ Project 多对多
+--   llm_model              — Neutral LLM catalog
+--   agent_profile          — Neutral Agent catalog
 -- =========================================================================
+
+CREATE TABLE llm_model (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name                    TEXT NOT NULL UNIQUE,
+    provider                TEXT NOT NULL DEFAULT '',
+    model_id                TEXT NOT NULL DEFAULT '',
+    endpoint_type           TEXT NOT NULL DEFAULT 'chat',
+    context_window          INT NOT NULL DEFAULT 0,
+    max_output_tokens       INT NOT NULL DEFAULT 0,
+    supports_tools          BOOLEAN NOT NULL DEFAULT FALSE,
+    supports_json           BOOLEAN NOT NULL DEFAULT FALSE,
+    input_cost_per_1m       NUMERIC(12, 6) NOT NULL DEFAULT 0,
+    output_cost_per_1m      NUMERIC(12, 6) NOT NULL DEFAULT 0,
+    capability_tags         TEXT[] NOT NULL DEFAULT '{}',
+    status                  TEXT NOT NULL DEFAULT 'active',
+    notes                   TEXT NOT NULL DEFAULT '',
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE agent_profile (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name                    TEXT NOT NULL UNIQUE,
+    description             TEXT NOT NULL DEFAULT '',
+    runtime_kind            TEXT NOT NULL DEFAULT 'llm_agent',
+    default_llm_model_id    UUID REFERENCES llm_model(id) ON DELETE SET NULL,
+    system_prompt           TEXT NOT NULL DEFAULT '',
+    tool_names              TEXT[] NOT NULL DEFAULT '{}',
+    memory_policy           JSONB NOT NULL DEFAULT '{}'::jsonb,
+    safety_policy           JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status                  TEXT NOT NULL DEFAULT 'active',
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE task (
     id                  VARCHAR(32) PRIMARY KEY,  -- TASK-YYYYMMDDTHHMMSSmmm-XXXX
@@ -23,6 +59,8 @@ CREATE TABLE task (
     declared_memory_hints UUID[] DEFAULT '{}',
     budget              JSONB NOT NULL DEFAULT '{}',
     assigned_member_id  UUID,
+    assigned_llm_model_id UUID REFERENCES llm_model(id) ON DELETE SET NULL,
+    assigned_agent_profile_id UUID REFERENCES agent_profile(id) ON DELETE SET NULL,
     retry_count         INT NOT NULL DEFAULT 0,
     review_round        INT NOT NULL DEFAULT 0,
     workflow_id         VARCHAR(128),
@@ -31,6 +69,8 @@ CREATE TABLE task (
 );
 CREATE INDEX idx_task_state ON task(state);
 CREATE INDEX idx_task_member ON task(assigned_member_id) WHERE assigned_member_id IS NOT NULL;
+CREATE INDEX idx_task_llm_model ON task(assigned_llm_model_id) WHERE assigned_llm_model_id IS NOT NULL;
+CREATE INDEX idx_task_agent_profile ON task(assigned_agent_profile_id) WHERE assigned_agent_profile_id IS NOT NULL;
 
 CREATE TABLE task_run (
     run_id          UUID PRIMARY KEY,

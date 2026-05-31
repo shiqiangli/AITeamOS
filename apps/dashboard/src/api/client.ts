@@ -100,11 +100,17 @@ export interface MemoryDetail {
   created_at: string;
 }
 
+export interface MemoryLifecycleResponse {
+  id: string;
+  lifecycle_state: string;
+}
+
 export interface MemoryVersion {
-  version: number;
-  title: string;
-  statement: string;
-  created_at: string;
+  version_no: number;
+  diff: unknown;
+  reason: string | null;
+  author_member_id: string | null;
+  created_at: string | null;
 }
 
 export interface CreateMemoryPayload {
@@ -172,12 +178,12 @@ export function updateMemory(id: string, payload: UpdateMemoryPayload): Promise<
 
 export function changeMemoryLifecycle(
   id: string,
-  action: string,
+  newState: string,
   reason?: string,
-): Promise<MemoryDetail> {
-  return apiRequest<MemoryDetail>(`/memories/${encodeURIComponent(id)}/lifecycle`, {
+): Promise<MemoryLifecycleResponse> {
+  return apiRequest<MemoryLifecycleResponse>(`/memories/${encodeURIComponent(id)}/lifecycle`, {
     method: "PATCH",
-    body: { action, reason },
+    body: { new_state: newState, reason },
   });
 }
 
@@ -517,6 +523,131 @@ export function assignMemberToProject(projectId: string, memberId: string, role?
   });
 }
 
+// ─── Runtime Resource types ─────────────────────────────────────────────────
+
+export interface LlmModelSummary {
+  id: string;
+  name: string;
+  provider: string;
+  model_id: string;
+  endpoint_type: string;
+  context_window: number | null;
+  max_output_tokens: number | null;
+  supports_tools: boolean;
+  supports_json: boolean;
+  input_cost_per_1m: number | null;
+  output_cost_per_1m: number | null;
+  capability_tags: string[];
+  status: string;
+  notes: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export type LlmModelDetail = LlmModelSummary;
+
+export interface CreateLlmModelPayload {
+  name: string;
+  provider: string;
+  model_id: string;
+  endpoint_type?: string;
+  context_window?: number;
+  max_output_tokens?: number;
+  supports_tools?: boolean;
+  supports_json?: boolean;
+  input_cost_per_1m?: number;
+  output_cost_per_1m?: number;
+  capability_tags?: string[];
+  status?: string;
+  notes?: string;
+}
+
+export interface AgentProfileSummary {
+  id: string;
+  name: string;
+  description: string;
+  runtime_kind: string;
+  default_llm_model_id: string | null;
+  system_prompt: string;
+  tool_names: string[];
+  memory_policy: Record<string, unknown>;
+  safety_policy: Record<string, unknown>;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export type AgentProfileDetail = AgentProfileSummary;
+
+export interface CreateAgentProfilePayload {
+  name: string;
+  description?: string;
+  runtime_kind?: string;
+  default_llm_model_id?: string;
+  system_prompt?: string;
+  tool_names?: string[];
+  memory_policy?: Record<string, unknown>;
+  safety_policy?: Record<string, unknown>;
+  status?: string;
+}
+
+export interface ListRuntimeResourcesParams {
+  status?: string;
+  name_filter?: string;
+  offset?: number;
+  limit?: number;
+}
+
+export interface AssignTaskRuntimePayload {
+  llm_model_id?: string | null;
+  agent_profile_id?: string | null;
+}
+
+export interface AssignTaskRuntimeResponse {
+  id: string;
+  assigned_llm_model_id: string | null;
+  assigned_agent_profile_id: string | null;
+  status: string;
+}
+
+// ─── Runtime Resource API ───────────────────────────────────────────────────
+
+export function listLlmModels(params: ListRuntimeResourcesParams = {}): Promise<LlmModelSummary[]> {
+  const qs = buildQueryString(params);
+  return apiRequest<LlmModelSummary[]>(`/llm-models${qs}`);
+}
+
+export function getLlmModelDetail(id: string): Promise<LlmModelDetail> {
+  return apiRequest<LlmModelDetail>(`/llm-models/${encodeURIComponent(id)}`);
+}
+
+export function createLlmModel(payload: CreateLlmModelPayload): Promise<LlmModelDetail> {
+  return apiRequest<LlmModelDetail>("/llm-models", { method: "POST", body: payload });
+}
+
+export function listAgentProfiles(params: ListRuntimeResourcesParams = {}): Promise<AgentProfileSummary[]> {
+  const qs = buildQueryString(params);
+  return apiRequest<AgentProfileSummary[]>(`/agent-profiles${qs}`);
+}
+
+export function getAgentProfileDetail(id: string): Promise<AgentProfileDetail> {
+  return apiRequest<AgentProfileDetail>(`/agent-profiles/${encodeURIComponent(id)}`);
+}
+
+export function createAgentProfile(payload: CreateAgentProfilePayload): Promise<AgentProfileDetail> {
+  return apiRequest<AgentProfileDetail>("/agent-profiles", { method: "POST", body: payload });
+}
+
+export function assignTaskRuntime(
+  taskId: string,
+  payload: AssignTaskRuntimePayload,
+): Promise<AssignTaskRuntimeResponse> {
+  return apiRequest<AssignTaskRuntimeResponse>(`/tasks/${encodeURIComponent(taskId)}/runtime`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
 // ─── Governance types ────────────────────────────────────────────────────────
 
 export interface ReviewCaseSummary {
@@ -524,16 +655,23 @@ export interface ReviewCaseSummary {
   target_kind: string;
   target_id: string;
   reviewer_member_id: string;
+  status?: string;
   verdict: string | null;
   reason: string | null;
+  correction?: string | null;
   decision_at: string | null;
-  created_at: string;
+  created_at: string | null;
 }
 
 export interface CreateReviewPayload {
   target_kind: string;
   target_id: string;
   reviewer_member_id: string;
+}
+
+export interface CreateReviewResponse {
+  id: string;
+  status: string;
 }
 
 export interface DecideReviewPayload {
@@ -548,10 +686,13 @@ export interface ConflictCaseSummary {
   memory_b_id: string;
   conflict_kind: string;
   detected_by: string;
+  status?: string;
   resolution: string | null;
   winner_id: string | null;
   resolved_by: string | null;
-  created_at: string;
+  created_at?: string | null;
+  detected_at?: string | null;
+  resolved_at?: string | null;
 }
 
 export interface ReportConflictPayload {
@@ -564,7 +705,7 @@ export interface ReportConflictPayload {
 export interface ResolveConflictPayload {
   resolution: string;
   winner_id?: string;
-  resolved_by: string;
+  resolved_by?: string;
 }
 
 // ─── Governance API ──────────────────────────────────────────────────────────
@@ -574,12 +715,13 @@ export function listPendingReviews(): Promise<ReviewCaseSummary[]> {
 }
 
 export function getReviewsByTarget(targetKind: string, targetId: string): Promise<ReviewCaseSummary[]> {
-  const qs = buildQueryString({ target_kind: targetKind, target_id: targetId });
-  return apiRequest<ReviewCaseSummary[]>(`/reviews${qs}`);
+  return apiRequest<ReviewCaseSummary[]>(
+    `/reviews/by-target/${encodeURIComponent(targetKind)}/${encodeURIComponent(targetId)}`,
+  );
 }
 
-export function createReview(payload: CreateReviewPayload): Promise<ReviewCaseSummary> {
-  return apiRequest<ReviewCaseSummary>("/reviews", { method: "POST", body: payload });
+export function createReview(payload: CreateReviewPayload): Promise<CreateReviewResponse> {
+  return apiRequest<CreateReviewResponse>("/reviews", { method: "POST", body: payload });
 }
 
 export function decideReview(id: string, payload: DecideReviewPayload): Promise<ReviewCaseSummary> {
@@ -668,6 +810,8 @@ export interface TaskSummary {
   state: string;
   priority: string;
   assigned_member_id: string | null;
+  assigned_llm_model_id: string | null;
+  assigned_agent_profile_id: string | null;
   department_id: string | null;
   retry_count: number;
   review_round: number;
@@ -682,6 +826,8 @@ export interface TaskDetail {
   priority: string;
   department_id: string;
   assigned_member_id: string | null;
+  assigned_llm_model_id: string | null;
+  assigned_agent_profile_id: string | null;
   project_ids: string[];
   parent_task_id: string | null;
   declared_skills: string[];

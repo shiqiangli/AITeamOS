@@ -9,12 +9,12 @@ import { type ReactNode, useId } from "react";
 import {
   LayoutDashboard,
   Brain,
+  Bot,
   Wrench,
   Users,
   Building2,
   FolderKanban,
   ListTodo,
-  ClipboardCheck,
   BarChart3,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
@@ -294,10 +294,10 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "home", label: "Home", icon: LayoutDashboard },
   { key: "memories", label: "Memories", icon: Brain },
   { key: "skills", label: "Skills", icon: Wrench },
+  { key: "agents", label: "Agents", icon: Bot },
   { key: "members", label: "Members", icon: Users },
   { key: "departments", label: "Departments", icon: Building2 },
   { key: "projects", label: "Projects", icon: FolderKanban },
   { key: "tasks", label: "Tasks", icon: ListTodo },
-  { key: "reviews", label: "Reviews", icon: ClipboardCheck },
   { key: "metrics", label: "Metrics", icon: BarChart3 },
 ];

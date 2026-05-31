@@ -23,6 +23,8 @@ class TaskSummary:
     retry_count: int
     review_round: int
     created_at: Any
+    assigned_llm_model_id: str | None = None
+    assigned_agent_profile_id: str | None = None
 
 
 class TaskReadRepoLike(Protocol):

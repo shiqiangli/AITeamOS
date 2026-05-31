@@ -18,6 +18,7 @@ Scripts are numbered and must be applied in order:
 10. `010_unique_name_constraints.sql` — Human-readable member, department, project uniqueness
 11. `011_global_unique_names.sql` — Global name uniqueness for UI addressable resources
 12. `012_general_skill_fields.sql` — General neutral Skill attributes
+13. `013_agent_runtime_context.sql` — Neutral LLM/Agent catalog and task runtime selection
 
 ## Applying
 

@@ -155,11 +155,13 @@ describe("Shared Components", () => {
       expect(keys).toContain("home");
       expect(keys).toContain("memories");
       expect(keys).toContain("skills");
+      expect(keys).toContain("agents");
       expect(keys).toContain("members");
       expect(keys).toContain("departments");
       expect(keys).toContain("projects");
-      expect(keys).toContain("reviews");
+      expect(keys).toContain("tasks");
       expect(keys).toContain("metrics");
+      expect(keys).not.toContain("reviews");
     });
 
     it("should have labels for all items", () => {

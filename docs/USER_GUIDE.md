@@ -16,11 +16,12 @@
 8. [Tasks — 任务管理](#tasks--任务管理)
 9. [Memories — 经验管理](#memories--经验管理)
 10. [Skills — 能力管理](#skills--能力管理)
-11. [Reviews — 审查与治理](#reviews--审查与治理)
-12. [Metrics — 系统度量](#metrics--系统度量)
-13. [Home — 总览仪表盘](#home--总览仪表盘)
-14. [删除与安全约束](#删除与安全约束)
-15. [常见操作场景](#常见操作场景)
+11. [Agents — Agent / LLM 运行时配置](#agents--agent--llm-运行时配置)
+12. [Memory Review — 审查与治理](#memory-review--审查与治理)
+13. [Metrics — 系统度量](#metrics--系统度量)
+14. [Home — 总览仪表盘](#home--总览仪表盘)
+15. [删除与安全约束](#删除与安全约束)
+16. [常见操作场景](#常见操作场景)
 
 ---
 
@@ -64,8 +65,9 @@ Dashboard 是管理员操作系统的统一入口，覆盖从组织架构搭建�
 4. 创建 Task（任务）         ← 在部门下创建任务并分配给成员
 5. 管理 Memory（经验）       ← 沉淀和管理团队知识
 6. 注册 Skill（技能）        ← 登记可复用的能力组件
-7. 通过 Reviews 审查         ← 审核提案、处理冲突
-8. 查看 Metrics 度量         ← 监控系统健康度
+7. 配置 Agent / LLM          ← 为 AI Member 选择执行运行时
+8. 在 Memory 详情中审查       ← 审核提案、处理冲突
+9. 查看 Metrics 度量         ← 监控系统健康度
 ```
 
 ---
@@ -79,11 +81,11 @@ Dashboard 左侧为固定侧边栏，包含以下导航项：
 | 仪表盘 | **Home** | 系统总览，快速查看各项指标和最近活动 |
 | 大脑 | **Memories** | 管理团队的经验和知识 |
 | 扳手 | **Skills** | 管理可复用的能力组件 |
+| 机器人 | **Agents** | 管理中性的 Agent Profile 与 LLM 模型 |
 | 用户 | **Members** | 管理团队成员（人类和 AI） |
 | 建筑 | **Departments** | 管理组织架构中的部门 |
 | 文件夹 | **Projects** | 管理项目 |
 | 清单 | **Tasks** | 管理任务及其生命周期 |
-| 剪贴板 | **Reviews** | 审查、提案和冲突管理 |
 | 图表 | **Metrics** | 系统度量和健康监控 |
 
 所有页面通过浏览器访问 `http://localhost:5173`。
@@ -143,7 +145,7 @@ Dashboard 左侧为固定侧边栏，包含以下导航项：
 ### 分配技能
 
 1. 在详情面板中点击 **Assign Skill**
-2. 输入 Skill ID
+2. 从下拉菜单选择 Skill 名称，也可以手动输入唯一的 Skill 名称
 3. 点击 **Confirm**
 
 ### 删除成员
@@ -221,6 +223,8 @@ draft → ready → assigned → running → verifying → in_review → done
    - **Title**（必填）：任务标题
    - **Description**（可选）：任务描述
    - **Department**（必填）：从下拉菜单选择部门
+   - **Agent**（可选）：从下拉菜单选择 Agent Profile，或手动输入 Agent 名称
+   - **LLM**（可选）：从下拉菜单选择模型；为空时使用 Agent 的默认 LLM
    - **Priority**：优先级，P0（最高）到 P3（最低），默认 P2
    - **Deliverable Kind**：产出类型，可选 `Code Change`、`Document`、`Design`、`Configuration`
 3. 点击 **Create**
@@ -230,6 +234,7 @@ draft → ready → assigned → running → verifying → in_review → done
 在详情面板中，根据当前状态可以执行不同操作：
 
 - **Assign**（draft/ready 状态）：将任务分配给成员
+- **Runtime**：调整该任务绑定的 Agent / LLM
 - **Start Run**（assigned 状态）：启动任务执行
 - **Requeue**（failed 状态）：将失败的任务重新排队为 ready
 - **Cancel**：取消未结束的任务
@@ -309,9 +314,15 @@ Skill 代表可复用的能力组件，是无状态的通用能力，可跨项�
 1. 点击 **Register Skill** 按钮
 2. 填写以下信息：
    - **Skill Name**（必填）：技能名称
-   - **Version**：版本号，默认 `0.1.0`
-   - **Entry Point**（可选）：入口函数，格式如 `module:function`
-   - **Capability Tags**（可选）：能力标签，逗号分隔，如 `nlp, classification`
+   - **Version**：版本号，默认 `1.0.0`
+   - **Domain**：能力领域，如 `compiler`、`frontend`、`ops`
+   - **Description**：能力说明，描述这个 Skill 能解决什么问题
+   - **Inputs / Outputs**：输入要求与输出承诺
+   - **Preconditions**：调用前置条件
+   - **Side Effects**：副作用声明，建议按 `resource_kind:resource_pattern:mutation_kind` 分行填写
+   - **Required Permissions**：需要的权限
+   - **Capability Tags**：能力标签，逗号或换行分隔，如 `compiler, optimization`
+   - **Examples / References / Quality Signals**：示例、参考资料和质量信号
 3. 点击 **Register**
 
 ### Skill 生命周期
@@ -330,67 +341,101 @@ Skill 代表可复用的能力组件，是无状态的通用能力，可跨项�
 ### 关键字段
 
 - **Circuit State**：熔断状态，当 Skill 连续失败时自动熔断保护
-- **Owner**：负责该 Skill 的成员
-- **Manifest**：Skill 的配置清单（JSON 格式）
+- **Inputs / Outputs / Preconditions**：接口和调用约束
+- **Side Effects / Permissions**：执行副作用和权限边界
+- **Examples / References / Quality Signals**：帮助成员理解和评估该能力
 
 ---
 
-## Reviews — 审查与治理
+## Agents — Agent / LLM 运行时配置
 
-**路径**：侧边栏 → Reviews
+**路径**：侧边栏 → Agents
 
-审查页面包含三个子标签，涵盖系统的治理功能。
+Agents 页面用于维护中性的 AI 执行运行时配置。它不代表具体成员，而是供 Task 选择的执行策略和模型资源。
 
-### Reviews（审查）
+### 配置 LLM
 
-管理对 Memory 候选、任务产出等的审核。
+1. 点击 **Create LLM**
+2. 填写以下信息：
+   - **LLM Name**（必填）：模型在系统内的唯一名称
+   - **Provider**（必填）：模型提供方，如 `openai`、`anthropic`、`local`
+   - **Provider Model ID**（必填）：供应商模型 ID
+   - **Endpoint**：调用类型，如 `Chat`、`Responses`、`Completion`、`Embedding`
+   - **Context Window / Max Output Tokens**：上下文与输出上限
+   - **Supports tools / Supports JSON**：模型能力开关
+   - **Input Cost / Output Cost**：成本记录，便于后续预算控制
+   - **Capability Tags**：适用能力标签
+3. 点击 **Create**
 
-**创建审查**：
-1. 点击 **Create Review** 按钮
-2. 选择 **Target Kind**（审查对象类型）：
-   - `Memory Candidate`：Memory 候选
-   - `Task Deliverable`：任务产出
-   - `Memory Promotion`：Memory 层级提升
-3. 选择 **Target**：从 Memory 列表中选择审查对象
-4. 选择 **Reviewer**：从成员列表中选择审查人
-5. 点击 **Create**
+### 配置 Agent
 
-**审核审查**：
-点击一个 pending 状态的审查，在右侧面板中：
-1. 选择 **Verdict**（裁决）：
+1. 点击 **Create Agent**
+2. 填写以下信息：
+   - **Agent Name**（必填）：Agent Profile 在系统内的唯一名称
+   - **Runtime Kind**：运行时类型，默认 `llm_agent`
+   - **Default LLM**：默认使用的 LLM，可下拉选择或手动输入 LLM 名称
+   - **Description**：Agent 的用途与工作方式
+   - **System Prompt**：该 Agent 的系统级执行提示
+   - **Tool Names**：可用工具名称
+   - **Memory Policy / Safety Policy**：JSON 形式的记忆与安全策略
+3. 点击 **Create**
+
+### 在 Task 中使用 Agent / LLM
+
+1. 进入 **Tasks**
+2. 创建 Task 时填写 **Agent**，可选填 **LLM**
+3. 如果只填 Agent，系统会自动使用 Agent 的 Default LLM
+4. 如果同时填写 LLM，则以 Task 中显式选择的 LLM 为准
+5. 在 Task 详情弹窗的 **Actions** tab 中点击 **Runtime**，可以重新绑定 Agent / LLM
+
+---
+
+## Memory Review — 审查与治理
+
+**路径**：侧边栏 → Memories → 打开某条 Memory → Review tab
+
+Memory 的审核、提案和冲突治理都在 Memory 详情弹窗内完成，避免从独立 Review 页面跳转造成上下文丢失。
+
+### 审核 Memory
+
+在 Memory 详情的 **Review** tab 中：
+1. 查看 **Review Settlement** 区块
+2. 选择 Reviewer
+3. 对候选或待确认 Memory 点击：
    - `Approve`：通过
    - `Reject`：拒绝
    - `Merge`：合并
    - `Revise`：需要修改
-2. 填写 **Reason**（裁决理由）
-3. 如果是 Reject 或 Revise，可填写 **Correction**（修改建议）
-4. 点击 **Submit Decision**
+4. 填写 Reason 和 Correction（如适用）
+5. 系统会记录 Review Case，并在批准时把 Memory settle 到目标状态
 
 ### Proposals（提案）
 
-展示系统自动产生的 Memory 候选（candidate 状态的 Memory），等待管理员审批。
+在 Memory 页面可以看到 candidate 状态的提案。点击某条 Memory 后，直接在详情弹窗的 **Review** tab 中完成审核。
 
-列表显示所有待审批的提案，包含标题、层级、置信度和作用域。点击可查看详细信息。
+列表显示待审批提案的标题、层级、置信度和作用域。
 
 ### Conflicts（冲突）
 
-管理 Memory 之间的矛盾。
+Memory 冲突也在 Memory 详情的 **Review** tab 中处理。
 
 **报告冲突**：
-1. 点击 **Report Conflict** 按钮
-2. 选择 **Memory A** 和 **Memory B**（冲突的两条 Memory）
-3. 选择 **Conflict Kind**（冲突类型）：
+1. 打开某条 Memory
+2. 进入 **Review** tab
+3. 点击 **Report Conflict**
+4. 选择 **Memory A** 和 **Memory B**（冲突的两条 Memory）
+5. 选择 **Conflict Kind**（冲突类型）：
    - `Semantic`：语义冲突
    - `Contradiction`：矛盾
    - `Scope Overlap`：作用域重叠
-4. 选择 **Detected By**（检测方式）：
+6. 选择 **Detected By**（检测方式）：
    - `Embedding Similarity`：向量相似度检测
    - `Manual Report`：人工报告
    - `Reflection Engine`：反思引擎检测
-5. 点击 **Report**
+7. 点击 **Report**
 
 **解决冲突**：
-点击一个未解决的冲突，在右侧面板中：
+在 Memory 详情的冲突列表中点击一个未解决冲突：
 1. 选择 **Resolution**（解决方式）：
    - `Keep A`：保留 Memory A
    - `Keep B`：保留 Memory B
@@ -489,9 +534,11 @@ Task → Review/Conflict → Project → Member → Skill → Memory → Departm
 ```
 1. 创建项目 "Website Redesign"，归入 Engineering 部门
 2. 将 Alice 和 CodeBot 分配到该项目
-3. 创建任务 "Design new homepage"，归入 Engineering，优先级 P1
-4. 将任务分配给 CodeBot
-5. 启动任务执行（Start Run）
+3. 配置 LLM "Local Code Model" 或供应商模型
+4. 配置 Agent "Frontend Agent"，选择默认 LLM
+5. 创建任务 "Design new homepage"，归入 Engineering，优先级 P1，并选择 Frontend Agent
+6. 将任务分配给 CodeBot
+7. 启动任务执行（Start Run）
 ```
 
 ### 场景三：沉淀团队经验
@@ -500,8 +547,8 @@ Task → Review/Conflict → Project → Member → Skill → Memory → Departm
 1. 创建 Memory，Tier 选 Patterns，标题 "连接池配置经验"
 2. 填写 Statement："当并发超过 100 时，PostgreSQL 连接池应调整为 max_connections * 0.8"
 3. 设置 Scope 为 Project，关联到具体项目
-4. 在 Reviews 页面审核候选 Memory，Approve 有价值的提案
-5. 在 Conflicts 页面处理矛盾的 Memory，保持知识库一致性
+4. 打开该 Memory 的详情，在 Review tab 中 Approve 有价值的提案
+5. 在 Memory 详情的 Review tab 中处理矛盾 Memory，保持知识库一致性
 ```
 
 ### 场景四：监控团队健康度
@@ -510,7 +557,7 @@ Task → Review/Conflict → Project → Member → Skill → Memory → Departm
 1. 在 Home 页面查看任务运行状态和 Memory 概况
 2. 在 Metrics 页面关注 First Pass Rate（首次通过率）
 3. 检查 Open Conflicts 是否过多
-4. 在 Reviews → Proposals 中检查是否有积压的候选 Memory
+4. 在 Memories 中筛选 candidate 状态，检查是否有积压的候选 Memory
 5. 在 Metrics → Memory Health 中关注 Needs Verify 数量
 ```
 

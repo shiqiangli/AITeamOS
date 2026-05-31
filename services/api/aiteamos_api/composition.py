@@ -97,8 +97,8 @@ from aiteamos_execution.infrastructure.repository import PostgresTaskRepository
 from aiteamos_execution.infrastructure.event_publisher import ExecutionEventPublisher
 
 from .acl_bridges import RecallEngineKnowledgeACL, SqlCapabilityACL
-from .command import memory_commands, member_commands, skill_commands, task_commands, delete_routes
-from .read import member_routes, memory_routes, metrics_routes, skill_routes, task_routes
+from .command import memory_commands, member_commands, skill_commands, task_commands, runtime_commands, delete_routes
+from .read import member_routes, memory_routes, metrics_routes, skill_routes, task_routes, runtime_routes
 
 logger = logging.getLogger(__name__)
 
@@ -398,6 +398,8 @@ def register_routes(app: FastAPI, container: ServiceContainer) -> None:
     # --- Metrics routes ---
     db_pool = container.get("db")
     if db_pool:
+        runtime_routes.init_routes(db=db_pool)
+        runtime_commands.init_routes(db=db_pool)
         metrics_routes.init_routes(db=db_pool)
         delete_routes.init_routes(db=db_pool)
 
@@ -421,10 +423,12 @@ def register_routes(app: FastAPI, container: ServiceContainer) -> None:
     app.include_router(skill_routes.router)
     app.include_router(member_routes.router)
     app.include_router(task_routes.router)
+    app.include_router(runtime_routes.router)
     app.include_router(memory_commands.router)
     app.include_router(skill_commands.router)
     app.include_router(member_commands.router)
     app.include_router(task_commands.router)
+    app.include_router(runtime_commands.router)
     app.include_router(metrics_routes.router)
     app.include_router(governance_routes.router)
     app.include_router(governance_commands.router)

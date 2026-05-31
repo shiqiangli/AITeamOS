@@ -116,6 +116,7 @@ class PostgresTaskRepository(BaseRepository[Task]):
 
     LIST_TASKS = """
         SELECT id, title, state, priority, assigned_member_id,
+               assigned_llm_model_id, assigned_agent_profile_id,
                department_id, retry_count, review_round, created_at
         FROM task
         WHERE ($1::uuid IS NULL OR department_id = $1)
@@ -257,9 +258,14 @@ class PostgresTaskRepository(BaseRepository[Task]):
         task = await self.get_by_id(task_id)
         if task is None:
             return None
+        runtime_row = await self._db.fetchrow(
+            "SELECT assigned_llm_model_id, assigned_agent_profile_id FROM task WHERE id = $1",
+            task_id,
+        )
 
         runs = [
             {
+                "id": str(r.run_id),
                 "run_id": str(r.run_id),
                 "member_id": str(r.member_id),
                 "snapshot_id": str(r.snapshot_id) if r.snapshot_id else None,
@@ -291,9 +297,15 @@ class PostgresTaskRepository(BaseRepository[Task]):
                 "kind": task.deliverable_spec.kind,
                 "acceptance_criteria": task.deliverable_spec.acceptance_criteria,
             },
+            "deliverable_kind": task.deliverable_spec.kind,
+            "acceptance_criteria": task.deliverable_spec.acceptance_criteria,
+            "max_retry_count": task.budget.max_retry_count,
+            "max_review_rounds": task.budget.max_review_rounds,
             "declared_skills": [str(s) for s in task.declared_skills],
             "declared_memory_hints": [str(m) for m in task.declared_memory_hints],
             "assigned_member_id": str(task.assigned_member_id) if task.assigned_member_id else None,
+            "assigned_llm_model_id": str(runtime_row["assigned_llm_model_id"]) if runtime_row and runtime_row["assigned_llm_model_id"] else None,
+            "assigned_agent_profile_id": str(runtime_row["assigned_agent_profile_id"]) if runtime_row and runtime_row["assigned_agent_profile_id"] else None,
             "retry_count": task.retry_count,
             "review_round": task.review_round,
             "runs": runs,
@@ -423,6 +435,8 @@ class PostgresTaskRepository(BaseRepository[Task]):
             retry_count=row["retry_count"],
             review_round=row["review_round"],
             created_at=row["created_at"],
+            assigned_llm_model_id=str(row["assigned_llm_model_id"]) if row.get("assigned_llm_model_id") else None,
+            assigned_agent_profile_id=str(row["assigned_agent_profile_id"]) if row.get("assigned_agent_profile_id") else None,
         )
 
 

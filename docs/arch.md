@@ -3,7 +3,6 @@
 | 项 | 内容 |
 |---|---|
 | 文档类型 | Architecture Design Document / Technical Design Document |
-| 对应 PRD | `docs/requirements/PRD-core.md` v1.4（Approved 2026-05-26） |
 | 适用读者 | 全栈/后端资深工程师、平台 SRE、数据/检索方向工程师、Reviewer |
 | 落地用途 | 数据库建表、接口定义、核心引擎代码骨架、混沌测试用例的直接指导 |
 | 版本 | v1.4（2026-05-26 第三轮 TRB 防御性评审，修复 3 项 CRITICAL + 5 项 MAJOR 基础设施级缺陷） |
