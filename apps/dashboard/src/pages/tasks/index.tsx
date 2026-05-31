@@ -3,7 +3,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ListTodo, Play, Plus, RotateCcw, Square, Trash2 } from "lucide-react";
+import { Bot, ListTodo, Play, Plus, RotateCcw, Square, Trash2 } from "lucide-react";
 import {
   Panel,
   DataTable,
@@ -34,9 +34,12 @@ import {
   listTasks,
   listDepartments,
   listMembers,
+  listLlmModels,
+  listAgentProfiles,
   getTaskDetail,
   createTask,
   assignTask,
+  assignTaskRuntime,
   startTaskRun,
   cancelTask,
   requeueTask,
@@ -45,6 +48,8 @@ import {
   type TaskDetail,
   type DepartmentSummary,
   type MemberSummary,
+  type LlmModelSummary,
+  type AgentProfileSummary,
 } from "../../api/client";
 
 function stateBadgeVariant(state: string): "success" | "warning" | "secondary" | "danger" {
@@ -72,6 +77,8 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [departments, setDepartments] = useState<DepartmentSummary[]>([]);
   const [members, setMembers] = useState<MemberSummary[]>([]);
+  const [llmModels, setLlmModels] = useState<LlmModelSummary[]>([]);
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfileSummary[]>([]);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,11 +90,16 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
   const [formTitle, setFormTitle] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formDepartmentId, setFormDepartmentId] = useState("");
+  const [formAgentName, setFormAgentName] = useState("");
+  const [formLlmName, setFormLlmName] = useState("");
   const [formPriority, setFormPriority] = useState("P2");
   const [formDeliverableKind, setFormDeliverableKind] = useState("code_change");
 
   const [showAssign, setShowAssign] = useState(false);
   const [assignMemberId, setAssignMemberId] = useState("");
+  const [showRuntime, setShowRuntime] = useState(false);
+  const [runtimeAgentName, setRuntimeAgentName] = useState("");
+  const [runtimeLlmName, setRuntimeLlmName] = useState("");
 
   const deptName = useCallback((id: string | null) => {
     if (!id) return "-";
@@ -100,6 +112,30 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
     const m = members.find((mem) => mem.id === id);
     return m ? m.display_name : id.length > 8 ? `${id.slice(0, 8)}...` : id;
   }, [members]);
+
+  const llmModelName = useCallback((id: string | null) => {
+    if (!id) return "-";
+    const model = llmModels.find((item) => item.id === id);
+    return model ? model.name : id.length > 8 ? `${id.slice(0, 8)}...` : id;
+  }, [llmModels]);
+
+  const agentProfileName = useCallback((id: string | null) => {
+    if (!id) return "-";
+    const agent = agentProfiles.find((item) => item.id === id);
+    return agent ? agent.name : id.length > 8 ? `${id.slice(0, 8)}...` : id;
+  }, [agentProfiles]);
+
+  const resolveLlm = useCallback((value: string): LlmModelSummary | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return llmModels.find((model) => model.name === trimmed || model.id === trimmed) ?? null;
+  }, [llmModels]);
+
+  const resolveAgent = useCallback((value: string): AgentProfileSummary | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return agentProfiles.find((agent) => agent.name === trimmed || agent.id === trimmed) ?? null;
+  }, [agentProfiles]);
 
   const filteredTasks = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -116,6 +152,8 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
     { key: "state", label: "State", render: (r) => <Badge variant={stateBadgeVariant(r.state)}>{r.state}</Badge> },
     { key: "priority", label: "Priority" },
     { key: "assigned_member_id", label: "Assignee", render: (r) => memberName(r.assigned_member_id) },
+    { key: "assigned_agent_profile_id", label: "Agent", render: (r) => agentProfileName(r.assigned_agent_profile_id) },
+    { key: "assigned_llm_model_id", label: "LLM", render: (r) => llmModelName(r.assigned_llm_model_id) },
     { key: "department_id", label: "Department", render: (r) => deptName(r.department_id) },
     { key: "retry_count", label: "Retries" },
   ];
@@ -124,14 +162,18 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
     setLoading(true);
     setError(null);
     try {
-      const [t, d, m] = await Promise.all([
+      const [t, d, m, models, agents] = await Promise.all([
         listTasks({ state: filterState || undefined, limit: 100 }),
         listDepartments(0, 100),
         listMembers({ limit: 100 }),
+        listLlmModels({ limit: 100 }),
+        listAgentProfiles({ limit: 100 }),
       ]);
       setTasks(t);
       setDepartments(d);
       setMembers(m);
+      setLlmModels(models);
+      setAgentProfiles(agents);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
@@ -187,6 +229,16 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
       setError("Department not found");
       return;
     }
+    const agent = formAgentName.trim() ? resolveAgent(formAgentName) : null;
+    if (formAgentName.trim() && !agent) {
+      setError("Agent not found");
+      return;
+    }
+    const explicitLlm = formLlmName.trim() ? resolveLlm(formLlmName) : null;
+    if (formLlmName.trim() && !explicitLlm) {
+      setError("LLM not found");
+      return;
+    }
     try {
       const result = await createTask({
         title: formTitle.trim(),
@@ -195,10 +247,19 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
         priority: formPriority,
         deliverable_kind: formDeliverableKind,
       });
+      const llmId = explicitLlm?.id ?? agent?.default_llm_model_id ?? null;
+      if (agent || llmId) {
+        await assignTaskRuntime(result.id, {
+          agent_profile_id: agent?.id ?? null,
+          llm_model_id: llmId,
+        });
+      }
       setShowCreate(false);
       setFormTitle("");
       setFormDescription("");
       setFormDepartmentId("");
+      setFormAgentName("");
+      setFormLlmName("");
       await loadList();
       navigateTo("tasks", result.id);
     } catch (err) {
@@ -222,6 +283,39 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Assign failed");
     }
+  }
+
+  async function handleAssignRuntime() {
+    if (!detail) return;
+    const agent = runtimeAgentName.trim() ? resolveAgent(runtimeAgentName) : null;
+    if (runtimeAgentName.trim() && !agent) {
+      setError("Agent not found");
+      return;
+    }
+    const explicitLlm = runtimeLlmName.trim() ? resolveLlm(runtimeLlmName) : null;
+    if (runtimeLlmName.trim() && !explicitLlm) {
+      setError("LLM not found");
+      return;
+    }
+    const llmId = explicitLlm?.id ?? agent?.default_llm_model_id ?? null;
+    try {
+      await assignTaskRuntime(detail.id, {
+        agent_profile_id: agent?.id ?? null,
+        llm_model_id: llmId,
+      });
+      setShowRuntime(false);
+      await loadList();
+      await loadDetail(detail.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Runtime assignment failed");
+    }
+  }
+
+  function openRuntimeEditor() {
+    if (!detail) return;
+    setRuntimeAgentName(detail.assigned_agent_profile_id ? agentProfileName(detail.assigned_agent_profile_id) : "");
+    setRuntimeLlmName(detail.assigned_llm_model_id ? llmModelName(detail.assigned_llm_model_id) : "");
+    setShowRuntime(true);
   }
 
   async function handleStart() {
@@ -305,6 +399,22 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
                 placeholder="Select or type department name"
               />
             </FormField>
+            <FormField label="Agent">
+              <ComboInput
+                value={formAgentName}
+                onChange={setFormAgentName}
+                options={agentProfiles.map((agent) => ({ value: agent.name, label: agent.name }))}
+                placeholder="Select or type agent name"
+              />
+            </FormField>
+            <FormField label="LLM">
+              <ComboInput
+                value={formLlmName}
+                onChange={setFormLlmName}
+                options={llmModels.map((model) => ({ value: model.name, label: `${model.name} (${model.provider})` }))}
+                placeholder="Select or type LLM name"
+              />
+            </FormField>
             <FormField label="Priority">
               <Select value={formPriority} onChange={(e) => setFormPriority(e.target.value)}>
                 <option value="P0">P0 - Critical</option>
@@ -386,6 +496,8 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
                       <Definition label="Priority" value={detail.priority} />
                       <Definition label="Department" value={deptName(detail.department_id)} />
                       <Definition label="Assignee" value={memberName(detail.assigned_member_id)} />
+                      <Definition label="Agent" value={agentProfileName(detail.assigned_agent_profile_id)} />
+                      <Definition label="LLM" value={llmModelName(detail.assigned_llm_model_id)} />
                       <Definition label="Deliverable Kind" value={detail.deliverable_kind || "-"} />
                       <Definition label="Retry Count" value={`${detail.retry_count} / ${detail.max_retry_count}`} />
                       <Definition label="Review Rounds" value={`${detail.review_round} / ${detail.max_review_rounds}`} />
@@ -423,6 +535,9 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
                         {(detail.state === "ready" || detail.state === "draft") && !showAssign && (
                           <Button variant="outline" onClick={() => setShowAssign(true)}><UsersIcon />Assign</Button>
                         )}
+                        {!showRuntime && (
+                          <Button variant="outline" onClick={openRuntimeEditor}><Bot className="h-4 w-4" />Runtime</Button>
+                        )}
                         {detail.state === "assigned" && (
                           <Button variant="recommended" onClick={handleStart}><Play className="h-4 w-4" />Start Run</Button>
                         )}
@@ -447,6 +562,24 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
                           />
                           <Button variant="recommended" onClick={handleAssign}>Confirm</Button>
                           <Button variant="outline" onClick={() => { setShowAssign(false); setAssignMemberId(""); }}>Cancel</Button>
+                        </div>
+                      )}
+                      {showRuntime && (
+                        <div className="grid gap-3 rounded-md border p-4 lg:grid-cols-[minmax(12rem,1fr)_minmax(12rem,1fr)_auto_auto]">
+                          <ComboInput
+                            value={runtimeAgentName}
+                            onChange={setRuntimeAgentName}
+                            options={agentProfiles.map((agent) => ({ value: agent.name, label: agent.name }))}
+                            placeholder="Select or type agent name"
+                          />
+                          <ComboInput
+                            value={runtimeLlmName}
+                            onChange={setRuntimeLlmName}
+                            options={llmModels.map((model) => ({ value: model.name, label: `${model.name} (${model.provider})` }))}
+                            placeholder="Select or type LLM name"
+                          />
+                          <Button variant="recommended" onClick={handleAssignRuntime}>Confirm</Button>
+                          <Button variant="outline" onClick={() => { setShowRuntime(false); setRuntimeAgentName(""); setRuntimeLlmName(""); }}>Cancel</Button>
                         </div>
                       )}
                     </div>

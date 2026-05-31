@@ -14,6 +14,7 @@ import {
   listDepartments,
   listProjects,
   getMemoryDetail,
+  getMemoryVersions,
   getSkillDetail,
   getMemberDetail,
   getProjectDetail,
@@ -24,11 +25,19 @@ import {
   createProject,
   publishSkill,
   deprecateSkill,
+  listLlmModels,
+  getLlmModelDetail,
+  createLlmModel,
+  listAgentProfiles,
+  getAgentProfileDetail,
+  createAgentProfile,
+  assignTaskRuntime,
   changeMemoryLifecycle,
   assignSkillToMember,
   assignMemberToProject,
   searchMemories,
   listPendingReviews,
+  getReviewsByTarget,
   createReview,
   decideReview,
   listUnresolvedConflicts,
@@ -159,6 +168,22 @@ describe("API Client", () => {
       expect(fetch).toHaveBeenCalledWith("/api/v1/memories/m1", expect.anything());
     });
 
+    it("should get memory versions", async () => {
+      const data = [
+        {
+          version_no: 1,
+          diff: { statement: "Initial" },
+          reason: "Created",
+          author_member_id: "member-uuid",
+          created_at: "2026-05-01T00:00:00Z",
+        },
+      ];
+      mockFetchResponse(data);
+      const result = await getMemoryVersions("m1");
+      expect(result[0].version_no).toBe(1);
+      expect(fetch).toHaveBeenCalledWith("/api/v1/memories/m1/versions", expect.anything());
+    });
+
     it("should create memory", async () => {
       const payload = {
         tier: "core",
@@ -175,10 +200,14 @@ describe("API Client", () => {
 
     it("should change memory lifecycle", async () => {
       mockFetchResponse({ id: "m1", lifecycle_state: "archived" });
-      await changeMemoryLifecycle("m1", "archive", "done");
+      await changeMemoryLifecycle("m1", "archived", "done");
       const callArgs = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(callArgs[0]).toContain("/memories/m1/lifecycle");
       expect(callArgs[1].method).toBe("PATCH");
+      expect(JSON.parse(callArgs[1].body)).toEqual({
+        new_state: "archived",
+        reason: "done",
+      });
     });
   });
 
@@ -333,6 +362,97 @@ describe("API Client", () => {
     });
   });
 
+  describe("Runtime Resource API", () => {
+    it("should list LLM models with filters", async () => {
+      mockFetchResponse([{ id: "llm1", name: "gpt-compiler", provider: "openai" }]);
+      const result = await listLlmModels({ status: "active", limit: 10 });
+      expect(result).toHaveLength(1);
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(url).toContain("/llm-models");
+      expect(url).toContain("status=active");
+      expect(url).toContain("limit=10");
+    });
+
+    it("should get LLM model detail", async () => {
+      mockFetchResponse({ id: "llm1", name: "gpt-compiler", provider: "openai" });
+      const result = await getLlmModelDetail("llm1");
+      expect(result.name).toBe("gpt-compiler");
+      expect(fetch).toHaveBeenCalledWith("/api/v1/llm-models/llm1", expect.anything());
+    });
+
+    it("should create LLM model", async () => {
+      mockFetchResponse({ id: "llm-new", name: "local-code", provider: "local" }, 201);
+      const result = await createLlmModel({
+        name: "local-code",
+        provider: "local",
+        model_id: "codestral-local",
+        supports_tools: true,
+        capability_tags: ["code"],
+      });
+      expect(result.id).toBe("llm-new");
+      const callArgs = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(callArgs[0]).toContain("/llm-models");
+      expect(callArgs[1].method).toBe("POST");
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.model_id).toBe("codestral-local");
+      expect(body.supports_tools).toBe(true);
+    });
+
+    it("should list agent profiles", async () => {
+      mockFetchResponse([{ id: "agent1", name: "compiler-agent" }]);
+      const result = await listAgentProfiles({ name_filter: "compiler" });
+      expect(result).toHaveLength(1);
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(url).toContain("/agent-profiles");
+      expect(url).toContain("name_filter=compiler");
+    });
+
+    it("should get agent profile detail", async () => {
+      mockFetchResponse({ id: "agent1", name: "compiler-agent", default_llm_model_id: "llm1" });
+      const result = await getAgentProfileDetail("agent1");
+      expect(result.default_llm_model_id).toBe("llm1");
+      expect(fetch).toHaveBeenCalledWith("/api/v1/agent-profiles/agent1", expect.anything());
+    });
+
+    it("should create agent profile", async () => {
+      mockFetchResponse({ id: "agent-new", name: "compiler-agent" }, 201);
+      const result = await createAgentProfile({
+        name: "compiler-agent",
+        default_llm_model_id: "llm1",
+        tool_names: ["repo.search"],
+        memory_policy: { recall: "task_scoped" },
+      });
+      expect(result.id).toBe("agent-new");
+      const callArgs = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(callArgs[0]).toContain("/agent-profiles");
+      expect(callArgs[1].method).toBe("POST");
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.default_llm_model_id).toBe("llm1");
+      expect(body.tool_names).toEqual(["repo.search"]);
+    });
+
+    it("should assign task runtime", async () => {
+      mockFetchResponse({
+        id: "task1",
+        assigned_llm_model_id: "llm1",
+        assigned_agent_profile_id: "agent1",
+        status: "runtime_assigned",
+      });
+      const result = await assignTaskRuntime("task1", {
+        llm_model_id: "llm1",
+        agent_profile_id: "agent1",
+      });
+      expect(result.status).toBe("runtime_assigned");
+      const callArgs = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(callArgs[0]).toContain("/tasks/task1/runtime");
+      expect(callArgs[1].method).toBe("PATCH");
+      expect(JSON.parse(callArgs[1].body)).toEqual({
+        llm_model_id: "llm1",
+        agent_profile_id: "agent1",
+      });
+    });
+  });
+
   describe("Governance API — Reviews", () => {
     it("should list pending reviews", async () => {
       const data = [
@@ -353,6 +473,16 @@ describe("API Client", () => {
       expect(result[0].target_kind).toBe("memory_candidate");
       expect(fetch).toHaveBeenCalledWith(
         "/api/v1/reviews/pending",
+        expect.anything(),
+      );
+    });
+
+    it("should get reviews by target", async () => {
+      mockFetchResponse([]);
+      const result = await getReviewsByTarget("memory_candidate", "target-uuid");
+      expect(result).toEqual([]);
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/v1/reviews/by-target/memory_candidate/target-uuid",
         expect.anything(),
       );
     });

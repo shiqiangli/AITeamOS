@@ -255,6 +255,21 @@ Member 是 Skill 和 Memory 的执行载体。系统不严格区分 AI 和 Human
 
 **当前阶段**：以 AI Member 为重点实现对象，Human Member 保持系统模型层面的统一抽象，实现层弱化。
 
+### 2.4.1 Agent / LLM（执行配置）
+
+Agent / LLM 是 Task 执行时的中性运行时配置维度，不等同于 Member，也不归属于某个 Member。
+
+| 概念 | 定位 | 性质 | 说明 |
+|------|------|------|------|
+| **LLM** | 模型资源 | 中性、可复用 | 定义 provider、model id、上下文窗口、工具/JSON 支持、成本等模型属性 |
+| **Agent** | 执行风格与策略 | 中性、可复用 | 定义系统提示、工具集合、memory policy、safety policy 和默认 LLM |
+
+**关键关系**：
+- Member 是“谁来执行”，Agent / LLM 是“用什么运行时配置执行”
+- 一个 Task 可以选择一个 Agent，并可选择一个 LLM 覆盖 Agent 的默认 LLM
+- Agent / LLM 可被多个 Task 复用，不在创建时绑定 owner
+- AI Member 拿到 Task 后，可根据 Task 上绑定的 Agent / LLM 直接组装执行环境
+
 ## 2.5 Harness（验证系统）
 
 Harness 是确保非确定性 AI 输出确定性结果的唯一闸门，也是 Memory 演进的催化剂。
@@ -774,6 +789,8 @@ Task (执行单元)
 #### 3.4.2 Task 创建与分配
 
 - [ ] PM/TL 可以创建 Task 并分配给任意 Member
+- [ ] PM/TL 可以在创建 Task 时选择 Agent / LLM；若只选择 Agent，则默认使用 Agent 的 default LLM
+- [ ] Task 详情中可随时调整 Agent / LLM 运行时绑定
 - [ ] 系统可推荐最适合的 Member（基于 Skill + Memory 匹配）
 - [ ] Member 并发上限：
   - 每个 Member 同时执行的 Task 数量有上限（AI Member 受执行节点并发能力约束，Human Member 受时间约束）
@@ -795,6 +812,8 @@ Task (执行单元)
 | 关联 Project | 选填（可多选） | 0 表示内部事务性任务 |
 | 交付物类型 | 必填 | 代码变更 / 文档 / 设计稿 / 配置等 |
 | 所需 Skill | 选填 | 系统可根据 Task 描述自动推荐 |
+| Agent | 选填 | 选择中性的 Agent Profile，定义执行风格、工具集合和策略 |
+| LLM | 选填 | 选择具体模型；为空时使用 Agent 的默认 LLM |
 | 优先级 | 必填 | 默认 P2，可调整 |
 | 预期完成时间 | 选填 | 用于超时预警 |
 | 前置 Task 依赖 | 选填 | 选择已有 Task 作为前置条件 |

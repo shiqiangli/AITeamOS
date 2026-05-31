@@ -73,7 +73,6 @@ Evolution  = Capability --[Execute]--> Harness (Right or Wrong) --[Reflect]--> D
 | 事件总线 | Kafka（Outbox Pattern） |
 | Worker | aiokafka + 投影消费者 + Saga 引擎 |
 | 前端 | React / TypeScript / Vite / Tailwind CSS / Radix UI |
-| 测试 | pytest (887) + Vitest (92) |
 
 ---
 

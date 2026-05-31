@@ -11,11 +11,11 @@ import { cn } from "@/lib/utils";
 import { HomePage } from "../pages/home";
 import { MemoryPage } from "../pages/memory";
 import { SkillPage } from "../pages/skills";
+import { AgentPage } from "../pages/agents";
 import { MemberPage } from "../pages/members";
 import { DepartmentPage } from "../pages/manager";
 import { ProjectPage } from "../pages/projects";
 import { TaskPage } from "../pages/tasks";
-import { ReviewPage } from "../pages/reviews";
 import { MetricsPage } from "../pages/metrics";
 
 function NotFoundPage() {
@@ -41,6 +41,8 @@ function PageBody({ route }: { route: RouteState }) {
       return <MemoryPage selectedId={route.id} />;
     case "skills":
       return <SkillPage selectedId={route.id} />;
+    case "agents":
+      return <AgentPage selectedId={route.id} />;
     case "members":
       return <MemberPage selectedId={route.id} />;
     case "departments":
@@ -49,8 +51,6 @@ function PageBody({ route }: { route: RouteState }) {
       return <ProjectPage selectedId={route.id} />;
     case "tasks":
       return <TaskPage selectedId={route.id} />;
-    case "reviews":
-      return <ReviewPage selectedId={route.id} />;
     case "metrics":
       return <MetricsPage />;
     default:
@@ -125,7 +125,7 @@ export function App() {
             Dashboard
           </p>
           <h2 className="text-2xl font-semibold text-foreground">
-            {currentPage?.label ?? "Home"}
+            {currentPage?.label ?? "Not Found"}
           </h2>
         </header>
 
