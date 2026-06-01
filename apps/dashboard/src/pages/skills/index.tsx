@@ -1,9 +1,12 @@
 /**
  * AITeamOS Dashboard - Skill Management Page
+ *
+ * Skill = 角色能力标签，绑定到 Member。
+ * 表存元数据索引，SKILL.md 存程序性上下文。
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Wrench } from "lucide-react";
+import { Plus, Trash2, Wrench, Pencil } from "lucide-react";
 import { Panel, DataTable, Definition, FormField, LoadingState, ErrorState, navigateTo, Status, type Column } from "../../components/shared";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -24,8 +27,11 @@ import {
   publishSkill,
   deprecateSkill,
   deleteSkill,
+  updateSkill,
+  fetchSkillFile,
   type SkillSummary,
   type SkillDetail,
+  type SkillFileResponse,
 } from "../../api/client";
 import { useToast } from "../../components/ui/use-toast";
 
@@ -40,38 +46,12 @@ function statusVariant(status: string): "success" | "warning" | "secondary" | "d
     case "published": return "success";
     case "draft":
     case "registered":
-    case "recalibrating":
       return "warning";
     case "deprecated":
-    case "cancelled":
       return "danger";
     default:
       return "secondary";
   }
-}
-
-function parseList(value: string): string[] {
-  return value
-    .split(/\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function parseSideEffects(value: string): Record<string, string>[] {
-  return value
-    .split(/\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [resource_kind = "resource", resource_pattern = line, mutation_kind = "read"] = line
-        .split(":")
-        .map((part) => part.trim());
-      return { resource_kind, resource_pattern, mutation_kind };
-    });
-}
-
-function formatList(values: string[] | null | undefined): string {
-  return values?.length ? values.join("\n") : "-";
 }
 
 export function SkillPage({ selectedId }: { selectedId: string | null }) {
@@ -84,27 +64,29 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
 
+  // Create form state
   const [formName, setFormName] = useState("");
   const [formVersion, setFormVersion] = useState("1.0.0");
   const [formDescription, setFormDescription] = useState("");
   const [formDomain, setFormDomain] = useState("");
   const [formTags, setFormTags] = useState("");
-  const [formInputs, setFormInputs] = useState("");
-  const [formOutputs, setFormOutputs] = useState("");
-  const [formPreconditions, setFormPreconditions] = useState("");
-  const [formSideEffects, setFormSideEffects] = useState("");
-  const [formPermissions, setFormPermissions] = useState("");
-  const [formExamples, setFormExamples] = useState("");
-  const [formReferences, setFormReferences] = useState("");
-  const [formQualitySignals, setFormQualitySignals] = useState("");
+
+  // Edit form state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDescription, setEditDescription] = useState("");
+  const [editDomain, setEditDomain] = useState("");
+  const [editTags, setEditTags] = useState("");
+
+  // SKILL.md file state
+  const [skillFile, setSkillFile] = useState<SkillFileResponse | null>(null);
+  const [skillFileLoading, setSkillFileLoading] = useState(false);
 
   const columns: Column<SkillSummary>[] = [
     { key: "name", label: "Name" },
     { key: "domain", label: "Domain" },
     { key: "version", label: "Version" },
     { key: "status", label: "Status", render: (r) => <Badge variant={statusVariant(r.status)}>{r.status}</Badge> },
-    { key: "circuit_state", label: "Circuit" },
-    { key: "capability_tags", label: "Tags" },
+    { key: "capability_tags", label: "Tags", render: (r) => r.capability_tags?.join(", ") || "-" },
     { key: "created_at", label: "Created", render: (r) => formatDate(r.created_at) },
   ];
 
@@ -121,7 +103,6 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
 
   const publishedCount = skills.filter((skill) => skill.status === "published").length;
   const draftCount = skills.filter((skill) => skill.status === "draft" || skill.status === "registered").length;
-  const openCircuitCount = skills.filter((skill) => skill.circuit_state === "open").length;
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -150,9 +131,18 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
   useEffect(() => {
     if (selectedId) {
       loadDetail(selectedId);
+      setIsEditing(false);
+      // Load SKILL.md file content
+      setSkillFileLoading(true);
+      fetchSkillFile(selectedId)
+        .then(setSkillFile)
+        .catch(() => setSkillFile(null))
+        .finally(() => setSkillFileLoading(false));
     } else {
       setDetail(null);
       setDetailError(null);
+      setIsEditing(false);
+      setSkillFile(null);
     }
   }, [selectedId, loadDetail]);
 
@@ -164,21 +154,12 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
     if (!formName.trim()) return;
     try {
       const tags = formTags.split(",").map((t) => t.trim()).filter(Boolean);
-      const qualitySignals = parseList(formQualitySignals);
       const created = await registerSkill({
         name: formName.trim(),
         version: formVersion.trim() || "1.0.0",
         description: formDescription.trim() || undefined,
         domain: formDomain.trim() || undefined,
-        inputs: parseList(formInputs),
-        outputs: parseList(formOutputs),
-        preconditions: parseList(formPreconditions),
-        side_effects: parseSideEffects(formSideEffects),
-        required_permissions: parseList(formPermissions),
         capability_tags: tags.length > 0 ? tags : undefined,
-        examples: parseList(formExamples),
-        references: parseList(formReferences),
-        quality_signals: qualitySignals.length > 0 ? { signals: qualitySignals } : undefined,
       });
       setShowCreate(false);
       setFormName("");
@@ -186,14 +167,6 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
       setFormDescription("");
       setFormDomain("");
       setFormTags("");
-      setFormInputs("");
-      setFormOutputs("");
-      setFormPreconditions("");
-      setFormSideEffects("");
-      setFormPermissions("");
-      setFormExamples("");
-      setFormReferences("");
-      setFormQualitySignals("");
       await loadList();
       navigateTo("skills", created.id);
     } catch (err) {
@@ -239,13 +212,37 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
     }
   }
 
+  function startEditing() {
+    if (!detail) return;
+    setEditDescription(detail.description || "");
+    setEditDomain(detail.domain || "");
+    setEditTags(detail.capability_tags?.join(", ") || "");
+    setIsEditing(true);
+  }
+
+  async function handleUpdate() {
+    if (!detail) return;
+    try {
+      await updateSkill(detail.id, {
+        description: editDescription.trim() || undefined,
+        domain: editDomain.trim() || undefined,
+        capability_tags: editTags.split(",").map((t) => t.trim()).filter(Boolean),
+      });
+      setIsEditing(false);
+      await loadList();
+      await loadDetail(detail.id);
+      toast({ title: "Skill updated" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Update failed");
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Panel title="Skills">
         <div className="mb-4 flex flex-wrap items-center gap-4">
           <Status label="Published" value={publishedCount} tone={publishedCount > 0 ? "ok" : undefined} />
           <Status label="Draft" value={draftCount} tone={draftCount > 0 ? "warn" : undefined} />
-          <Status label="Open Circuit" value={openCircuitCount} tone={openCircuitCount > 0 ? "warn" : undefined} />
           <Status label="Visible" value={filteredSkills.length} />
         </div>
 
@@ -277,37 +274,13 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
               <Input value={formVersion} onChange={(e) => setFormVersion(e.target.value)} placeholder="1.0.0" />
             </FormField>
             <FormField label="Domain">
-              <Input value={formDomain} onChange={(e) => setFormDomain(e.target.value)} placeholder="compiler" />
+              <Input value={formDomain} onChange={(e) => setFormDomain(e.target.value)} placeholder="architecture" />
             </FormField>
             <FormField label="Capability Tags">
-              <Input value={formTags} onChange={(e) => setFormTags(e.target.value)} placeholder="compiler, optimization, pass" />
+              <Input value={formTags} onChange={(e) => setFormTags(e.target.value)} placeholder="architecture, design, review" />
             </FormField>
             <FormField label="Description" wide>
-              <Textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="What this capability means in general terms." />
-            </FormField>
-            <FormField label="Inputs">
-              <Textarea value={formInputs} onChange={(e) => setFormInputs(e.target.value)} placeholder={"target project\nIR or pass pipeline context\noptimization goal"} />
-            </FormField>
-            <FormField label="Outputs">
-              <Textarea value={formOutputs} onChange={(e) => setFormOutputs(e.target.value)} placeholder={"code patch\ntests\nvalidation report"} />
-            </FormField>
-            <FormField label="Preconditions">
-              <Textarea value={formPreconditions} onChange={(e) => setFormPreconditions(e.target.value)} placeholder={"project builds locally\npass pipeline is known"} />
-            </FormField>
-            <FormField label="Side Effects">
-              <Textarea value={formSideEffects} onChange={(e) => setFormSideEffects(e.target.value)} placeholder={"filesystem: src/**/*.cpp: write\ncommand: test suite: read"} />
-            </FormField>
-            <FormField label="Permissions">
-              <Textarea value={formPermissions} onChange={(e) => setFormPermissions(e.target.value)} placeholder={"repo.read\nrepo.write\ncommand.run"} />
-            </FormField>
-            <FormField label="Quality Signals">
-              <Textarea value={formQualitySignals} onChange={(e) => setFormQualitySignals(e.target.value)} placeholder={"tests pass\nIR diff is expected\nno compile-time regression"} />
-            </FormField>
-            <FormField label="Examples">
-              <Textarea value={formExamples} onChange={(e) => setFormExamples(e.target.value)} placeholder={"add a CSE pass\nadd a dead-code cleanup pass"} />
-            </FormField>
-            <FormField label="References">
-              <Textarea value={formReferences} onChange={(e) => setFormReferences(e.target.value)} placeholder={"docs/passes.md\ncompiler optimization guide"} />
+              <Textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="What this capability means." />
             </FormField>
             <div className="col-span-full flex items-center gap-2">
               <Button variant="recommended" disabled={!formName.trim()} onClick={handleCreate}>
@@ -325,7 +298,7 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
       </Panel>
 
       <Dialog open={Boolean(selectedId)} onOpenChange={(open) => { if (!open) navigateTo("skills"); }}>
-        <DialogContent className="block max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-5xl overflow-hidden p-0">
+        <DialogContent className="block max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-3xl overflow-hidden p-0">
           {detailError && (
             <div className="space-y-4 p-6">
               <DialogHeader>
@@ -360,10 +333,8 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
                 <Tabs defaultValue="overview" className="space-y-5">
                   <TabsList className="flex h-auto flex-wrap justify-start">
                     <TabsTrigger value="overview">Overview</TabsTrigger>
-                    <TabsTrigger value="contract">Contract</TabsTrigger>
-                    <TabsTrigger value="effects">Effects</TabsTrigger>
-                    <TabsTrigger value="examples">Examples</TabsTrigger>
-                    <TabsTrigger value="health">Health</TabsTrigger>
+                    <TabsTrigger value="edit">Edit</TabsTrigger>
+                    <TabsTrigger value="skill-file">SKILL.md</TabsTrigger>
                     <TabsTrigger value="actions">Actions</TabsTrigger>
                   </TabsList>
                   <TabsContent value="overview">
@@ -372,7 +343,6 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
                       <Definition label="Domain" value={detail.domain || "-"} />
                       <Definition label="Version" value={detail.version} />
                       <Definition label="Status" value={<Badge variant={statusVariant(detail.status)}>{detail.status}</Badge>} />
-                      <Definition label="Circuit State" value={detail.circuit_state} />
                       <Definition label="Tags" value={detail.capability_tags?.join(", ") || "-"} />
                       <Definition label="Created" value={formatDate(detail.created_at)} />
                     </div>
@@ -380,58 +350,59 @@ export function SkillPage({ selectedId }: { selectedId: string | null }) {
                       <p className="mt-4 whitespace-pre-wrap rounded-md border p-4 text-sm">{detail.description}</p>
                     )}
                   </TabsContent>
-                  <TabsContent value="contract">
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <div>
-                        <h3 className="mb-2 text-sm font-medium">Inputs</h3>
-                        <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{formatList(detail.inputs)}</pre>
+                  <TabsContent value="edit">
+                    {isEditing ? (
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <FormField label="Domain">
+                          <Input value={editDomain} onChange={(e) => setEditDomain(e.target.value)} placeholder="architecture" />
+                        </FormField>
+                        <FormField label="Capability Tags">
+                          <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="architecture, design, review" />
+                        </FormField>
+                        <FormField label="Description" wide>
+                          <Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="What this skill does..." />
+                        </FormField>
+                        <div className="col-span-full flex items-center gap-2">
+                          <Button variant="recommended" onClick={handleUpdate}>Save Changes</Button>
+                          <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="mb-2 text-sm font-medium">Outputs</h3>
-                        <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{formatList(detail.outputs)}</pre>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <Button variant="outline" onClick={startEditing}>
+                          <Pencil className="h-4 w-4" />Edit Skill
+                        </Button>
+                        <span className="text-sm text-muted-foreground">Edit description, domain, and tags.</span>
                       </div>
-                      <div>
-                        <h3 className="mb-2 text-sm font-medium">Preconditions</h3>
-                        <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{formatList(detail.preconditions)}</pre>
-                      </div>
-                    </div>
+                    )}
                   </TabsContent>
-                  <TabsContent value="effects">
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <div>
-                        <h3 className="mb-2 text-sm font-medium">Side Effects</h3>
-                        <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">
-                          {detail.side_effects?.length ? JSON.stringify(detail.side_effects, null, 2) : "-"}
+                  <TabsContent value="skill-file">
+                    {skillFileLoading ? (
+                      <LoadingState />
+                    ) : skillFile?.exists ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span className="font-mono">{skillFile.file_path}</span>
+                        </div>
+                        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-md border bg-muted p-4 font-mono text-sm leading-relaxed">
+                          {skillFile.content}
                         </pre>
+                        <p className="text-xs text-muted-foreground">
+                          To edit this file, open it in your IDE at the path shown above.
+                        </p>
                       </div>
-                      <div>
-                        <h3 className="mb-2 text-sm font-medium">Permissions</h3>
-                        <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{formatList(detail.required_permissions)}</pre>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">
+                          No SKILL.md file found for this skill.
+                        </p>
+                        {skillFile && (
+                          <p className="font-mono text-xs text-muted-foreground">
+                            Expected path: {skillFile.file_path}
+                          </p>
+                        )}
                       </div>
-                      <div>
-                        <h3 className="mb-2 text-sm font-medium">Quality Signals</h3>
-                        <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">
-                          {Object.keys(detail.quality_signals ?? {}).length ? JSON.stringify(detail.quality_signals, null, 2) : "-"}
-                        </pre>
-                      </div>
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="examples">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div>
-                        <h3 className="mb-2 text-sm font-medium">Examples</h3>
-                        <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{formatList(detail.examples)}</pre>
-                      </div>
-                      <div>
-                        <h3 className="mb-2 text-sm font-medium">References</h3>
-                        <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{formatList(detail.references)}</pre>
-                      </div>
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="health">
-                    <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">
-                      {JSON.stringify(detail.health ?? {}, null, 2)}
-                    </pre>
+                    )}
                   </TabsContent>
                   <TabsContent value="actions">
                     <div className="flex flex-wrap items-center gap-2">

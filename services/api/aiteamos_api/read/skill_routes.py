@@ -1,12 +1,15 @@
 """
-API Gateway — Skill Read Routes (plan.md §1.5.2).
+API Gateway — Skill Read Routes.
 
-GET /api/v1/skills       — 分页列表
-GET /api/v1/skills/{id}  — 详情
+GET  /api/v1/skills              — 分页列表
+GET  /api/v1/skills/{id}         — 详情
+GET  /api/v1/skills/{id}/file    — SKILL.md 文件内容
 """
 
 from __future__ import annotations
 
+import os
+import pathlib
 from typing import Any, Optional
 from uuid import UUID
 
@@ -23,16 +26,22 @@ router = APIRouter(prefix="/api/v1/skills", tags=["skill-read"])
 
 _list_executor: ListSkillsExecutor | None = None
 _detail_executor: GetSkillDetailExecutor | None = None
+_db: Any = None
+
+# Project root: where .aiteamos/ lives
+_PROJECT_ROOT = pathlib.Path(os.environ.get("AITEAMOS_PROJECT_ROOT", os.getcwd()))
 
 
 def init_routes(
     *,
     list_executor: ListSkillsExecutor,
     detail_executor: GetSkillDetailExecutor,
+    db: Any = None,
 ) -> None:
-    global _list_executor, _detail_executor
+    global _list_executor, _detail_executor, _db
     _list_executor = list_executor
     _detail_executor = detail_executor
+    _db = db
 
 
 @router.get("", response_model=list[dict[str, Any]])
@@ -63,7 +72,6 @@ async def list_skills(
             "description": r.description,
             "domain": r.domain,
             "status": r.status,
-            "circuit_state": r.circuit_state,
             "capability_tags": r.capability_tags,
             "created_at": str(r.created_at) if r.created_at else None,
         }
@@ -92,17 +100,43 @@ async def get_skill_detail(
         "description": result.description,
         "domain": result.domain,
         "status": result.status,
-        "circuit_state": result.circuit_state,
-        "inputs": result.inputs,
-        "outputs": result.outputs,
-        "preconditions": result.preconditions,
-        "side_effects": result.side_effects,
-        "required_permissions": result.required_permissions,
         "capability_tags": result.capability_tags,
-        "examples": result.examples,
-        "references": result.references,
-        "quality_signals": result.quality_signals,
-        "manifest": result.manifest,
-        "health": result.health,
         "created_at": str(result.created_at) if result.created_at else None,
+    }
+
+
+@router.get("/{skill_id}/file", response_model=dict[str, Any])
+async def get_skill_file(
+    skill_id: UUID,
+    user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    """读取 Skill 对应的 SKILL.md 文件内容。"""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    # Look up skill name from DB
+    row = await _db.fetchrow("SELECT name FROM skill WHERE id = $1", str(skill_id))
+    if row is None:
+        from ..middleware.error_handler import NotFoundError
+        raise NotFoundError(detail=f"Skill {skill_id} not found")
+
+    skill_name = row["name"]
+    file_path = _PROJECT_ROOT / ".aiteamos" / "skills" / skill_name / "SKILL.md"
+
+    if not file_path.is_file():
+        return {
+            "skill_id": str(skill_id),
+            "skill_name": skill_name,
+            "file_path": str(file_path.relative_to(_PROJECT_ROOT)),
+            "content": "",
+            "exists": False,
+        }
+
+    content = file_path.read_text(encoding="utf-8")
+    return {
+        "skill_id": str(skill_id),
+        "skill_name": skill_name,
+        "file_path": str(file_path.relative_to(_PROJECT_ROOT)),
+        "content": content,
+        "exists": True,
     }

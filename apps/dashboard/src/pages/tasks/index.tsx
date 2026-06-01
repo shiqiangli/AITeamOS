@@ -3,7 +3,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, ListTodo, Play, Plus, RotateCcw, Square, Trash2 } from "lucide-react";
+import { ListTodo, Pencil, Play, Plus, RotateCcw, Save, Square, Trash2, X } from "lucide-react";
 import {
   Panel,
   DataTable,
@@ -35,21 +35,21 @@ import {
   listDepartments,
   listMembers,
   listLlmModels,
-  listAgentProfiles,
   getTaskDetail,
   createTask,
-  assignTask,
-  assignTaskRuntime,
+  updateTask,
   startTaskRun,
   cancelTask,
   requeueTask,
   deleteTask,
+  createJob,
+  listJobs,
   type TaskSummary,
   type TaskDetail,
   type DepartmentSummary,
   type MemberSummary,
   type LlmModelSummary,
-  type AgentProfileSummary,
+  type JobSummary,
 } from "../../api/client";
 
 function stateBadgeVariant(state: string): "success" | "warning" | "secondary" | "danger" {
@@ -78,7 +78,6 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
   const [departments, setDepartments] = useState<DepartmentSummary[]>([]);
   const [members, setMembers] = useState<MemberSummary[]>([]);
   const [llmModels, setLlmModels] = useState<LlmModelSummary[]>([]);
-  const [agentProfiles, setAgentProfiles] = useState<AgentProfileSummary[]>([]);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,16 +89,27 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
   const [formTitle, setFormTitle] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formDepartmentId, setFormDepartmentId] = useState("");
-  const [formAgentName, setFormAgentName] = useState("");
-  const [formLlmName, setFormLlmName] = useState("");
   const [formPriority, setFormPriority] = useState("P2");
   const [formDeliverableKind, setFormDeliverableKind] = useState("code_change");
 
-  const [showAssign, setShowAssign] = useState(false);
-  const [assignMemberId, setAssignMemberId] = useState("");
-  const [showRuntime, setShowRuntime] = useState(false);
-  const [runtimeAgentName, setRuntimeAgentName] = useState("");
-  const [runtimeLlmName, setRuntimeLlmName] = useState("");
+  // --- Start Job dialog ---
+  const [showStartJob, setShowStartJob] = useState(false);
+  const [startJobMember, setStartJobMember] = useState("");
+  const [startJobLlm, setStartJobLlm] = useState("");
+  const [startJobLoading, setStartJobLoading] = useState(false);
+
+  // --- Jobs list ---
+  const [jobs, setJobs] = useState<JobSummary[]>([]);
+
+  // --- Inline edit state ---
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editPriority, setEditPriority] = useState("P2");
+  const [editDeliverableKind, setEditDeliverableKind] = useState("");
+  const [editMaxRetries, setEditMaxRetries] = useState(3);
+  const [editMaxReviews, setEditMaxReviews] = useState(3);
+  const [editSaving, setEditSaving] = useState(false);
 
   const deptName = useCallback((id: string | null) => {
     if (!id) return "-";
@@ -119,23 +129,11 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
     return model ? model.name : id.length > 8 ? `${id.slice(0, 8)}...` : id;
   }, [llmModels]);
 
-  const agentProfileName = useCallback((id: string | null) => {
-    if (!id) return "-";
-    const agent = agentProfiles.find((item) => item.id === id);
-    return agent ? agent.name : id.length > 8 ? `${id.slice(0, 8)}...` : id;
-  }, [agentProfiles]);
-
   const resolveLlm = useCallback((value: string): LlmModelSummary | null => {
     const trimmed = value.trim();
     if (!trimmed) return null;
     return llmModels.find((model) => model.name === trimmed || model.id === trimmed) ?? null;
   }, [llmModels]);
-
-  const resolveAgent = useCallback((value: string): AgentProfileSummary | null => {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    return agentProfiles.find((agent) => agent.name === trimmed || agent.id === trimmed) ?? null;
-  }, [agentProfiles]);
 
   const filteredTasks = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -151,9 +149,6 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
     { key: "title", label: "Name", render: (r) => r.title.length > 56 ? `${r.title.slice(0, 56)}...` : r.title },
     { key: "state", label: "State", render: (r) => <Badge variant={stateBadgeVariant(r.state)}>{r.state}</Badge> },
     { key: "priority", label: "Priority" },
-    { key: "assigned_member_id", label: "Assignee", render: (r) => memberName(r.assigned_member_id) },
-    { key: "assigned_agent_profile_id", label: "Agent", render: (r) => agentProfileName(r.assigned_agent_profile_id) },
-    { key: "assigned_llm_model_id", label: "LLM", render: (r) => llmModelName(r.assigned_llm_model_id) },
     { key: "department_id", label: "Department", render: (r) => deptName(r.department_id) },
     { key: "retry_count", label: "Retries" },
   ];
@@ -162,18 +157,16 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
     setLoading(true);
     setError(null);
     try {
-      const [t, d, m, models, agents] = await Promise.all([
+      const [t, d, m, models] = await Promise.all([
         listTasks({ state: filterState || undefined, limit: 100 }),
         listDepartments(0, 100),
         listMembers({ limit: 100 }),
         listLlmModels({ limit: 100 }),
-        listAgentProfiles({ limit: 100 }),
       ]);
       setTasks(t);
       setDepartments(d);
       setMembers(m);
       setLlmModels(models);
-      setAgentProfiles(agents);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
@@ -196,9 +189,14 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
   useEffect(() => {
     if (selectedId) {
       loadDetail(selectedId);
+      loadJobs(selectedId);
+      setEditing(false);
+      setShowStartJob(false);
     } else {
       setDetail(null);
       setDetailError(null);
+      setEditing(false);
+      setJobs([]);
     }
   }, [selectedId, loadDetail]);
 
@@ -229,16 +227,6 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
       setError("Department not found");
       return;
     }
-    const agent = formAgentName.trim() ? resolveAgent(formAgentName) : null;
-    if (formAgentName.trim() && !agent) {
-      setError("Agent not found");
-      return;
-    }
-    const explicitLlm = formLlmName.trim() ? resolveLlm(formLlmName) : null;
-    if (formLlmName.trim() && !explicitLlm) {
-      setError("LLM not found");
-      return;
-    }
     try {
       const result = await createTask({
         title: formTitle.trim(),
@@ -247,19 +235,10 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
         priority: formPriority,
         deliverable_kind: formDeliverableKind,
       });
-      const llmId = explicitLlm?.id ?? agent?.default_llm_model_id ?? null;
-      if (agent || llmId) {
-        await assignTaskRuntime(result.id, {
-          agent_profile_id: agent?.id ?? null,
-          llm_model_id: llmId,
-        });
-      }
       setShowCreate(false);
       setFormTitle("");
       setFormDescription("");
       setFormDepartmentId("");
-      setFormAgentName("");
-      setFormLlmName("");
       await loadList();
       navigateTo("tasks", result.id);
     } catch (err) {
@@ -267,65 +246,42 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
     }
   }
 
-  async function handleAssign() {
-    if (!detail || !assignMemberId) return;
-    const mem = members.find((m) => m.display_name === assignMemberId || m.id === assignMemberId);
-    if (!mem) {
-      setError("Member not found");
-      return;
-    }
-    try {
-      await assignTask(detail.id, mem.id);
-      setShowAssign(false);
-      setAssignMemberId("");
-      await loadList();
-      await loadDetail(detail.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Assign failed");
-    }
-  }
-
-  async function handleAssignRuntime() {
+  async function handleStartJob() {
     if (!detail) return;
-    const agent = runtimeAgentName.trim() ? resolveAgent(runtimeAgentName) : null;
-    if (runtimeAgentName.trim() && !agent) {
-      setError("Agent not found");
-      return;
-    }
-    const explicitLlm = runtimeLlmName.trim() ? resolveLlm(runtimeLlmName) : null;
-    if (runtimeLlmName.trim() && !explicitLlm) {
-      setError("LLM not found");
-      return;
-    }
-    const llmId = explicitLlm?.id ?? agent?.default_llm_model_id ?? null;
+    const member = startJobMember.trim()
+      ? members.find((m) => m.display_name === startJobMember.trim() || m.id === startJobMember.trim())
+      : null;
+    const llm = startJobLlm.trim() ? resolveLlm(startJobLlm) : null;
+    setStartJobLoading(true);
     try {
-      await assignTaskRuntime(detail.id, {
-        agent_profile_id: agent?.id ?? null,
-        llm_model_id: llmId,
-      });
-      setShowRuntime(false);
-      await loadList();
-      await loadDetail(detail.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Runtime assignment failed");
-    }
-  }
-
-  function openRuntimeEditor() {
-    if (!detail) return;
-    setRuntimeAgentName(detail.assigned_agent_profile_id ? agentProfileName(detail.assigned_agent_profile_id) : "");
-    setRuntimeLlmName(detail.assigned_llm_model_id ? llmModelName(detail.assigned_llm_model_id) : "");
-    setShowRuntime(true);
-  }
-
-  async function handleStart() {
-    if (!detail) return;
-    try {
+      // 1. Transition task to running
       await startTaskRun(detail.id);
+      // 2. Create Job with member + llm
+      await createJob({
+        task_id: detail.id,
+        member_id: member?.id,
+        llm_model_id: llm?.id,
+      });
+      setShowStartJob(false);
+      setStartJobMember("");
+      setStartJobLlm("");
+      toast({ title: "Job started" });
       await loadList();
       await loadDetail(detail.id);
+      await loadJobs(detail.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Start failed");
+      toast({ title: "Start Job failed", description: err instanceof Error ? err.message : "Unknown error", variant: "danger" });
+    } finally {
+      setStartJobLoading(false);
+    }
+  }
+
+  async function loadJobs(taskId: string) {
+    try {
+      const result = await listJobs(taskId);
+      setJobs(result);
+    } catch {
+      setJobs([]);
     }
   }
 
@@ -348,6 +304,47 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
       await loadDetail(detail.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Requeue failed");
+    }
+  }
+
+  // --- Inline edit handlers ---
+
+  function handleStartEdit() {
+    if (!detail) return;
+    setEditTitle(detail.title);
+    setEditDescription(detail.description || "");
+    setEditPriority(detail.priority);
+    setEditDeliverableKind(detail.deliverable_kind || "");
+    setEditMaxRetries(detail.max_retry_count);
+    setEditMaxReviews(detail.max_review_rounds);
+    setEditing(true);
+  }
+
+  function handleCancelEdit() {
+    setEditing(false);
+  }
+
+  async function handleSaveEdit() {
+    if (!detail) return;
+    setEditSaving(true);
+    try {
+      await updateTask(detail.id, {
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        priority: editPriority,
+        deliverable_kind: editDeliverableKind,
+        max_retry_count: editMaxRetries,
+        max_review_rounds: editMaxReviews,
+      });
+
+      setEditing(false);
+      toast({ title: "Task updated" });
+      await loadList();
+      await loadDetail(detail.id);
+    } catch (err) {
+      toast({ title: "Update failed", description: err instanceof Error ? err.message : "Unknown error", variant: "danger" });
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -397,22 +394,6 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
                 onChange={setFormDepartmentId}
                 options={departments.map((d) => ({ value: d.name, label: d.name }))}
                 placeholder="Select or type department name"
-              />
-            </FormField>
-            <FormField label="Agent">
-              <ComboInput
-                value={formAgentName}
-                onChange={setFormAgentName}
-                options={agentProfiles.map((agent) => ({ value: agent.name, label: agent.name }))}
-                placeholder="Select or type agent name"
-              />
-            </FormField>
-            <FormField label="LLM">
-              <ComboInput
-                value={formLlmName}
-                onChange={setFormLlmName}
-                options={llmModels.map((model) => ({ value: model.name, label: `${model.name} (${model.provider})` }))}
-                placeholder="Select or type LLM name"
               />
             </FormField>
             <FormField label="Priority">
@@ -477,6 +458,22 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
                     <ListTodo className="h-5 w-5 text-muted-foreground" />
                     <span>{detail.title}</span>
                     <Badge variant={stateBadgeVariant(detail.state)}>{detail.state}</Badge>
+                    {!editing && !["done", "cancelled"].includes(detail.state) && (
+                      <Button variant="outline" size="sm" onClick={handleStartEdit}>
+                        <Pencil className="h-3.5 w-3.5" />Edit
+                      </Button>
+                    )}
+                    {editing && (
+                      <div className="flex items-center gap-2">
+                        <Button variant="recommended" size="sm" onClick={handleSaveEdit} disabled={editSaving}>
+                          <Save className="h-3.5 w-3.5" />
+                          {editSaving ? "Saving..." : "Save"}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={handleCancelEdit} disabled={editSaving}>
+                          <X className="h-3.5 w-3.5" />Cancel
+                        </Button>
+                      </div>
+                    )}
                   </DialogTitle>
                   <DialogDescription>{detail.priority} in {deptName(detail.department_id)}</DialogDescription>
                 </DialogHeader>
@@ -486,60 +483,101 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
                   <TabsList className="flex h-auto flex-wrap justify-start">
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="description">Description</TabsTrigger>
-                    <TabsTrigger value="runs">Runs</TabsTrigger>
+                    <TabsTrigger value="runs">Jobs</TabsTrigger>
                     <TabsTrigger value="actions">Actions</TabsTrigger>
                   </TabsList>
                   <TabsContent value="overview">
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                      <Definition label="Name" value={detail.title} />
-                      <Definition label="State" value={<Badge variant={stateBadgeVariant(detail.state)}>{detail.state}</Badge>} />
-                      <Definition label="Priority" value={detail.priority} />
-                      <Definition label="Department" value={deptName(detail.department_id)} />
-                      <Definition label="Assignee" value={memberName(detail.assigned_member_id)} />
-                      <Definition label="Agent" value={agentProfileName(detail.assigned_agent_profile_id)} />
-                      <Definition label="LLM" value={llmModelName(detail.assigned_llm_model_id)} />
-                      <Definition label="Deliverable Kind" value={detail.deliverable_kind || "-"} />
-                      <Definition label="Retry Count" value={`${detail.retry_count} / ${detail.max_retry_count}`} />
-                      <Definition label="Review Rounds" value={`${detail.review_round} / ${detail.max_review_rounds}`} />
-                      <Definition label="Created" value={formatDate(detail.created_at)} />
-                      <Definition label="Task ID" value={detail.id} />
-                    </div>
+                    {!editing ? (
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <Definition label="Name" value={detail.title} />
+                        <Definition label="State" value={<Badge variant={stateBadgeVariant(detail.state)}>{detail.state}</Badge>} />
+                        <Definition label="Priority" value={detail.priority} />
+                        <Definition label="Department" value={deptName(detail.department_id)} />
+                        <Definition label="Deliverable Kind" value={detail.deliverable_kind || "-"} />
+                        <Definition label="Retry Count" value={`${detail.retry_count} / ${detail.max_retry_count}`} />
+                        <Definition label="Review Rounds" value={`${detail.review_round} / ${detail.max_review_rounds}`} />
+                        <Definition label="Created" value={formatDate(detail.created_at)} />
+                        <Definition label="Task ID" value={detail.id} />
+                      </div>
+                    ) : (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <FormField label="Title" wide>
+                          <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                        </FormField>
+                        <FormField label="Priority">
+                          <Select value={editPriority} onChange={(e) => setEditPriority(e.target.value)}>
+                            <option value="P0">P0 - Critical</option>
+                            <option value="P1">P1 - High</option>
+                            <option value="P2">P2 - Medium</option>
+                            <option value="P3">P3 - Low</option>
+                          </Select>
+                        </FormField>
+                        <FormField label="Department">
+                          <Input value={deptName(detail.department_id)} disabled />
+                        </FormField>
+                        <FormField label="Deliverable Kind">
+                          <Select value={editDeliverableKind} onChange={(e) => setEditDeliverableKind(e.target.value)}>
+                            <option value="">-</option>
+                            <option value="code_change">Code Change</option>
+                            <option value="document">Document</option>
+                            <option value="design">Design</option>
+                            <option value="config">Configuration</option>
+                          </Select>
+                        </FormField>
+                        <FormField label="Max Retries">
+                          <Input type="number" value={editMaxRetries} onChange={(e) => setEditMaxRetries(Number(e.target.value))} />
+                        </FormField>
+                        <FormField label="Max Review Rounds">
+                          <Input type="number" value={editMaxReviews} onChange={(e) => setEditMaxReviews(Number(e.target.value))} />
+                        </FormField>
+                      </div>
+                    )}
                   </TabsContent>
                   <TabsContent value="description">
-                    {detail.description ? (
-                      <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{detail.description}</pre>
+                    {!editing ? (
+                      detail.description ? (
+                        <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{detail.description}</pre>
+                      ) : (
+                        <div className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No description</div>
+                      )
                     ) : (
-                      <div className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No description</div>
+                      <FormField label="Description" wide>
+                        <Textarea
+                          value={editDescription}
+                          onChange={(e) => setEditDescription(e.target.value)}
+                          className="min-h-[200px]"
+                          placeholder="Describe what needs to be done..."
+                        />
+                      </FormField>
                     )}
                   </TabsContent>
                   <TabsContent value="runs">
-                    {detail.runs?.length ? (
+                    {jobs.length ? (
                       <div className="divide-y rounded-md border">
-                        {detail.runs.map((run) => (
-                          <div key={run.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                            <span className="font-medium">{run.id}</span>
+                        {jobs.map((job) => (
+                          <div key={job.job_id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                            <div className="flex flex-col gap-1">
+                              <span className="font-medium">{job.job_id.slice(0, 8)}...</span>
+                              <span className="text-xs text-muted-foreground">
+                                {job.member_id ? memberName(job.member_id) : "No assignee"} · {formatDate(job.started_at)}
+                              </span>
+                            </div>
                             <span className="flex items-center gap-2">
-                              <Badge variant="secondary">{run.state}</Badge>
-                              <span className="text-muted-foreground">{formatDate(run.started_at)}</span>
+                              <Badge variant={stateBadgeVariant(job.phase)}>{job.phase}</Badge>
+                              <Badge variant="secondary">{job.state}</Badge>
                             </span>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No runs</div>
+                      <div className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">No jobs yet</div>
                     )}
                   </TabsContent>
                   <TabsContent value="actions">
                     <div className="space-y-4">
                       <div className="flex flex-wrap items-center gap-2">
-                        {(detail.state === "ready" || detail.state === "draft") && !showAssign && (
-                          <Button variant="outline" onClick={() => setShowAssign(true)}><UsersIcon />Assign</Button>
-                        )}
-                        {!showRuntime && (
-                          <Button variant="outline" onClick={openRuntimeEditor}><Bot className="h-4 w-4" />Runtime</Button>
-                        )}
-                        {detail.state === "assigned" && (
-                          <Button variant="recommended" onClick={handleStart}><Play className="h-4 w-4" />Start Run</Button>
+                        {!showStartJob && (detail.state === "ready" || detail.state === "assigned" || detail.state === "draft") && (
+                          <Button variant="recommended" onClick={() => setShowStartJob(true)}><Play className="h-4 w-4" />Start Job</Button>
                         )}
                         {detail.state === "failed" && (
                           <Button variant="outline" onClick={handleRequeue}><RotateCcw className="h-4 w-4" />Requeue</Button>
@@ -551,35 +589,35 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
                           <Trash2 className="h-4 w-4" />Delete
                         </Button>
                       </div>
-                      {showAssign && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <ComboInput
-                            value={assignMemberId}
-                            onChange={setAssignMemberId}
-                            options={members.map((m) => ({ value: m.display_name, label: `${m.display_name} (${m.kind})` }))}
-                            placeholder="Select or type member name"
-                            className="w-64"
-                          />
-                          <Button variant="recommended" onClick={handleAssign}>Confirm</Button>
-                          <Button variant="outline" onClick={() => { setShowAssign(false); setAssignMemberId(""); }}>Cancel</Button>
-                        </div>
-                      )}
-                      {showRuntime && (
-                        <div className="grid gap-3 rounded-md border p-4 lg:grid-cols-[minmax(12rem,1fr)_minmax(12rem,1fr)_auto_auto]">
-                          <ComboInput
-                            value={runtimeAgentName}
-                            onChange={setRuntimeAgentName}
-                            options={agentProfiles.map((agent) => ({ value: agent.name, label: agent.name }))}
-                            placeholder="Select or type agent name"
-                          />
-                          <ComboInput
-                            value={runtimeLlmName}
-                            onChange={setRuntimeLlmName}
-                            options={llmModels.map((model) => ({ value: model.name, label: `${model.name} (${model.provider})` }))}
-                            placeholder="Select or type LLM name"
-                          />
-                          <Button variant="recommended" onClick={handleAssignRuntime}>Confirm</Button>
-                          <Button variant="outline" onClick={() => { setShowRuntime(false); setRuntimeAgentName(""); setRuntimeLlmName(""); }}>Cancel</Button>
+                      {showStartJob && (
+                        <div className="rounded-md border p-4 space-y-3">
+                          <p className="text-sm font-medium">Start a new Job for this Task</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <FormField label="Assignee (Member)">
+                              <ComboInput
+                                value={startJobMember}
+                                onChange={setStartJobMember}
+                                options={members.map((m) => ({ value: m.display_name, label: `${m.display_name} (${m.role})` }))}
+                                placeholder="Select or type member name"
+                                className="w-64"
+                              />
+                            </FormField>
+                            <FormField label="LLM Model">
+                              <ComboInput
+                                value={startJobLlm}
+                                onChange={setStartJobLlm}
+                                options={llmModels.map((model) => ({ value: model.name, label: `${model.name} (${model.provider})` }))}
+                                placeholder="Select or type LLM name"
+                                className="w-64"
+                              />
+                            </FormField>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button variant="recommended" onClick={handleStartJob} disabled={startJobLoading}>
+                              {startJobLoading ? "Starting..." : "Confirm Start"}
+                            </Button>
+                            <Button variant="outline" onClick={() => { setShowStartJob(false); setStartJobMember(""); setStartJobLlm(""); }}>Cancel</Button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -592,8 +630,4 @@ export function TaskPage({ selectedId }: { selectedId: string | null }) {
       </Dialog>
     </div>
   );
-}
-
-function UsersIcon() {
-  return <ListTodo className="h-4 w-4" />;
 }

@@ -27,7 +27,6 @@ class SkillSummary:
     description: str
     domain: str
     status: str
-    circuit_state: str
     capability_tags: list[str]
     created_at: Any
 
@@ -42,18 +41,7 @@ class SkillDetail:
     description: str
     domain: str
     status: str
-    circuit_state: str
-    inputs: list[str]
-    outputs: list[str]
-    preconditions: list[str]
-    side_effects: list[dict[str, str]]
-    required_permissions: list[str]
     capability_tags: list[str]
-    examples: list[str]
-    references: list[str]
-    quality_signals: dict[str, Any]
-    manifest: dict[str, Any]
-    health: dict[str, Any]
     created_at: Any
 
 

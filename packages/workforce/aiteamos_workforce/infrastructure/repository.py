@@ -95,13 +95,14 @@ class PostgresDepartmentRepository(BaseRepository[Department]):
 
 class PostgresMemberRepository(BaseRepository[Member]):
     UPSERT = """
-        INSERT INTO member (id, kind, department_id, profile, display_name, concurrency_limit, health, created_at, archived_at)
-        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb, $8, $9)
+        INSERT INTO member (id, kind, department_id, profile, display_name, concurrency_limit, health, prompt_template, created_at, archived_at)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb, $8, $9, $10)
         ON CONFLICT (id) DO UPDATE SET
             kind = EXCLUDED.kind, department_id = EXCLUDED.department_id,
             profile = EXCLUDED.profile, display_name = EXCLUDED.display_name,
             concurrency_limit = EXCLUDED.concurrency_limit,
-            health = EXCLUDED.health, archived_at = EXCLUDED.archived_at
+            health = EXCLUDED.health, prompt_template = EXCLUDED.prompt_template,
+            archived_at = EXCLUDED.archived_at
     """
     SELECT = "SELECT * FROM member WHERE id = $1"
     SELECT_FOR_UPDATE = "SELECT * FROM member WHERE id = $1 FOR UPDATE"
@@ -149,7 +150,7 @@ class PostgresMemberRepository(BaseRepository[Member]):
             self.UPSERT, aggregate.id, aggregate.kind.value, aggregate.department_id,
             json.dumps(aggregate.profile.to_dict()), aggregate.profile.display_name,
             aggregate.concurrency_limit, json.dumps(aggregate.health.to_dict()),
-            aggregate.created_at, aggregate.archived_at,
+            aggregate.prompt_template, aggregate.created_at, aggregate.archived_at,
         )
         for skill_id in aggregate.base_skill_set:
             await executor.execute(self.INSERT_SKILL, aggregate.id, skill_id)
@@ -168,8 +169,10 @@ class PostgresMemberRepository(BaseRepository[Member]):
             if isinstance(profile_data, str):
                 profile_data = json.loads(profile_data)
             display_name = (profile_data or {}).get("display_name", str(row["id"])[:8])
+            role = (profile_data or {}).get("role")
             results.append(MemberSummary(
                 id=row["id"], kind=row["kind"], display_name=display_name,
+                role=role,
                 department_id=str(row["department_id"]),
                 concurrency_limit=row["concurrency_limit"],
                 is_archived=row.get("archived_at") is not None,
@@ -199,6 +202,7 @@ class PostgresMemberRepository(BaseRepository[Member]):
             assigned_memories=assigned_memories,
             health=MemberHealthMetrics.from_dict(health_data or {}),
             concurrency_limit=row["concurrency_limit"],
+            prompt_template=row.get("prompt_template", "") or "",
             created_at=row["created_at"], archived_at=row.get("archived_at"),
         )
 

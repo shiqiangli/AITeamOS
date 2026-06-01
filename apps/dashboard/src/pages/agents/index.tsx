@@ -1,9 +1,12 @@
 /**
- * AITeamOS Dashboard - Agent / LLM Runtime Catalog
+ * AITeamOS Dashboard - API Catalog (LLM Configuration)
+ *
+ * Manages LLM API endpoints that tasks can bind to for execution.
+ * Agent profiles have been removed — role identity lives in Member.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Cpu, Plus } from "lucide-react";
+import { Cpu, Plus } from "lucide-react";
 import {
   Panel,
   DataTable,
@@ -13,7 +16,6 @@ import {
   ErrorState,
   navigateTo,
   Status,
-  ComboInput,
   type Column,
 } from "../../components/shared";
 import { Button } from "../../components/ui/button";
@@ -33,24 +35,9 @@ import {
   listLlmModels,
   getLlmModelDetail,
   createLlmModel,
-  listAgentProfiles,
-  getAgentProfileDetail,
-  createAgentProfile,
   type LlmModelSummary,
   type LlmModelDetail,
-  type AgentProfileSummary,
-  type AgentProfileDetail,
 } from "../../api/client";
-
-type CatalogTab = "agents" | "llms";
-type SelectedRuntime = { kind: "agent" | "llm"; id: string } | null;
-
-function parseSelected(value: string | null): SelectedRuntime {
-  if (!value) return null;
-  if (value.startsWith("agent:")) return { kind: "agent", id: value.slice("agent:".length) };
-  if (value.startsWith("llm:")) return { kind: "llm", id: value.slice("llm:".length) };
-  return null;
-}
 
 function statusVariant(status: string): "success" | "warning" | "secondary" | "danger" {
   switch (status) {
@@ -79,39 +66,20 @@ function parseList(value: string): string[] {
     .filter(Boolean);
 }
 
-function parseJsonObject(value: string, fallback: Record<string, unknown>): Record<string, unknown> {
-  const trimmed = value.trim();
-  if (!trimmed) return fallback;
-  const parsed = JSON.parse(trimmed);
-  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-    throw new Error("JSON fields must be objects");
-  }
-  return parsed as Record<string, unknown>;
-}
-
-function formatJson(value: Record<string, unknown> | null | undefined): string {
-  if (!value || Object.keys(value).length === 0) return "{}";
-  return JSON.stringify(value, null, 2);
-}
-
 function formatList(values: string[] | null | undefined): string {
   return values?.length ? values.join(", ") : "-";
 }
 
-export function AgentPage({ selectedId }: { selectedId: string | null }) {
-  const selected = parseSelected(selectedId);
-  const [activeTab, setActiveTab] = useState<CatalogTab>(selected?.kind === "llm" ? "llms" : "agents");
+export function ApiPage({ selectedId }: { selectedId: string | null }) {
+  const parsedId = selectedId?.startsWith("llm:") ? selectedId.slice("llm:".length) : (selectedId ?? undefined);
   const [llms, setLlms] = useState<LlmModelSummary[]>([]);
-  const [agents, setAgents] = useState<AgentProfileSummary[]>([]);
   const [llmDetail, setLlmDetail] = useState<LlmModelDetail | null>(null);
-  const [agentDetail, setAgentDetail] = useState<AgentProfileDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
-  const [showCreateLlm, setShowCreateLlm] = useState(false);
-  const [showCreateAgent, setShowCreateAgent] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
 
   const [llmName, setLlmName] = useState("");
   const [llmProvider, setLlmProvider] = useState("");
@@ -127,35 +95,6 @@ export function AgentPage({ selectedId }: { selectedId: string | null }) {
   const [llmStatus, setLlmStatus] = useState("active");
   const [llmNotes, setLlmNotes] = useState("");
 
-  const [agentName, setAgentName] = useState("");
-  const [agentDescription, setAgentDescription] = useState("");
-  const [agentRuntimeKind, setAgentRuntimeKind] = useState("llm_agent");
-  const [agentDefaultLlm, setAgentDefaultLlm] = useState("");
-  const [agentPrompt, setAgentPrompt] = useState("");
-  const [agentTools, setAgentTools] = useState("");
-  const [agentMemoryPolicy, setAgentMemoryPolicy] = useState("{}");
-  const [agentSafetyPolicy, setAgentSafetyPolicy] = useState("{}");
-  const [agentStatus, setAgentStatus] = useState("active");
-
-  useEffect(() => {
-    if (selected?.kind === "llm") setActiveTab("llms");
-    if (selected?.kind === "agent") setActiveTab("agents");
-  }, [selected?.kind]);
-
-  const llmNameById = useCallback((id: string | null) => {
-    if (!id) return "-";
-    const model = llms.find((item) => item.id === id);
-    return model ? model.name : id.length > 8 ? `${id.slice(0, 8)}...` : id;
-  }, [llms]);
-
-  const selectedLlmId = selected?.kind === "llm" ? selected.id : undefined;
-  const selectedAgentId = selected?.kind === "agent" ? selected.id : undefined;
-
-  const llmOptions = useMemo(
-    () => llms.map((model) => ({ value: model.name, label: `${model.name} (${model.provider})` })),
-    [llms],
-  );
-
   const filteredLlms = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return llms.filter((model) => {
@@ -168,18 +107,6 @@ export function AgentPage({ selectedId }: { selectedId: string | null }) {
     });
   }, [filterStatus, llms, search]);
 
-  const filteredAgents = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return agents.filter((agent) => {
-      const matchesSearch = !needle
-        || agent.name.toLowerCase().includes(needle)
-        || agent.runtime_kind.toLowerCase().includes(needle)
-        || agent.description.toLowerCase().includes(needle);
-      const matchesStatus = !filterStatus || agent.status === filterStatus;
-      return matchesSearch && matchesStatus;
-    });
-  }, [agents, filterStatus, search]);
-
   const llmColumns: Column<LlmModelSummary>[] = [
     { key: "name", label: "Name" },
     { key: "provider", label: "Provider" },
@@ -190,58 +117,34 @@ export function AgentPage({ selectedId }: { selectedId: string | null }) {
     { key: "status", label: "Status", render: (row) => <Badge variant={statusVariant(row.status)}>{row.status}</Badge> },
   ];
 
-  const agentColumns: Column<AgentProfileSummary>[] = [
-    { key: "name", label: "Name" },
-    { key: "runtime_kind", label: "Runtime" },
-    { key: "default_llm_model_id", label: "Default LLM", render: (row) => llmNameById(row.default_llm_model_id) },
-    { key: "tool_names", label: "Tools", render: (row) => formatList(row.tool_names) },
-    { key: "status", label: "Status", render: (row) => <Badge variant={statusVariant(row.status)}>{row.status}</Badge> },
-    { key: "created_at", label: "Created", render: (row) => formatDate(row.created_at) },
-  ];
-
   const loadList = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [models, profiles] = await Promise.all([
-        listLlmModels({ limit: 100 }),
-        listAgentProfiles({ limit: 100 }),
-      ]);
+      const models = await listLlmModels({ limit: 100 });
       setLlms(models);
-      setAgents(profiles);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load runtime catalog");
+      setError(err instanceof Error ? err.message : "Failed to load LLM catalog");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const loadDetail = useCallback(async (target: SelectedRuntime) => {
+  const loadDetail = useCallback(async (id: string | null) => {
     setLlmDetail(null);
-    setAgentDetail(null);
     setDetailError(null);
-    if (!target) return;
+    if (!id) return;
     try {
-      if (target.kind === "llm") {
-        setLlmDetail(await getLlmModelDetail(target.id));
-      } else {
-        setAgentDetail(await getAgentProfileDetail(target.id));
-      }
+      setLlmDetail(await getLlmModelDetail(id));
     } catch (err) {
-      setDetailError(err instanceof Error ? err.message : "Failed to load runtime detail");
+      setDetailError(err instanceof Error ? err.message : "Failed to load LLM detail");
     }
   }, []);
 
   useEffect(() => { loadList(); }, [loadList]);
-  useEffect(() => { loadDetail(selected); }, [selected?.kind, selected?.id, loadDetail]);
+  useEffect(() => { loadDetail(parsedId ?? null); }, [parsedId]);
 
-  function resolveLlmId(value: string): string | undefined {
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    return llms.find((model) => model.name === trimmed || model.id === trimmed)?.id;
-  }
-
-  function resetLlmForm() {
+  function resetForm() {
     setLlmName("");
     setLlmProvider("");
     setLlmModelId("");
@@ -257,19 +160,7 @@ export function AgentPage({ selectedId }: { selectedId: string | null }) {
     setLlmNotes("");
   }
 
-  function resetAgentForm() {
-    setAgentName("");
-    setAgentDescription("");
-    setAgentRuntimeKind("llm_agent");
-    setAgentDefaultLlm("");
-    setAgentPrompt("");
-    setAgentTools("");
-    setAgentMemoryPolicy("{}");
-    setAgentSafetyPolicy("{}");
-    setAgentStatus("active");
-  }
-
-  async function handleCreateLlm() {
+  async function handleCreate() {
     if (!llmName.trim() || !llmProvider.trim() || !llmModelId.trim()) return;
     try {
       const created = await createLlmModel({
@@ -287,8 +178,8 @@ export function AgentPage({ selectedId }: { selectedId: string | null }) {
         status: llmStatus,
         notes: llmNotes.trim() || undefined,
       });
-      setShowCreateLlm(false);
-      resetLlmForm();
+      setShowCreate(false);
+      resetForm();
       await loadList();
       navigateTo("agents", `llm:${created.id}`);
     } catch (err) {
@@ -296,48 +187,18 @@ export function AgentPage({ selectedId }: { selectedId: string | null }) {
     }
   }
 
-  async function handleCreateAgent() {
-    if (!agentName.trim()) return;
-    const defaultLlmId = resolveLlmId(agentDefaultLlm);
-    if (agentDefaultLlm.trim() && !defaultLlmId) {
-      setError("Default LLM not found");
-      return;
-    }
-    try {
-      const created = await createAgentProfile({
-        name: agentName.trim(),
-        description: agentDescription.trim() || undefined,
-        runtime_kind: agentRuntimeKind.trim() || "llm_agent",
-        default_llm_model_id: defaultLlmId,
-        system_prompt: agentPrompt,
-        tool_names: parseList(agentTools),
-        memory_policy: parseJsonObject(agentMemoryPolicy, {}),
-        safety_policy: parseJsonObject(agentSafetyPolicy, {}),
-        status: agentStatus,
-      });
-      setShowCreateAgent(false);
-      resetAgentForm();
-      await loadList();
-      navigateTo("agents", `agent:${created.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Create agent failed");
-    }
-  }
-
   const activeLlmCount = llms.filter((model) => model.status === "active").length;
-  const activeAgentCount = agents.filter((agent) => agent.status === "active").length;
 
   return (
     <div className="space-y-6">
-      <Panel title="Agent / LLM Catalog">
+      <Panel title="API Catalog">
         <div className="mb-4 flex flex-wrap items-center gap-4">
-          <Status label="Active Agents" value={activeAgentCount} tone="ok" />
           <Status label="Active LLMs" value={activeLlmCount} tone="ok" />
-          <Status label="Visible" value={activeTab === "agents" ? filteredAgents.length : filteredLlms.length} />
+          <Status label="Visible" value={filteredLlms.length} />
         </div>
 
-        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_12rem_auto_auto]">
-          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search runtime resources" />
+        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_12rem_auto]">
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search LLM models" />
           <Select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}>
             <option value="">All Status</option>
             <option value="active">Active</option>
@@ -345,70 +206,20 @@ export function AgentPage({ selectedId }: { selectedId: string | null }) {
             <option value="paused">Paused</option>
             <option value="retired">Retired</option>
           </Select>
-          <Button variant="recommended" onClick={() => { setActiveTab("agents"); setShowCreateAgent(!showCreateAgent); }}>
-            {showCreateAgent ? "Cancel" : <><Plus className="h-4 w-4" />Create Agent</>}
-          </Button>
-          <Button variant="outline" onClick={() => { setActiveTab("llms"); setShowCreateLlm(!showCreateLlm); }}>
-            {showCreateLlm ? "Cancel" : <><Plus className="h-4 w-4" />Create LLM</>}
+          <Button variant="recommended" onClick={() => setShowCreate(!showCreate)}>
+            {showCreate ? "Cancel" : <><Plus className="h-4 w-4" />Create LLM</>}
           </Button>
         </div>
 
         {error && <ErrorState message={error} />}
 
-        {showCreateAgent && (
-          <div className="mb-4 grid gap-4 rounded-md border p-4 lg:grid-cols-2">
-            <FormField label="Agent Name">
-              <Input value={agentName} onChange={(event) => setAgentName(event.target.value)} placeholder="Unique agent name" />
-            </FormField>
-            <FormField label="Runtime Kind">
-              <Input value={agentRuntimeKind} onChange={(event) => setAgentRuntimeKind(event.target.value)} placeholder="llm_agent" />
-            </FormField>
-            <FormField label="Default LLM">
-              <ComboInput
-                value={agentDefaultLlm}
-                onChange={setAgentDefaultLlm}
-                options={llmOptions}
-                placeholder="Select or type LLM name"
-              />
-            </FormField>
-            <FormField label="Status">
-              <Select value={agentStatus} onChange={(event) => setAgentStatus(event.target.value)}>
-                <option value="active">Active</option>
-                <option value="draft">Draft</option>
-                <option value="paused">Paused</option>
-                <option value="retired">Retired</option>
-              </Select>
-            </FormField>
-            <FormField label="Description" wide>
-              <Textarea value={agentDescription} onChange={(event) => setAgentDescription(event.target.value)} placeholder="Neutral purpose and operating mode" />
-            </FormField>
-            <FormField label="System Prompt" wide>
-              <Textarea value={agentPrompt} onChange={(event) => setAgentPrompt(event.target.value)} placeholder="Instruction template for this agent profile" />
-            </FormField>
-            <FormField label="Tool Names">
-              <Textarea value={agentTools} onChange={(event) => setAgentTools(event.target.value)} placeholder="One per line or comma separated" />
-            </FormField>
-            <FormField label="Memory Policy">
-              <Textarea value={agentMemoryPolicy} onChange={(event) => setAgentMemoryPolicy(event.target.value)} className="font-mono" />
-            </FormField>
-            <FormField label="Safety Policy" wide>
-              <Textarea value={agentSafetyPolicy} onChange={(event) => setAgentSafetyPolicy(event.target.value)} className="font-mono" />
-            </FormField>
-            <div className="col-span-full flex items-center gap-2">
-              <Button variant="recommended" disabled={!agentName.trim()} onClick={handleCreateAgent}>
-                <Plus className="h-4 w-4" />Create
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {showCreateLlm && (
+        {showCreate && (
           <div className="mb-4 grid gap-4 rounded-md border p-4 lg:grid-cols-3">
             <FormField label="LLM Name">
               <Input value={llmName} onChange={(event) => setLlmName(event.target.value)} placeholder="Unique model name" />
             </FormField>
             <FormField label="Provider">
-              <Input value={llmProvider} onChange={(event) => setLlmProvider(event.target.value)} placeholder="openai, anthropic, local" />
+              <Input value={llmProvider} onChange={(event) => setLlmProvider(event.target.value)} placeholder="openai, anthropic, qoder" />
             </FormField>
             <FormField label="Provider Model ID">
               <Input value={llmModelId} onChange={(event) => setLlmModelId(event.target.value)} placeholder="Provider-specific model id" />
@@ -456,66 +267,37 @@ export function AgentPage({ selectedId }: { selectedId: string | null }) {
               <Textarea value={llmNotes} onChange={(event) => setLlmNotes(event.target.value)} />
             </FormField>
             <div className="col-span-full flex items-center gap-2">
-              <Button variant="recommended" disabled={!llmName.trim() || !llmProvider.trim() || !llmModelId.trim()} onClick={handleCreateLlm}>
+              <Button variant="recommended" disabled={!llmName.trim() || !llmProvider.trim() || !llmModelId.trim()} onClick={handleCreate}>
                 <Plus className="h-4 w-4" />Create
               </Button>
             </div>
           </div>
         )}
 
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as CatalogTab)} className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="agents">Agents</TabsTrigger>
-            <TabsTrigger value="llms">LLMs</TabsTrigger>
-          </TabsList>
-          <TabsContent value="agents">
-            {loading ? (
-              <LoadingState />
-            ) : (
-              <DataTable
-                data={filteredAgents}
-                columns={agentColumns}
-                selectedId={selectedAgentId}
-                onSelect={(row) => navigateTo("agents", `agent:${row.id}`)}
-              />
-            )}
-          </TabsContent>
-          <TabsContent value="llms">
-            {loading ? (
-              <LoadingState />
-            ) : (
-              <DataTable
-                data={filteredLlms}
-                columns={llmColumns}
-                selectedId={selectedLlmId}
-                onSelect={(row) => navigateTo("agents", `llm:${row.id}`)}
-              />
-            )}
-          </TabsContent>
-        </Tabs>
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <DataTable
+            data={filteredLlms}
+            columns={llmColumns}
+            selectedId={parsedId}
+            onSelect={(row) => navigateTo("agents", `llm:${row.id}`)}
+          />
+        )}
       </Panel>
 
-      <Dialog open={Boolean(selected)} onOpenChange={(open) => { if (!open) navigateTo("agents"); }}>
+      <Dialog open={Boolean(parsedId)} onOpenChange={(open) => { if (!open) navigateTo("agents"); }}>
         <DialogContent className="block max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-5xl overflow-hidden p-0">
           {detailError && (
             <div className="space-y-4 p-6">
               <DialogHeader>
-                <DialogTitle>Runtime Details</DialogTitle>
-                <DialogDescription>Runtime detail could not be loaded.</DialogDescription>
+                <DialogTitle>LLM Details</DialogTitle>
+                <DialogDescription>LLM detail could not be loaded.</DialogDescription>
               </DialogHeader>
               <ErrorState message={detailError} />
             </div>
           )}
-          {selected?.kind === "agent" && !agentDetail && !detailError && (
-            <div className="space-y-4 p-6">
-              <DialogHeader>
-                <DialogTitle>Agent Details</DialogTitle>
-                <DialogDescription>Loading agent profile.</DialogDescription>
-              </DialogHeader>
-              <LoadingState />
-            </div>
-          )}
-          {selected?.kind === "llm" && !llmDetail && !detailError && (
+          {!llmDetail && !detailError && parsedId && (
             <div className="space-y-4 p-6">
               <DialogHeader>
                 <DialogTitle>LLM Details</DialogTitle>
@@ -524,124 +306,55 @@ export function AgentPage({ selectedId }: { selectedId: string | null }) {
               <LoadingState />
             </div>
           )}
-          {selected?.kind === "agent" && agentDetail && (
-            <RuntimeAgentDialog agent={agentDetail} llmNameById={llmNameById} />
-          )}
-          {selected?.kind === "llm" && llmDetail && (
-            <RuntimeLlmDialog model={llmDetail} />
+          {llmDetail && (
+            <div className="flex max-h-[calc(100vh-2rem)] flex-col">
+              <div className="border-b px-6 py-5">
+                <DialogHeader>
+                  <DialogTitle className="flex flex-wrap items-center gap-3 text-xl">
+                    <Cpu className="h-5 w-5 text-muted-foreground" />
+                    <span>{llmDetail.name}</span>
+                    <Badge variant={statusVariant(llmDetail.status)}>{llmDetail.status}</Badge>
+                  </DialogTitle>
+                  <DialogDescription>{llmDetail.provider} / {llmDetail.model_id}</DialogDescription>
+                </DialogHeader>
+              </div>
+              <div className="overflow-y-auto px-6 py-5">
+                <Tabs defaultValue="overview" className="space-y-5">
+                  <TabsList className="flex h-auto flex-wrap justify-start">
+                    <TabsTrigger value="overview">Overview</TabsTrigger>
+                    <TabsTrigger value="costs">Costs</TabsTrigger>
+                    <TabsTrigger value="notes">Notes</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="overview">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      <Definition label="Name" value={llmDetail.name} />
+                      <Definition label="Provider" value={llmDetail.provider} />
+                      <Definition label="Model ID" value={llmDetail.model_id} />
+                      <Definition label="Endpoint" value={llmDetail.endpoint_type} />
+                      <Definition label="Context Window" value={llmDetail.context_window ?? "-"} />
+                      <Definition label="Max Output" value={llmDetail.max_output_tokens ?? "-"} />
+                      <Definition label="Tools" value={llmDetail.supports_tools ? "Yes" : "No"} />
+                      <Definition label="JSON" value={llmDetail.supports_json ? "Yes" : "No"} />
+                      <Definition label="Tags" value={formatList(llmDetail.capability_tags)} />
+                      <Definition label="Created" value={formatDate(llmDetail.created_at)} />
+                      <Definition label="LLM ID" value={llmDetail.id} />
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="costs">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Definition label="Input Cost / 1M" value={llmDetail.input_cost_per_1m ?? "-"} />
+                      <Definition label="Output Cost / 1M" value={llmDetail.output_cost_per_1m ?? "-"} />
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="notes">
+                    <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{llmDetail.notes || "-"}</pre>
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function RuntimeAgentDialog({
-  agent,
-  llmNameById,
-}: {
-  agent: AgentProfileDetail;
-  llmNameById: (id: string | null) => string;
-}) {
-  return (
-    <div className="flex max-h-[calc(100vh-2rem)] flex-col">
-      <div className="border-b px-6 py-5">
-        <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-3 text-xl">
-            <Bot className="h-5 w-5 text-muted-foreground" />
-            <span>{agent.name}</span>
-            <Badge variant={statusVariant(agent.status)}>{agent.status}</Badge>
-          </DialogTitle>
-          <DialogDescription>{agent.runtime_kind}</DialogDescription>
-        </DialogHeader>
-      </div>
-      <div className="overflow-y-auto px-6 py-5">
-        <Tabs defaultValue="overview" className="space-y-5">
-          <TabsList className="flex h-auto flex-wrap justify-start">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="prompt">Prompt</TabsTrigger>
-            <TabsTrigger value="policies">Policies</TabsTrigger>
-          </TabsList>
-          <TabsContent value="overview">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Definition label="Name" value={agent.name} />
-              <Definition label="Runtime" value={agent.runtime_kind} />
-              <Definition label="Default LLM" value={llmNameById(agent.default_llm_model_id)} />
-              <Definition label="Tools" value={formatList(agent.tool_names)} />
-              <Definition label="Created" value={formatDate(agent.created_at)} />
-              <Definition label="Agent ID" value={agent.id} />
-            </div>
-            <div className="mt-5 rounded-md border border-dashed px-4 py-3 text-sm text-muted-foreground">
-              {agent.description || "No description"}
-            </div>
-          </TabsContent>
-          <TabsContent value="prompt">
-            <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{agent.system_prompt || "-"}</pre>
-          </TabsContent>
-          <TabsContent value="policies">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div>
-                <h3 className="mb-2 text-sm font-semibold">Memory Policy</h3>
-                <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{formatJson(agent.memory_policy)}</pre>
-              </div>
-              <div>
-                <h3 className="mb-2 text-sm font-semibold">Safety Policy</h3>
-                <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{formatJson(agent.safety_policy)}</pre>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
-  );
-}
-
-function RuntimeLlmDialog({ model }: { model: LlmModelDetail }) {
-  return (
-    <div className="flex max-h-[calc(100vh-2rem)] flex-col">
-      <div className="border-b px-6 py-5">
-        <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-3 text-xl">
-            <Cpu className="h-5 w-5 text-muted-foreground" />
-            <span>{model.name}</span>
-            <Badge variant={statusVariant(model.status)}>{model.status}</Badge>
-          </DialogTitle>
-          <DialogDescription>{model.provider} / {model.model_id}</DialogDescription>
-        </DialogHeader>
-      </div>
-      <div className="overflow-y-auto px-6 py-5">
-        <Tabs defaultValue="overview" className="space-y-5">
-          <TabsList className="flex h-auto flex-wrap justify-start">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="costs">Costs</TabsTrigger>
-            <TabsTrigger value="notes">Notes</TabsTrigger>
-          </TabsList>
-          <TabsContent value="overview">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Definition label="Name" value={model.name} />
-              <Definition label="Provider" value={model.provider} />
-              <Definition label="Model ID" value={model.model_id} />
-              <Definition label="Endpoint" value={model.endpoint_type} />
-              <Definition label="Context Window" value={model.context_window ?? "-"} />
-              <Definition label="Max Output" value={model.max_output_tokens ?? "-"} />
-              <Definition label="Tools" value={model.supports_tools ? "Yes" : "No"} />
-              <Definition label="JSON" value={model.supports_json ? "Yes" : "No"} />
-              <Definition label="Tags" value={formatList(model.capability_tags)} />
-              <Definition label="Created" value={formatDate(model.created_at)} />
-              <Definition label="LLM ID" value={model.id} />
-            </div>
-          </TabsContent>
-          <TabsContent value="costs">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Definition label="Input Cost / 1M" value={model.input_cost_per_1m ?? "-"} />
-              <Definition label="Output Cost / 1M" value={model.output_cost_per_1m ?? "-"} />
-            </div>
-          </TabsContent>
-          <TabsContent value="notes">
-            <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm">{model.notes || "-"}</pre>
-          </TabsContent>
-        </Tabs>
-      </div>
     </div>
   );
 }

@@ -33,34 +33,3 @@ class SkillDeprecated(VersionedDomainEvent):
     skill_id: SkillId
     reason: str
     old_status: str
-
-
-class SkillCircuitOpened(VersionedDomainEvent):
-    """Skill 熔断触发。"""
-
-    event_type: str = "capability.skill.circuit_opened"
-    skill_id: SkillId
-    recent_failures: int
-    success_rate: float
-
-
-class SkillCircuitClosed(VersionedDomainEvent):
-    """Skill 熔断关闭 — 恢复正常。"""
-
-    event_type: str = "capability.skill.circuit_closed"
-    skill_id: SkillId
-
-
-class SkillCircuitHalfOpened(VersionedDomainEvent):
-    """Skill 熔断半开 — 试探性恢复。"""
-
-    event_type: str = "capability.skill.circuit_half_opened"
-    skill_id: SkillId
-
-
-class SkillCancelled(VersionedDomainEvent):
-    """Skill 取消。"""
-
-    event_type: str = "capability.skill.cancelled"
-    skill_id: SkillId
-    old_status: str

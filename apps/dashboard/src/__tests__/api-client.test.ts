@@ -31,7 +31,6 @@ import {
   listAgentProfiles,
   getAgentProfileDetail,
   createAgentProfile,
-  assignTaskRuntime,
   changeMemoryLifecycle,
   assignSkillToMember,
   assignMemberToProject,
@@ -108,6 +107,17 @@ describe("API Client", () => {
         text: () => Promise.resolve("not found"),
       });
       await expect(apiRequest("/missing")).rejects.toThrow(ApiClientError);
+    });
+
+    it("should include API detail text in error messages", async () => {
+      (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        statusText: "Conflict",
+        json: () => Promise.resolve({ detail: "Cannot delete: department has 1 member(s)." }),
+        text: () => Promise.resolve("conflict"),
+      });
+      await expect(apiRequest("/conflict")).rejects.toThrow("API 409: Cannot delete: department has 1 member(s).");
     });
 
     it("should handle 204 No Content", async () => {
@@ -229,16 +239,12 @@ describe("API Client", () => {
       const result = await registerSkill({
         name: "my-skill",
         domain: "compiler",
-        inputs: ["target project"],
-        outputs: ["patch"],
         capability_tags: ["compiler"],
       });
       expect(result.name).toBe("my-skill");
       const callArgs = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
       const body = JSON.parse(callArgs[1].body);
       expect(body.domain).toBe("compiler");
-      expect(body.inputs).toEqual(["target project"]);
-      expect(body.outputs).toEqual(["patch"]);
       expect(body.entry_point).toBeUndefined();
     });
 
@@ -431,26 +437,6 @@ describe("API Client", () => {
       expect(body.tool_names).toEqual(["repo.search"]);
     });
 
-    it("should assign task runtime", async () => {
-      mockFetchResponse({
-        id: "task1",
-        assigned_llm_model_id: "llm1",
-        assigned_agent_profile_id: "agent1",
-        status: "runtime_assigned",
-      });
-      const result = await assignTaskRuntime("task1", {
-        llm_model_id: "llm1",
-        agent_profile_id: "agent1",
-      });
-      expect(result.status).toBe("runtime_assigned");
-      const callArgs = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(callArgs[0]).toContain("/tasks/task1/runtime");
-      expect(callArgs[1].method).toBe("PATCH");
-      expect(JSON.parse(callArgs[1].body)).toEqual({
-        llm_model_id: "llm1",
-        agent_profile_id: "agent1",
-      });
-    });
   });
 
   describe("Governance API — Reviews", () => {

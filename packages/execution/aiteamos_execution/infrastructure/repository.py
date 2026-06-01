@@ -46,14 +46,14 @@ class PostgresTaskRepository(BaseRepository[Task]):
             id, department_id, parent_task_id, state, priority,
             title, description, deliverable_spec,
             declared_skills, declared_memory_hints,
-            budget, assigned_member_id, retry_count, review_round,
+            budget, retry_count, review_round,
             workflow_id, created_at, updated_at
         ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8::jsonb,
             $9, $10,
-            $11::jsonb, $12, $13, $14,
-            $15, $16, $17
+            $11::jsonb, $12, $13,
+            $14, $15, $16
         )
         ON CONFLICT (id) DO UPDATE SET
             state = EXCLUDED.state,
@@ -64,7 +64,6 @@ class PostgresTaskRepository(BaseRepository[Task]):
             declared_skills = EXCLUDED.declared_skills,
             declared_memory_hints = EXCLUDED.declared_memory_hints,
             budget = EXCLUDED.budget,
-            assigned_member_id = EXCLUDED.assigned_member_id,
             retry_count = EXCLUDED.retry_count,
             review_round = EXCLUDED.review_round,
             workflow_id = EXCLUDED.workflow_id,
@@ -115,17 +114,15 @@ class PostgresTaskRepository(BaseRepository[Task]):
     # -- Read-Side SQL (CQRS) --
 
     LIST_TASKS = """
-        SELECT id, title, state, priority, assigned_member_id,
-               assigned_llm_model_id, assigned_agent_profile_id,
+        SELECT id, title, state, priority,
                department_id, retry_count, review_round, created_at
         FROM task
         WHERE ($1::uuid IS NULL OR department_id = $1)
           AND ($2::text IS NULL OR state = $2)
-          AND ($3::uuid IS NULL OR assigned_member_id = $3)
         ORDER BY
             CASE priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 ELSE 4 END,
             created_at DESC
-        OFFSET $4 LIMIT $5
+        OFFSET $3 LIMIT $4
     """
 
     LIST_TASKS_BY_STATE = """
@@ -133,22 +130,21 @@ class PostgresTaskRepository(BaseRepository[Task]):
     """
 
     COUNT_ACTIVE_RUNS = """
-        SELECT COUNT(*) FROM task_run
-        WHERE member_id = $1 AND state IN ('running', 'suspended')
+        SELECT COUNT(*) FROM job
+        WHERE member_id = $1 AND state IN ('running', 'pending')
     """
 
     async def get_by_id(self, id: Any, *, tx: Any = None) -> Task | None:
-        """加载 Task 聚合（含 runs、dependencies、project_ids）。"""
+        """加载 Task 聚合（含 dependencies、project_ids）。"""
         executor = tx if tx else self._db
         row = await executor.fetchrow(self.SELECT_TASK, id)
         if row is None:
             return None
 
-        runs_rows = await executor.fetch(self.SELECT_RUNS, id)
         deps_rows = await executor.fetch(self.SELECT_DEPENDENCIES, id)
         proj_rows = await executor.fetch(self.SELECT_PROJECTS, id)
 
-        return self._row_to_task(row, runs_rows, deps_rows, proj_rows)
+        return self._row_to_task(row, deps_rows, proj_rows)
 
     async def lock_for_update(self, id: Any, *, tx: Any) -> Task | None:
         """FOR UPDATE 行锁加载。"""
@@ -156,11 +152,10 @@ class PostgresTaskRepository(BaseRepository[Task]):
         if row is None:
             return None
 
-        runs_rows = await tx.fetch(self.SELECT_RUNS, id)
         deps_rows = await tx.fetch(self.SELECT_DEPENDENCIES, id)
         proj_rows = await tx.fetch(self.SELECT_PROJECTS, id)
 
-        return self._row_to_task(row, runs_rows, deps_rows, proj_rows)
+        return self._row_to_task(row, deps_rows, proj_rows)
 
     async def save(self, aggregate: Task, *, tx: Any = None) -> None:
         """持久化 Task 聚合。"""
@@ -192,32 +187,12 @@ class PostgresTaskRepository(BaseRepository[Task]):
             [str(s) for s in aggregate.declared_skills],
             [str(m) for m in aggregate.declared_memory_hints],
             json.dumps(budget_dict),
-            aggregate.assigned_member_id,
             aggregate.retry_count,
             aggregate.review_round,
             None,  # workflow_id — set by Saga
             aggregate.created_at,
             aggregate.updated_at,
         )
-
-        # 保存 runs
-        for run in aggregate.runs:
-            cost_dict = {
-                "tokens_used": run.cost.tokens_used,
-                "duration_seconds": run.cost.duration_seconds,
-                "cost_usd": str(run.cost.cost_usd),
-            }
-            await executor.execute(
-                self.UPSERT_RUN,
-                run.run_id,
-                run.task_id,
-                run.member_id,
-                run.snapshot_id,
-                run.state.value,
-                json.dumps(cost_dict),
-                run.started_at,
-                run.finished_at,
-            )
 
         # 保存依赖
         for dep in aggregate.dependencies:
@@ -247,39 +222,17 @@ class PostgresTaskRepository(BaseRepository[Task]):
         limit: int = 50,
     ) -> list[TaskSummary]:
         dept_uuid = UUID(department_id) if department_id else None
-        member_uuid = UUID(assigned_member_id) if assigned_member_id else None
         rows = await self._db.fetch(
-            self.LIST_TASKS, dept_uuid, state, member_uuid, offset, limit
+            self.LIST_TASKS, dept_uuid, state, offset, limit
         )
         return [self._row_to_summary(r) for r in rows]
 
     async def get_task_detail(self, task_id: str) -> dict[str, Any] | None:
-        """返回 Task 详情（含 runs 和 dependencies）。"""
+        """返回 Task 详情（含 dependencies）。"""
         task = await self.get_by_id(task_id)
         if task is None:
             return None
-        runtime_row = await self._db.fetchrow(
-            "SELECT assigned_llm_model_id, assigned_agent_profile_id FROM task WHERE id = $1",
-            task_id,
-        )
 
-        runs = [
-            {
-                "id": str(r.run_id),
-                "run_id": str(r.run_id),
-                "member_id": str(r.member_id),
-                "snapshot_id": str(r.snapshot_id) if r.snapshot_id else None,
-                "state": r.state.value,
-                "cost": {
-                    "tokens_used": r.cost.tokens_used,
-                    "duration_seconds": r.cost.duration_seconds,
-                    "cost_usd": str(r.cost.cost_usd),
-                },
-                "started_at": r.started_at.isoformat() if r.started_at else None,
-                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
-            }
-            for r in task.runs
-        ]
         deps = [
             {"task_id": d.task_id, "depends_on_id": d.depends_on_id}
             for d in task.dependencies
@@ -303,12 +256,9 @@ class PostgresTaskRepository(BaseRepository[Task]):
             "max_review_rounds": task.budget.max_review_rounds,
             "declared_skills": [str(s) for s in task.declared_skills],
             "declared_memory_hints": [str(m) for m in task.declared_memory_hints],
-            "assigned_member_id": str(task.assigned_member_id) if task.assigned_member_id else None,
-            "assigned_llm_model_id": str(runtime_row["assigned_llm_model_id"]) if runtime_row and runtime_row["assigned_llm_model_id"] else None,
-            "assigned_agent_profile_id": str(runtime_row["assigned_agent_profile_id"]) if runtime_row and runtime_row["assigned_agent_profile_id"] else None,
             "retry_count": task.retry_count,
             "review_round": task.review_round,
-            "runs": runs,
+            "runs": [],
             "dependencies": deps,
             "created_at": task.created_at.isoformat() if task.created_at else None,
             "updated_at": task.updated_at.isoformat() if task.updated_at else None,
@@ -323,7 +273,6 @@ class PostgresTaskRepository(BaseRepository[Task]):
                 title="",
                 state=r["state"],
                 priority="",
-                assigned_member_id=None,
                 department_id="",
                 retry_count=0,
                 review_round=0,
@@ -342,7 +291,6 @@ class PostgresTaskRepository(BaseRepository[Task]):
     @staticmethod
     def _row_to_task(
         row: Any,
-        runs_rows: list[Any],
         deps_rows: list[Any],
         proj_rows: list[Any],
     ) -> Task:
@@ -383,34 +331,11 @@ class PostgresTaskRepository(BaseRepository[Task]):
             declared_skills=skills,
             declared_memory_hints=memory_hints,
             budget=budget,
-            assigned_member_id=row.get("assigned_member_id"),
             retry_count=row["retry_count"],
             review_round=row["review_round"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
-
-        # Reconstruct runs
-        for rr in runs_rows:
-            cost_data = rr["cost"]
-            if isinstance(cost_data, str):
-                cost_data = json.loads(cost_data)
-            cost = CostAccrued(
-                tokens_used=cost_data.get("tokens_used", 0),
-                duration_seconds=cost_data.get("duration_seconds", 0.0),
-                cost_usd=Decimal(str(cost_data.get("cost_usd", "0"))),
-            )
-            run = TaskRun(
-                run_id=rr["run_id"],
-                task_id=rr["task_id"],
-                member_id=rr["member_id"],
-                snapshot_id=rr.get("snapshot_id"),
-                state=RunState(rr["state"]),
-                cost=cost,
-                started_at=rr["started_at"],
-                finished_at=rr.get("finished_at"),
-            )
-            task.runs.append(run)
 
         # Reconstruct dependencies
         for dr in deps_rows:
@@ -430,13 +355,10 @@ class PostgresTaskRepository(BaseRepository[Task]):
             title=row["title"],
             state=row["state"],
             priority=row["priority"],
-            assigned_member_id=str(row["assigned_member_id"]) if row.get("assigned_member_id") else None,
             department_id=str(row["department_id"]),
             retry_count=row["retry_count"],
             review_round=row["review_round"],
             created_at=row["created_at"],
-            assigned_llm_model_id=str(row["assigned_llm_model_id"]) if row.get("assigned_llm_model_id") else None,
-            assigned_agent_profile_id=str(row["assigned_agent_profile_id"]) if row.get("assigned_agent_profile_id") else None,
         )
 
 

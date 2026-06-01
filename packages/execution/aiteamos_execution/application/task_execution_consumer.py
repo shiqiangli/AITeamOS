@@ -17,14 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 class TaskExecutionConsumer(IdempotentProjectionConsumer):
-    """消费 Execution 上下文事件，维护 task/task_run 读侧投影。
+    """消费 Execution 上下文事件，维护 task / job 读侧投影。
 
     处理事件:
     - execution.task.created          → INSERT task row
     - execution.task.state_changed    → UPDATE task.state
-    - execution.task.assigned         → UPDATE task.assigned_member_id
-    - execution.run.started           → INSERT task_run row
-    - execution.run.finished          → UPDATE task_run.state + cost
+    - execution.run.started           → INSERT job row
+    - execution.run.finished          → UPDATE job.state + cost
     - execution.task.hard_circuit_triggered → UPDATE task.state = 'failed'
     - execution.task.dependency_resolved  → UPDATE task.state = 'ready'
     - execution.task.dependency_blocked   → UPDATE task.state = 'blocked'
@@ -43,19 +42,15 @@ class TaskExecutionConsumer(IdempotentProjectionConsumer):
         UPDATE task SET state = $2, updated_at = now() WHERE id = $1
     """
 
-    _UPDATE_TASK_ASSIGNED = """
-        UPDATE task SET assigned_member_id = $2, updated_at = now() WHERE id = $1
-    """
-
-    _UPSERT_RUN = """
-        INSERT INTO task_run (run_id, task_id, member_id, state, started_at)
-        VALUES ($1, $2, $3, 'running', now())
-        ON CONFLICT (run_id) DO UPDATE SET
+    _UPSERT_JOB = """
+        INSERT INTO job (job_id, task_id, member_id, state, phase, started_at)
+        VALUES ($1, $2, $3, 'running', 'calling', now())
+        ON CONFLICT (job_id) DO UPDATE SET
             state = EXCLUDED.state
     """
 
-    _FINISH_RUN = """
-        UPDATE task_run SET state = $2, finished_at = now() WHERE run_id = $1
+    _FINISH_JOB = """
+        UPDATE job SET state = $2, phase = $2, finished_at = now() WHERE job_id = $1
     """
 
     async def handle_event(self, event: VersionedDomainEvent) -> None:
@@ -79,16 +74,9 @@ class TaskExecutionConsumer(IdempotentProjectionConsumer):
                 data["to_state"],
             )
 
-        elif et == "execution.task.assigned":
-            await self._db.execute(
-                self._UPDATE_TASK_ASSIGNED,
-                str(data["task_id"]),
-                data["member_id"],
-            )
-
         elif et == "execution.run.started":
             await self._db.execute(
-                self._UPSERT_RUN,
+                self._UPSERT_JOB,
                 data["run_id"],
                 str(data["task_id"]),
                 data["member_id"],
@@ -98,7 +86,7 @@ class TaskExecutionConsumer(IdempotentProjectionConsumer):
             outcome = data.get("outcome", "success")
             run_state = "completed" if outcome == "success" else outcome
             await self._db.execute(
-                self._FINISH_RUN,
+                self._FINISH_JOB,
                 data["run_id"],
                 run_state,
             )

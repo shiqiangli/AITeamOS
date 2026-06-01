@@ -20,6 +20,7 @@ class MemberSummary:
     id: MemberId
     kind: str
     display_name: str
+    role: str | None
     department_id: str
     concurrency_limit: int
     is_archived: bool

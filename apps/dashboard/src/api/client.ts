@@ -25,9 +25,33 @@ export class ApiClientError extends Error {
     public statusText: string,
     public body: unknown,
   ) {
-    super(`API ${status}: ${statusText}`);
+    super(formatApiErrorMessage(status, statusText, body));
     this.name = "ApiClientError";
   }
+}
+
+function formatApiErrorMessage(status: number, statusText: string, body: unknown): string {
+  const detail = extractApiErrorDetail(body);
+  return detail ? `API ${status}: ${detail}` : `API ${status}: ${statusText}`;
+}
+
+function extractApiErrorDetail(body: unknown): string | null {
+  if (!body) return null;
+  if (typeof body === "string") return body || null;
+  if (typeof body !== "object") return null;
+
+  const record = body as Record<string, unknown>;
+  if (typeof record.detail === "string") return record.detail;
+  if (Array.isArray(record.detail)) return record.detail.map(String).join("; ");
+
+  const error = record.error;
+  if (error && typeof error === "object") {
+    const errorRecord = error as Record<string, unknown>;
+    if (typeof errorRecord.message === "string") return errorRecord.message;
+  }
+
+  if (typeof record.message === "string") return record.message;
+  return null;
 }
 
 export async function apiRequest<T>(
@@ -200,7 +224,6 @@ export interface SkillSummary {
   description: string;
   domain: string;
   status: string;
-  circuit_state: string;
   capability_tags: string[];
   created_at: string | null;
 }
@@ -212,18 +235,7 @@ export interface SkillDetail {
   description: string;
   domain: string;
   status: string;
-  circuit_state: string;
-  inputs: string[];
-  outputs: string[];
-  preconditions: string[];
-  side_effects: Record<string, string>[];
-  required_permissions: string[];
   capability_tags: string[];
-  examples: string[];
-  references: string[];
-  quality_signals: Record<string, unknown>;
-  manifest: Record<string, unknown> | null;
-  health: Record<string, unknown> | null;
   created_at: string | null;
 }
 
@@ -232,17 +244,7 @@ export interface RegisterSkillPayload {
   version?: string;
   description?: string;
   domain?: string;
-  inputs?: string[];
-  outputs?: string[];
-  preconditions?: string[];
-  side_effects?: Record<string, string>[];
-  required_permissions?: string[];
   capability_tags?: string[];
-  examples?: string[];
-  references?: string[];
-  quality_signals?: Record<string, unknown>;
-  input_schema?: Record<string, unknown>;
-  output_schema?: Record<string, unknown>;
 }
 
 // ─── Skill API ───────────────────────────────────────────────────────────────
@@ -281,12 +283,32 @@ export function deprecateSkill(id: string, reason?: string): Promise<SkillDetail
   });
 }
 
+export function updateSkill(id: string, payload: { description?: string; domain?: string; capability_tags?: string[] }): Promise<SkillDetail> {
+  return apiRequest<SkillDetail>(`/skills/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: payload,
+  });
+}
+
+export interface SkillFileResponse {
+  skill_id: string;
+  skill_name: string;
+  file_path: string;
+  content: string;
+  exists: boolean;
+}
+
+export function fetchSkillFile(id: string): Promise<SkillFileResponse> {
+  return apiRequest<SkillFileResponse>(`/skills/${encodeURIComponent(id)}/file`);
+}
+
 // ─── Member types ────────────────────────────────────────────────────────────
 
 export interface MemberSummary {
   id: string;
   kind: string;
   display_name: string;
+  role: string | null;
   department_id: string | null;
   concurrency_limit: number;
   is_archived: boolean;
@@ -302,6 +324,7 @@ export interface MemberDetail {
   concurrency_limit: number;
   base_skill_set: string[];
   assigned_memories: string[];
+  prompt_template: string;
   is_archived: boolean;
   created_at: string;
 }
@@ -326,7 +349,6 @@ export interface MemberSkillRecord {
   description: string | null;
   domain: string | null;
   status: string | null;
-  circuit_state: string | null;
   capability_tags: string[];
   is_base: boolean;
   assigned_at: string | null;
@@ -435,6 +457,24 @@ export function assignMemoryToMember(memberId: string, memoryId: string, assigne
     method: "POST",
     body: { memory_id: memoryId, assigned_by: assignedBy },
   });
+}
+
+export function updateMemberPromptTemplate(memberId: string, promptTemplate: string): Promise<{ id: string; status: string }> {
+  return apiRequest<{ id: string; status: string }>(`/members/${encodeURIComponent(memberId)}/prompt-template`, {
+    method: "PUT",
+    body: { prompt_template: promptTemplate },
+  });
+}
+
+export interface PromptPreviewResponse {
+  template: string;
+  rendered: string;
+  variables_used: string[];
+  token_estimate: number;
+}
+
+export function getMemberPromptPreview(memberId: string): Promise<PromptPreviewResponse> {
+  return apiRequest<PromptPreviewResponse>(`/members/${encodeURIComponent(memberId)}/prompt/preview`);
 }
 
 // ─── Department types ────────────────────────────────────────────────────────
@@ -638,14 +678,58 @@ export function createAgentProfile(payload: CreateAgentProfilePayload): Promise<
   return apiRequest<AgentProfileDetail>("/agent-profiles", { method: "POST", body: payload });
 }
 
-export function assignTaskRuntime(
-  taskId: string,
-  payload: AssignTaskRuntimePayload,
-): Promise<AssignTaskRuntimeResponse> {
-  return apiRequest<AssignTaskRuntimeResponse>(`/tasks/${encodeURIComponent(taskId)}/runtime`, {
-    method: "PATCH",
-    body: payload,
-  });
+// ─── Job types ──────────────────────────────────────────────────────────────
+
+export interface Job {
+  job_id: string;
+  task_id: string;
+  member_id: string | null;
+  llm_model_id: string | null;
+  rendered_prompt: string | null;
+  context_snapshot: Record<string, unknown>;
+  phase: string;
+  phase_entered_at: string | null;
+  error: string | null;
+  result_report: Record<string, unknown>;
+  cost: Record<string, unknown>;
+  state: string;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string | null;
+}
+
+export interface JobSummary {
+  job_id: string;
+  task_id: string;
+  member_id: string | null;
+  llm_model_id: string | null;
+  phase: string;
+  state: string;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string | null;
+}
+
+export interface CreateJobPayload {
+  task_id: string;
+  member_id?: string | null;
+  llm_model_id?: string | null;
+}
+
+// ─── Job API ───────────────────────────────────────────────────────────────
+
+export function createJob(payload: CreateJobPayload): Promise<JobSummary> {
+  return apiRequest<JobSummary>("/jobs", { method: "POST", body: payload });
+}
+
+export function listJobs(taskId?: string): Promise<JobSummary[]> {
+  const qs = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
+  return apiRequest<JobSummary[]>(`/jobs${qs}`);
+}
+
+export function getJobDetail(jobId: string): Promise<Job> {
+  return apiRequest<Job>(`/jobs/${encodeURIComponent(jobId)}`);
 }
 
 // ─── Governance types ────────────────────────────────────────────────────────
@@ -809,9 +893,6 @@ export interface TaskSummary {
   title: string;
   state: string;
   priority: string;
-  assigned_member_id: string | null;
-  assigned_llm_model_id: string | null;
-  assigned_agent_profile_id: string | null;
   department_id: string | null;
   retry_count: number;
   review_round: number;
@@ -825,9 +906,6 @@ export interface TaskDetail {
   state: string;
   priority: string;
   department_id: string;
-  assigned_member_id: string | null;
-  assigned_llm_model_id: string | null;
-  assigned_agent_profile_id: string | null;
   project_ids: string[];
   parent_task_id: string | null;
   declared_skills: string[];
@@ -867,7 +945,6 @@ export interface CreateTaskPayload {
 export interface ListTasksParams {
   department_id?: string;
   state?: string;
-  assigned_member_id?: string;
   offset?: number;
   limit?: number;
 }
@@ -883,6 +960,19 @@ export function getTaskDetail(id: string): Promise<TaskDetail> {
 
 export function createTask(payload: CreateTaskPayload): Promise<{ id: string; state: string }> {
   return apiRequest<{ id: string; state: string }>("/tasks", { method: "POST", body: payload });
+}
+
+export interface UpdateTaskPayload {
+  title?: string;
+  description?: string;
+  priority?: string;
+  deliverable_kind?: string;
+  max_retry_count?: number;
+  max_review_rounds?: number;
+}
+
+export function updateTask(taskId: string, payload: UpdateTaskPayload): Promise<{ id: string; status: string }> {
+  return apiRequest<{ id: string; status: string }>(`/tasks/${encodeURIComponent(taskId)}`, { method: "PUT", body: payload });
 }
 
 export function assignTask(taskId: string, memberId: string): Promise<{ id: string; state: string }> {

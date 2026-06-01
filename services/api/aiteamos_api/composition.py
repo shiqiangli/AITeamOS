@@ -44,6 +44,7 @@ from aiteamos_capability.application.handlers import (
     DeprecateSkillHandler,
     PublishSkillHandler,
     RegisterSkillHandler,
+    UpdateSkillHandler,
 )
 from aiteamos_capability.application.queries import (
     GetSkillDetailExecutor,
@@ -97,7 +98,7 @@ from aiteamos_execution.infrastructure.repository import PostgresTaskRepository
 from aiteamos_execution.infrastructure.event_publisher import ExecutionEventPublisher
 
 from .acl_bridges import RecallEngineKnowledgeACL, SqlCapabilityACL
-from .command import memory_commands, member_commands, skill_commands, task_commands, runtime_commands, delete_routes
+from .command import memory_commands, member_commands, skill_commands, task_commands, runtime_commands, delete_routes, job_commands
 from .read import member_routes, memory_routes, metrics_routes, skill_routes, task_routes, runtime_routes
 
 logger = logging.getLogger(__name__)
@@ -187,6 +188,8 @@ def build_container(container: ServiceContainer, db: Any) -> None:
     container.register("skill_publish_handler", PublishSkillHandler(
         skill_repo=skill_repo, tx_manager=db, event_publisher=capability_pub))
     container.register("skill_deprecate_handler", DeprecateSkillHandler(
+        skill_repo=skill_repo, tx_manager=db, event_publisher=capability_pub))
+    container.register("skill_update_handler", UpdateSkillHandler(
         skill_repo=skill_repo, tx_manager=db, event_publisher=capability_pub))
 
     container.register("skill_list_executor", ListSkillsExecutor(read_repo=skill_repo))
@@ -302,6 +305,7 @@ def register_routes(app: FastAPI, container: ServiceContainer) -> None:
         skill_routes.init_routes(
             list_executor=skill_list_exec,
             detail_executor=skill_detail_exec,
+            db=container.get("db"),
         )
 
     members_exec = container.get("members_executor")
@@ -344,11 +348,13 @@ def register_routes(app: FastAPI, container: ServiceContainer) -> None:
     skill_register_handler = container.get("skill_register_handler")
     skill_publish_handler = container.get("skill_publish_handler")
     skill_deprecate_handler = container.get("skill_deprecate_handler")
+    skill_update_handler = container.get("skill_update_handler")
     if all([skill_register_handler, skill_publish_handler, skill_deprecate_handler]):
         skill_commands.init_routes(
             register_handler=skill_register_handler,
             publish_handler=skill_publish_handler,
             deprecate_handler=skill_deprecate_handler,
+            update_handler=skill_update_handler,
         )
 
     member_create_handler = container.get("member_create_handler")
@@ -385,6 +391,7 @@ def register_routes(app: FastAPI, container: ServiceContainer) -> None:
     task_start_handler = container.get("task_start_handler")
     task_submit_handler = container.get("task_submit_handler")
     task_transition_handler = container.get("task_transition_handler")
+    db_pool = container.get("db")
     if all([task_create_handler, task_assign_handler, task_start_handler,
             task_submit_handler, task_transition_handler]):
         task_commands.init_routes(
@@ -393,10 +400,14 @@ def register_routes(app: FastAPI, container: ServiceContainer) -> None:
             start_handler=task_start_handler,
             submit_handler=task_submit_handler,
             transition_handler=task_transition_handler,
+            db=db_pool,
         )
 
+    # --- Job routes ---
+    if db_pool:
+        job_commands.init_routes(db=db_pool)
+
     # --- Metrics routes ---
-    db_pool = container.get("db")
     if db_pool:
         runtime_routes.init_routes(db=db_pool)
         runtime_commands.init_routes(db=db_pool)
@@ -429,6 +440,7 @@ def register_routes(app: FastAPI, container: ServiceContainer) -> None:
     app.include_router(member_commands.router)
     app.include_router(task_commands.router)
     app.include_router(runtime_commands.router)
+    app.include_router(job_commands.router)
     app.include_router(metrics_routes.router)
     app.include_router(governance_routes.router)
     app.include_router(governance_commands.router)
