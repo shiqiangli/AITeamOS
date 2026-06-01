@@ -9,8 +9,10 @@ import {
   Brain,
   Clock,
   ExternalLink,
+  FileText,
   ListTodo,
   Plus,
+  Save,
   Trash2,
   UserRound,
   Wrench,
@@ -20,6 +22,7 @@ import { useToast } from "../../components/ui/use-toast";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
+import { Textarea } from "../../components/ui/textarea";
 import { Badge } from "../../components/ui/badge";
 import {
   Dialog,
@@ -41,15 +44,18 @@ import {
   listSkills,
   getMemberDetail,
   getMemberProfileView,
+  getMemberPromptPreview,
   createMember,
   assignSkillToMember,
   deleteMember,
+  updateMemberPromptTemplate,
   type MemberSummary,
   type MemberDetail,
   type MemberProfileView,
   type DepartmentSummary,
   type TaskSummary,
   type SkillSummary,
+  type PromptPreviewResponse,
 } from "../../api/client";
 
 type MemberActivity = {
@@ -305,6 +311,7 @@ function MemberDetailSurface({
   onClose,
   onDelete,
   onAssignSkill,
+  onReload,
   availableSkills,
 }: {
   selectedId: string | null;
@@ -317,14 +324,26 @@ function MemberDetailSurface({
   onClose: () => void;
   onDelete: () => void;
   onAssignSkill: (skillName: string) => Promise<void>;
+  onReload: (id: string) => Promise<void>;
   availableSkills: SkillSummary[];
 }) {
   const [assignSkillName, setAssignSkillName] = useState("");
   const [showAssignSkill, setShowAssignSkill] = useState(false);
+  const [promptEditing, setPromptEditing] = useState(false);
+  const [promptDraft, setPromptDraft] = useState("");
+  const [promptPreview, setPromptPreview] = useState<PromptPreviewResponse | null>(null);
+  const [promptPreviewLoading, setPromptPreviewLoading] = useState(false);
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptMode, setPromptMode] = useState<"edit" | "preview">("edit");
+  const { toast } = useToast();
 
   useEffect(() => {
     setAssignSkillName("");
     setShowAssignSkill(false);
+    setPromptEditing(false);
+    setPromptDraft("");
+    setPromptPreview(null);
+    setPromptMode("edit");
   }, [selectedId]);
 
   const deptName = useCallback((id: string | null) => {
@@ -351,6 +370,40 @@ function MemberDetailSurface({
     await onAssignSkill(assignSkillName.trim());
     setAssignSkillName("");
     setShowAssignSkill(false);
+  }
+
+  async function handleSavePrompt() {
+    if (!selectedId) return;
+    setPromptSaving(true);
+    try {
+      await updateMemberPromptTemplate(selectedId, promptDraft);
+      setPromptEditing(false);
+      await onReload(selectedId);
+      toast({ title: "Prompt template saved" });
+    } catch (err) {
+      toast({ title: "Save failed", description: err instanceof Error ? err.message : "Unknown error", variant: "danger" });
+    } finally {
+      setPromptSaving(false);
+    }
+  }
+
+  async function handleLoadPreview() {
+    if (!selectedId) return;
+    setPromptPreviewLoading(true);
+    try {
+      const preview = await getMemberPromptPreview(selectedId);
+      setPromptPreview(preview);
+    } catch {
+      setPromptPreview(null);
+    } finally {
+      setPromptPreviewLoading(false);
+    }
+  }
+
+  function handleStartEditPrompt() {
+    setPromptDraft(detail?.prompt_template ?? "");
+    setPromptEditing(true);
+    setPromptMode("edit");
   }
 
   return (
@@ -408,6 +461,7 @@ function MemberDetailSurface({
                   <TabsTrigger value="knowledge">Knowledge & Skills</TabsTrigger>
                   <TabsTrigger value="work">Work</TabsTrigger>
                   <TabsTrigger value="changes">Change Log</TabsTrigger>
+                  <TabsTrigger value="prompt">Prompt</TabsTrigger>
                   <TabsTrigger value="profile">Profile</TabsTrigger>
                 </TabsList>
 
@@ -627,6 +681,95 @@ function MemberDetailSurface({
                   </section>
                 </TabsContent>
 
+                <TabsContent value="prompt" className="space-y-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Prompt Template</span>
+                      <span className="text-xs text-muted-foreground">
+                        Variables: {"{member_name}"}, {"{member_role}"}, {"{member_kind}"}, {"{skill_descriptions}"}, {"{memory_summaries}"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant={promptMode === "edit" ? "recommended" : "outline"}
+                        size="sm"
+                        onClick={() => { setPromptMode("edit"); handleStartEditPrompt(); }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant={promptMode === "preview" ? "recommended" : "outline"}
+                        size="sm"
+                        onClick={() => { setPromptMode("preview"); handleLoadPreview(); }}
+                        disabled={promptPreviewLoading}
+                      >
+                        {promptPreviewLoading ? "Loading..." : "Preview"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {promptMode === "edit" && (
+                    <div className="space-y-3">
+                      {promptEditing ? (
+                        <>
+                          <Textarea
+                            value={promptDraft}
+                            onChange={(e) => setPromptDraft(e.target.value)}
+                            className="min-h-[280px] font-mono text-sm"
+                            placeholder={"You are {member_name}, a {member_role}.\n\n## Your Skills\n{skill_descriptions}\n\n## Your Knowledge\n{memory_summaries}"}
+                          />
+                          <div className="flex items-center gap-2">
+                            <Button variant="recommended" onClick={handleSavePrompt} disabled={promptSaving}>
+                              <Save className="h-4 w-4" />
+                              {promptSaving ? "Saving..." : "Save"}
+                            </Button>
+                            <Button variant="outline" onClick={() => setPromptEditing(false)}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm min-h-[120px]">
+                            {detail?.prompt_template || (
+                              <span className="text-muted-foreground italic">No prompt template configured. Click "Edit" to add one.</span>
+                            )}
+                          </pre>
+                          <Button variant="outline" onClick={handleStartEditPrompt}>
+                            <FileText className="h-4 w-4" />
+                            Edit Template
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {promptMode === "preview" && (
+                    <div className="space-y-3">
+                      {promptPreview ? (
+                        <>
+                          {promptPreview.rendered ? (
+                            <>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                <span>Variables used: {promptPreview.variables_used.length > 0 ? promptPreview.variables_used.join(", ") : "none"}</span>
+                                <span>~{promptPreview.token_estimate} tokens</span>
+                              </div>
+                              <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-sm max-h-[400px] overflow-y-auto">
+                                {promptPreview.rendered}
+                              </pre>
+                            </>
+                          ) : (
+                            <EmptyInline>No template to render. Switch to Edit and add a template first.</EmptyInline>
+                          )}
+                        </>
+                      ) : (
+                        <EmptyInline>Preview not available.</EmptyInline>
+                      )}
+                    </div>
+                  )}
+                </TabsContent>
+
                 <TabsContent value="profile" className="space-y-5">
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <Definition label="Display Name" value={detail.display_name} />
@@ -717,7 +860,7 @@ export function MemberPage({ selectedId }: { selectedId: string | null }) {
     },
     { key: "kind", label: "Kind", render: (r) => <Badge variant="secondary">{r.kind}</Badge> },
     { key: "department_id", label: "Department", render: (r) => deptName(r.department_id) },
-    { key: "concurrency_limit", label: "Concurrency" },
+    { key: "role", label: "Role", render: (r) => <span className="text-sm">{r.role || "-"}</span> },
     { key: "is_archived", label: "State", render: (r) => <Badge variant={r.is_archived ? "secondary" : "success"}>{r.is_archived ? "archived" : "active"}</Badge> },
     { key: "created_at", label: "Created", render: (r) => formatDate(r.created_at) },
   ];
@@ -756,7 +899,7 @@ export function MemberPage({ selectedId }: { selectedId: string | null }) {
       try {
         const [nextDetail, tasks] = await Promise.all([
           getMemberDetail(id),
-          listTasks({ assigned_member_id: id, limit: 100 }),
+          listTasks({ limit: 100 }),
         ]);
         setDetail(nextDetail);
         setMemberTasks(tasks);
@@ -939,6 +1082,7 @@ export function MemberPage({ selectedId }: { selectedId: string | null }) {
         onClose={() => navigateTo("members")}
         onDelete={handleDelete}
         onAssignSkill={handleAssignSkill}
+        onReload={loadDetail}
         availableSkills={skills}
       />
     </div>

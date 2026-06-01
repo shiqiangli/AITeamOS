@@ -11,11 +11,12 @@ import { cn } from "@/lib/utils";
 import { HomePage } from "../pages/home";
 import { MemoryPage } from "../pages/memory";
 import { SkillPage } from "../pages/skills";
-import { AgentPage } from "../pages/agents";
+import { ApiPage } from "../pages/agents";
 import { MemberPage } from "../pages/members";
 import { DepartmentPage } from "../pages/manager";
 import { ProjectPage } from "../pages/projects";
 import { TaskPage } from "../pages/tasks";
+import { JobsPage } from "../pages/jobs";
 import { MetricsPage } from "../pages/metrics";
 
 function NotFoundPage() {
@@ -42,7 +43,7 @@ function PageBody({ route }: { route: RouteState }) {
     case "skills":
       return <SkillPage selectedId={route.id} />;
     case "agents":
-      return <AgentPage selectedId={route.id} />;
+      return <ApiPage selectedId={route.id} />;
     case "members":
       return <MemberPage selectedId={route.id} />;
     case "departments":
@@ -51,6 +52,8 @@ function PageBody({ route }: { route: RouteState }) {
       return <ProjectPage selectedId={route.id} />;
     case "tasks":
       return <TaskPage selectedId={route.id} />;
+    case "jobs":
+      return <JobsPage selectedId={route.id} />;
     case "metrics":
       return <MetricsPage />;
     default:

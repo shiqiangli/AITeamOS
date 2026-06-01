@@ -17,25 +17,12 @@ from typing import Any, Protocol
 from aiteamos_shared.types import SkillId
 
 from ..domain.events import SkillRegistered
-from ..domain.invariants import (
-    InvariantViolationError,
-    assert_backward_compatible,
-)
-from ..domain.models import (
-    CircuitState,
-    CostEstimate,
-    MutationKind,
-    SideEffect,
-    Skill,
-    SkillHealth,
-    SkillManifest,
-    SkillStatus,
-)
+from ..domain.models import Skill, SkillStatus
 from .commands import (
     DeprecateSkillCommand,
     PublishSkillCommand,
     RegisterSkillCommand,
-    UpdateSkillManifestCommand,
+    UpdateSkillCommand,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,22 +50,6 @@ class EventPublisherLike(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _parse_side_effects(raw: list[dict[str, str]]) -> list[SideEffect]:
-    return [
-        SideEffect(
-            resource_kind=se.get("resource_kind", ""),
-            resource_pattern=se.get("resource_pattern", ""),
-            mutation_kind=MutationKind(se.get("mutation_kind", "read")),
-        )
-        for se in raw
-    ]
-
-
-# ---------------------------------------------------------------------------
 # Handlers
 # ---------------------------------------------------------------------------
 
@@ -98,32 +69,12 @@ class RegisterSkillHandler:
         self._publisher = event_publisher
 
     async def handle(self, cmd: RegisterSkillCommand) -> Skill:
-        manifest = SkillManifest(
+        skill = Skill(
             name=cmd.name,
             version=cmd.version,
             description=cmd.description,
             domain=cmd.domain,
-            inputs=cmd.inputs,
-            outputs=cmd.outputs,
-            preconditions=cmd.preconditions,
-            input_schema=cmd.input_schema,
-            output_schema=cmd.output_schema,
-            side_effects=_parse_side_effects(cmd.side_effects),
-            required_permissions=cmd.required_permissions,
             capability_tags=cmd.capability_tags,
-            examples=cmd.examples,
-            references=cmd.references,
-            quality_signals=cmd.quality_signals,
-            cost_estimate=CostEstimate(
-                token_estimate=cmd.token_estimate,
-                time_estimate_seconds=cmd.time_estimate_seconds,
-            ),
-        )
-
-        skill = Skill(
-            name=cmd.name,
-            version=cmd.version,
-            manifest=manifest,
             status=SkillStatus.DRAFT,
         )
 
@@ -210,11 +161,8 @@ class DeprecateSkillHandler:
         return skill
 
 
-class UpdateSkillManifestHandler:
-    """处理 UpdateSkillManifestCommand。
-
-    I-C-1: published 后 schema 只能向后兼容变更。
-    """
+class UpdateSkillHandler:
+    """处理 UpdateSkillCommand。"""
 
     def __init__(
         self,
@@ -227,36 +175,17 @@ class UpdateSkillManifestHandler:
         self._tx = tx_manager
         self._publisher = event_publisher
 
-    async def handle(self, cmd: UpdateSkillManifestCommand) -> Skill:
+    async def handle(self, cmd: UpdateSkillCommand) -> Skill:
         async with self._tx.transaction() as tx:
             skill = await self._repo.lock_for_update(cmd.skill_id, tx=tx)
             if skill is None:
                 raise ValueError(f"Skill {cmd.skill_id} not found")
 
-            new_manifest = SkillManifest(
-                name=skill.manifest.name,
-                version=skill.manifest.version,
-                description=cmd.description or skill.manifest.description,
-                domain=cmd.domain or skill.manifest.domain,
-                inputs=cmd.inputs,
-                outputs=cmd.outputs,
-                preconditions=cmd.preconditions,
-                input_schema=cmd.input_schema,
-                output_schema=cmd.output_schema,
-                side_effects=_parse_side_effects(cmd.side_effects),
-                required_permissions=cmd.required_permissions,
-                capability_tags=cmd.capability_tags,
-                examples=cmd.examples,
-                references=cmd.references,
-                quality_signals=cmd.quality_signals,
-                cost_estimate=skill.manifest.cost_estimate,
+            skill.update(
+                description=cmd.description or skill.description,
+                domain=cmd.domain or skill.domain,
+                capability_tags=cmd.capability_tags or skill.capability_tags,
             )
-
-            # I-C-1: published Skill 必须向后兼容
-            if skill.status == SkillStatus.PUBLISHED:
-                assert_backward_compatible(skill.manifest, new_manifest)
-
-            skill.update_manifest(new_manifest)
 
             await self._repo.save(skill, tx=tx)
             events = skill.pending_events

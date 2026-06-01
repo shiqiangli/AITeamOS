@@ -87,12 +87,12 @@ async def delete_member(
     if _db is None:
         raise RuntimeError("Service not initialized")
     ref = await _count(
-        "SELECT count(*) AS count FROM task WHERE assigned_member_id = $1",
+        "SELECT count(*) AS count FROM job WHERE member_id = $1",
         member_id,
     )
     if ref > 0:
         raise ConflictError(
-            detail=f"Cannot delete: member has {ref} assigned task(s). Reassign tasks first.",
+            detail=f"Cannot delete: member has {ref} active job(s). Cancel jobs first.",
         )
     await _db.execute(
         "DELETE FROM member_skill_assignment WHERE member_id = $1", member_id,

@@ -67,6 +67,20 @@ export function DepartmentPage({ selectedId }: { selectedId: string | null }) {
     [projects, selectedId],
   );
 
+  const deleteBlocker = useMemo(() => {
+    if (!selectedDepartment) return null;
+    if (selectedMembers.length > 0 && selectedProjects.length > 0) {
+      return `Cannot delete while this department has ${selectedMembers.length} member(s) and ${selectedProjects.length} project(s). Reassign or delete them first.`;
+    }
+    if (selectedMembers.length > 0) {
+      return `Cannot delete while this department has ${selectedMembers.length} member(s). Reassign or delete them first.`;
+    }
+    if (selectedProjects.length > 0) {
+      return `Cannot delete while this department has ${selectedProjects.length} project(s). Reassign or delete them first.`;
+    }
+    return null;
+  }, [selectedDepartment, selectedMembers.length, selectedProjects.length]);
+
   const filteredDepartments = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return departments.filter((department) => {
@@ -133,6 +147,10 @@ export function DepartmentPage({ selectedId }: { selectedId: string | null }) {
 
   async function handleDelete() {
     if (!selectedDepartment) return;
+    if (deleteBlocker) {
+      setError(deleteBlocker);
+      return;
+    }
     if (!confirm(`Delete department "${selectedDepartment.name}"? This cannot be undone.`)) return;
     try {
       await deleteDepartment(selectedDepartment.id);
@@ -260,7 +278,17 @@ export function DepartmentPage({ selectedId }: { selectedId: string | null }) {
                     )}
                   </TabsContent>
                   <TabsContent value="actions">
-                    <Button variant="outline" onClick={handleDelete} className="border-destructive text-destructive">
+                    {deleteBlocker && (
+                      <div className="mb-4 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground">
+                        {deleteBlocker}
+                      </div>
+                    )}
+                    <Button
+                      variant="outline"
+                      onClick={handleDelete}
+                      disabled={Boolean(deleteBlocker)}
+                      className="border-destructive text-destructive"
+                    >
                       <Trash2 className="h-4 w-4" />Delete
                     </Button>
                   </TabsContent>

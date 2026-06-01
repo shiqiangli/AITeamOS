@@ -56,13 +56,26 @@ class TaskState(StrEnum):
 
 
 class RunState(StrEnum):
-    """TaskRun 执行状态。"""
+    """TaskRun / Job 执行状态。"""
 
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class JobPhase(StrEnum):
+    """Job 执行阶段 (arch.md T3-T4)。"""
+
+    QUEUED = "queued"
+    ASSEMBLING = "assembling"
+    RENDERING = "rendering"
+    CALLING = "calling"
+    PROCESSING = "processing"
+    VALIDATING = "validating"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -108,13 +121,13 @@ class TaskDependency:
 
 
 # ---------------------------------------------------------------------------
-# 实体: TaskRun (arch.md §2.2.4)
+# 实体: TaskRun (legacy alias, 由 Job 替代)
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class TaskRun:
-    """TaskRun 实体 — 属于 Task 聚合内。"""
+    """TaskRun 实体 — legacy, 由 Job 实体替代。"""
 
     run_id: RunId = field(default_factory=lambda: new_id())
     task_id: TaskId = ""
@@ -125,19 +138,69 @@ class TaskRun:
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: datetime | None = None
 
+
+# ---------------------------------------------------------------------------
+# 实体: Job — Task 的一次执行尝试 (Pre + Middle + Post)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Job:
+    """Job 实体 — Task 的一次执行尝试，承载完整执行可观测性。
+
+    Pre:    rendered_prompt + context_snapshot
+    Middle: phase + phase_entered_at + error
+    Post:   result_report + cost
+    """
+
+    job_id: UUID = field(default_factory=lambda: new_id())
+    task_id: TaskId = ""
+    member_id: UUID | None = None
+    llm_model_id: UUID | None = None
+
+    # Pre
+    rendered_prompt: str = ""
+    context_snapshot: dict[str, Any] = field(default_factory=dict)
+
+    # Middle
+    phase: JobPhase = JobPhase.QUEUED
+    phase_entered_at: datetime | None = None
+    error: str = ""
+
+    # Post
+    result_report: dict[str, Any] = field(default_factory=dict)
+    cost: dict[str, Any] = field(default_factory=dict)
+
+    # Meta
+    state: RunState = RunState.PENDING
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    finished_at: datetime | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def advance_phase(self, phase: JobPhase) -> None:
+        """推进执行阶段。"""
+        self.phase = phase
+        self.phase_entered_at = datetime.now(timezone.utc)
+
     def mark_running(self) -> None:
         self.state = RunState.RUNNING
-        self.started_at = datetime.now(timezone.utc)
+        self.phase = JobPhase.ASSEMBLING
+        self.phase_entered_at = datetime.now(timezone.utc)
 
-    def mark_completed(self, cost: CostAccrued | None = None) -> None:
+    def mark_completed(self, *, result_report: dict | None = None, cost: dict | None = None) -> None:
         self.state = RunState.COMPLETED
+        self.phase = JobPhase.COMPLETED
         self.finished_at = datetime.now(timezone.utc)
+        if result_report:
+            self.result_report = result_report
         if cost:
             self.cost = cost
 
-    def mark_failed(self) -> None:
+    def mark_failed(self, *, error: str = "") -> None:
         self.state = RunState.FAILED
+        self.phase = JobPhase.FAILED
         self.finished_at = datetime.now(timezone.utc)
+        self.error = error
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +232,6 @@ class Task:
         declared_skills: list[SkillId] | None = None,
         declared_memory_hints: list[MemoryId] | None = None,
         budget: TaskBudget | None = None,
-        assigned_member_id: MemberId | None = None,
         retry_count: int = 0,
         review_round: int = 0,
         created_at: datetime | None = None,
@@ -187,14 +249,12 @@ class Task:
         self.declared_skills: list[SkillId] = declared_skills or []
         self.declared_memory_hints: list[MemoryId] = declared_memory_hints or []
         self.budget = budget or TaskBudget()
-        self.assigned_member_id = assigned_member_id
         self.retry_count = retry_count
         self.review_round = review_round
         self.created_at = created_at or datetime.now(timezone.utc)
         self.updated_at = updated_at or datetime.now(timezone.utc)
 
         # 聚合内实体
-        self.runs: list[TaskRun] = []
         self.dependencies: list[TaskDependency] = []
 
         # 内部事件收集器
@@ -220,33 +280,20 @@ class Task:
         self._transition_to(TaskState.READY, "complete_info")
 
     def assign_member(self, member_id: MemberId) -> None:
-        """Ready → Assigned: 分配执行成员。"""
-        self._transition_to(TaskState.ASSIGNED, "assign_member")
-        self.assigned_member_id = member_id
-        from . import events as evt
-
-        self._register_event(
-            evt.TaskAssigned(
-                event_type="execution.task.assigned",
-                task_id=self.id,
-                member_id=member_id,
-            )
-        )
+        """legacy — 分配成员已由 Job 层处理。"""
+        pass
 
     def start_run(self, *, member_id: MemberId | None = None) -> TaskRun:
-        """Assigned → Running: 开始执行 Run。"""
-        effective_member = member_id or self.assigned_member_id
-        if effective_member is None:
-            raise ValueError(
-                f"Cannot start run for task {self.id}: no member assigned"
-            )
+        """Ready/Assigned → Running: 开始执行。
+
+        返回一个临时 TaskRun (不持久化)，实际执行记录由 Job 承载。
+        """
         self._transition_to(TaskState.RUNNING, "start_run")
         run = TaskRun(
             task_id=self.id,
-            member_id=effective_member,
+            member_id=member_id or new_id(),
             state=RunState.RUNNING,
         )
-        self.runs.append(run)
         from . import events as evt
 
         self._register_event(
@@ -319,7 +366,6 @@ class Task:
     def requeue(self) -> None:
         """Failed → Ready: 重新排队。"""
         self._transition_to(TaskState.READY, "requeue")
-        self.assigned_member_id = None
 
     def hard_circuit_break(self, *, reason: str) -> None:
         """Running → Failed: 硬熔断。"""

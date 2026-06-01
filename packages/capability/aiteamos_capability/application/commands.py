@@ -5,7 +5,6 @@ Capability Context — Application Commands (CQRS write side).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from aiteamos_shared.types import SkillId, SemVer
 
@@ -14,25 +13,13 @@ from ..domain.models import SkillStatus
 
 @dataclass(frozen=True)
 class RegisterSkillCommand:
-    """注册 Skill。"""
+    """注册 Skill — 角色能力标签。"""
 
     name: str
     version: SemVer
-    description: str
-    domain: str
-    inputs: list[str]
-    outputs: list[str]
-    preconditions: list[str]
-    input_schema: dict[str, Any]
-    output_schema: dict[str, Any]
-    side_effects: list[dict[str, str]]  # [{resource_kind, resource_pattern, mutation_kind}]
-    required_permissions: list[str]
-    capability_tags: list[str]
-    examples: list[str]
-    references: list[str]
-    quality_signals: dict[str, Any]
-    token_estimate: int = 0
-    time_estimate_seconds: float = 0.0
+    description: str = ""
+    domain: str = ""
+    capability_tags: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -51,23 +38,13 @@ class DeprecateSkillCommand:
 
 
 @dataclass(frozen=True)
-class UpdateSkillManifestCommand:
-    """更新 Skill Manifest (需校验向后兼容)。"""
+class UpdateSkillCommand:
+    """更新 Skill 核心属性。"""
 
     skill_id: SkillId
-    input_schema: dict[str, Any]
-    output_schema: dict[str, Any]
-    side_effects: list[dict[str, str]]
-    required_permissions: list[str]
-    capability_tags: list[str]
-    domain: str = ""
-    inputs: list[str] = field(default_factory=list)
-    outputs: list[str] = field(default_factory=list)
-    preconditions: list[str] = field(default_factory=list)
-    examples: list[str] = field(default_factory=list)
-    references: list[str] = field(default_factory=list)
-    quality_signals: dict[str, Any] = field(default_factory=dict)
     description: str = ""
+    domain: str = ""
+    capability_tags: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

@@ -7,13 +7,13 @@ from .commands import (
     PublishSkillCommand,
     RegisterSkillCommand,
     SearchSkillsByTagQuery,
-    UpdateSkillManifestCommand,
+    UpdateSkillCommand,
 )
 from .handlers import (
     DeprecateSkillHandler,
     PublishSkillHandler,
     RegisterSkillHandler,
-    UpdateSkillManifestHandler,
+    UpdateSkillHandler,
 )
 from .queries import (
     GetSkillDetailExecutor,

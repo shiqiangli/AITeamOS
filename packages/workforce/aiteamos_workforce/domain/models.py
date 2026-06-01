@@ -204,6 +204,7 @@ class Member:
         assigned_memories: list[MemoryId] | None = None,
         health: MemberHealthMetrics | None = None,
         concurrency_limit: int = 1,
+        prompt_template: str = "",
         created_at: datetime | None = None,
         archived_at: datetime | None = None,
     ):
@@ -215,6 +216,7 @@ class Member:
         self.assigned_memories: list[MemoryId] = assigned_memories or []
         self.health = health or MemberHealthMetrics()
         self.concurrency_limit = concurrency_limit
+        self.prompt_template = prompt_template
         self.created_at = created_at or datetime.now(timezone.utc)
         self.archived_at = archived_at
 

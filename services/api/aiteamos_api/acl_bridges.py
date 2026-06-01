@@ -80,7 +80,7 @@ class RecallEngineKnowledgeACL:
 
 _FETCH_PUBLISHED_SKILLS = """
     SELECT id, name,
-           version_major || '.' || version_minor || '.' || version_patch AS version,
+           version,
            description
     FROM skill
     WHERE id = ANY($1)

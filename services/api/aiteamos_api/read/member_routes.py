@@ -81,6 +81,7 @@ async def list_members(
             "id": str(r.id),
             "kind": r.kind,
             "display_name": r.display_name,
+            "role": r.role,
             "department_id": r.department_id,
             "concurrency_limit": r.concurrency_limit,
             "is_archived": r.is_archived,
@@ -134,6 +135,60 @@ async def get_member_profile(
         "tasks": tasks,
         "activities": activities,
         "capability_changes": capability_changes,
+    }
+
+
+@router.get("/api/v1/members/{member_id}/prompt/preview", response_model=dict[str, Any])
+async def get_member_prompt_preview(
+    member_id: UUID,
+    user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return the rendered prompt using current skills, memories, and context.
+
+    This is a read-only preview. Template placeholders are filled with
+    live data from the member's current assignments.
+    """
+    member_data = await _get_member_base(member_id)
+    template = member_data.get("prompt_template", "")
+    if not template:
+        return {"template": "", "rendered": "", "variables_used": []}
+
+    skills = await _fetch_member_skills(member_id)
+    memories = await _fetch_member_memories(member_id)
+
+    skill_descriptions = "\n".join(
+        f"- {s['name']}: {s.get('description') or 'No description'}"
+        for s in skills
+    ) or "- No skills assigned"
+
+    memory_summaries = "\n".join(
+        f"- [{m.get('tier', 'unknown')}] {m['title']}"
+        for m in memories
+    ) or "- No memories assigned"
+
+    replacements = {
+        "{member_name}": member_data.get("display_name", ""),
+        "{member_role}": member_data.get("role", ""),
+        "{member_kind}": member_data.get("kind", ""),
+        "{skill_descriptions}": skill_descriptions,
+        "{memory_summaries}": memory_summaries,
+    }
+
+    rendered = template
+    for placeholder, value in replacements.items():
+        rendered = rendered.replace(placeholder, value)
+
+    variables_used = [
+        k.strip("{}")
+        for k, v in replacements.items()
+        if k in template and v and not v.startswith("- No")
+    ]
+
+    return {
+        "template": template,
+        "rendered": rendered,
+        "variables_used": variables_used,
+        "token_estimate": len(rendered.split()) * 4 // 3,
     }
 
 
@@ -236,6 +291,7 @@ async def _get_member_base(member_id: UUID) -> dict[str, Any]:
         "concurrency_limit": member.concurrency_limit,
         "base_skill_set": [str(s) for s in member.base_skill_set],
         "assigned_memories": [str(m) for m in member.assigned_memories],
+        "prompt_template": member.prompt_template,
         "is_archived": member.is_archived,
         "created_at": str(member.created_at),
     }
@@ -297,13 +353,10 @@ async def _fetch_member_skills(member_id: UUID) -> list[dict[str, Any]]:
             msa.is_base,
             msa.assigned_at,
             s.name,
-            s.version_major,
-            s.version_minor,
-            s.version_patch,
+            s.version,
             s.description,
             s.domain,
             s.status,
-            s.circuit_state,
             s.capability_tags,
             s.created_at
         FROM member_skill_assignment msa
@@ -315,10 +368,7 @@ async def _fetch_member_skills(member_id: UUID) -> list[dict[str, Any]]:
     )
     results: list[dict[str, Any]] = []
     for row in rows:
-        major = _row_get(row, "version_major")
-        minor = _row_get(row, "version_minor")
-        patch = _row_get(row, "version_patch")
-        version = f"{major}.{minor}.{patch}" if major is not None else None
+        version = _row_get(row, "version")
         skill_id = _row_get(row, "skill_id")
         results.append({
             "id": str(skill_id),
@@ -327,7 +377,6 @@ async def _fetch_member_skills(member_id: UUID) -> list[dict[str, Any]]:
             "description": _row_get(row, "description"),
             "domain": _row_get(row, "domain"),
             "status": _row_get(row, "status"),
-            "circuit_state": _row_get(row, "circuit_state"),
             "capability_tags": _row_get(row, "capability_tags", []),
             "is_base": bool(_row_get(row, "is_base", False)),
             "assigned_at": _iso(_row_get(row, "assigned_at")),
@@ -412,35 +461,32 @@ async def _fetch_member_tasks(member_id: UUID) -> list[dict[str, Any]]:
     rows = await _db.fetch(
         """
         SELECT
-            id,
-            title,
-            state,
-            priority,
-            assigned_member_id,
-            department_id,
-            retry_count,
-            review_round,
-            created_at,
-            updated_at
-        FROM task
-        WHERE assigned_member_id = $1
-        ORDER BY created_at DESC
+            j.job_id,
+            j.task_id,
+            t.title,
+            t.state AS task_state,
+            j.phase,
+            j.state AS job_state,
+            j.started_at,
+            j.finished_at
+        FROM job j
+        JOIN task t ON j.task_id = t.id
+        WHERE j.member_id = $1
+        ORDER BY j.started_at DESC
         LIMIT 100
         """,
         member_id,
     )
     return [
         {
-            "id": _row_get(row, "id"),
+            "job_id": str(_row_get(row, "job_id")),
+            "task_id": _row_get(row, "task_id"),
             "title": _row_get(row, "title"),
-            "state": _row_get(row, "state"),
-            "priority": _row_get(row, "priority"),
-            "assigned_member_id": str(_row_get(row, "assigned_member_id")) if _row_get(row, "assigned_member_id") else None,
-            "department_id": str(_row_get(row, "department_id")) if _row_get(row, "department_id") else None,
-            "retry_count": _row_get(row, "retry_count", 0),
-            "review_round": _row_get(row, "review_round", 0),
-            "created_at": _iso(_row_get(row, "created_at")),
-            "updated_at": _iso(_row_get(row, "updated_at")),
+            "task_state": _row_get(row, "task_state"),
+            "phase": _row_get(row, "phase"),
+            "job_state": _row_get(row, "job_state"),
+            "started_at": _iso(_row_get(row, "started_at")),
+            "finished_at": _iso(_row_get(row, "finished_at")),
         }
         for row in rows
     ]

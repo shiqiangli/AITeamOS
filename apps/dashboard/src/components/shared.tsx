@@ -16,6 +16,7 @@ import {
   FolderKanban,
   ListTodo,
   BarChart3,
+  Zap,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
@@ -294,10 +295,11 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "home", label: "Home", icon: LayoutDashboard },
   { key: "memories", label: "Memories", icon: Brain },
   { key: "skills", label: "Skills", icon: Wrench },
-  { key: "agents", label: "Agents", icon: Bot },
+  { key: "agents", label: "API", icon: Bot },
   { key: "members", label: "Members", icon: Users },
   { key: "departments", label: "Departments", icon: Building2 },
   { key: "projects", label: "Projects", icon: FolderKanban },
   { key: "tasks", label: "Tasks", icon: ListTodo },
+  { key: "jobs", label: "Jobs", icon: Zap },
   { key: "metrics", label: "Metrics", icon: BarChart3 },
 ];

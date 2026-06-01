@@ -140,41 +140,6 @@ async def create_agent_profile(
     return _agent_profile_to_dict(row)
 
 
-@router.patch("/tasks/{task_id}/runtime", response_model=dict[str, Any])
-async def assign_task_runtime(
-    task_id: str,
-    body: AssignTaskRuntimeRequest,
-    user: AuthContext = Depends(get_current_user),
-) -> dict[str, Any]:
-    if _db is None:
-        raise HTTPException(status_code=503, detail="Service not initialized")
-    try:
-        row = await _db.fetchrow(
-            """
-            UPDATE task
-            SET assigned_llm_model_id = $2,
-                assigned_agent_profile_id = $3,
-                updated_at = now()
-            WHERE id = $1
-            RETURNING id, assigned_llm_model_id, assigned_agent_profile_id
-            """,
-            UUID(task_id),
-            body.llm_model_id,
-            body.agent_profile_id,
-        )
-    except Exception as exc:  # pragma: no cover - asyncpg class may be absent in unit tests
-        _raise_write_error(exc, foreign_key_detail="Selected runtime resource was not found")
-    if row is None:
-        from ..middleware.error_handler import NotFoundError
-        raise NotFoundError(detail=f"Task {task_id} not found")
-    return {
-        "id": str(row["id"]),
-        "assigned_llm_model_id": str(row["assigned_llm_model_id"]) if row["assigned_llm_model_id"] else None,
-        "assigned_agent_profile_id": str(row["assigned_agent_profile_id"]) if row["assigned_agent_profile_id"] else None,
-        "status": "runtime_assigned",
-    }
-
-
 def _raise_write_error(
     exc: Exception,
     *,

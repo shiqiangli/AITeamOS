@@ -35,6 +35,7 @@ _assign_handler: AssignTaskHandler | None = None
 _start_handler: StartRunHandler | None = None
 _submit_handler: SubmitDeliverableHandler | None = None
 _transition_handler: TransitionTaskHandler | None = None
+_db: Any = None
 
 
 def init_routes(
@@ -44,13 +45,15 @@ def init_routes(
     start_handler: StartRunHandler,
     submit_handler: SubmitDeliverableHandler,
     transition_handler: TransitionTaskHandler,
+    db: Any = None,
 ) -> None:
-    global _create_handler, _assign_handler, _start_handler, _submit_handler, _transition_handler
+    global _create_handler, _assign_handler, _start_handler, _submit_handler, _transition_handler, _db
     _create_handler = create_handler
     _assign_handler = assign_handler
     _start_handler = start_handler
     _submit_handler = submit_handler
     _transition_handler = transition_handler
+    _db = db
 
 
 # --- Request Bodies ---
@@ -219,3 +222,78 @@ async def complete_task_info(
     )
     task = await _transition_handler.handle(cmd)
     return {"id": task.id, "state": task.state.value}
+
+
+# --- Update ---
+
+
+class UpdateTaskRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    deliverable_kind: Optional[str] = None
+    max_retry_count: Optional[int] = None
+    max_review_rounds: Optional[int] = None
+
+
+@router.put("/{task_id}", response_model=dict[str, Any])
+async def update_task(
+    task_id: str,
+    body: UpdateTaskRequest,
+    user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Update editable fields of a task."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    fields: list[str] = []
+    values: list[Any] = []
+    idx = 1
+
+    if body.title is not None:
+        fields.append(f"title = ${idx}")
+        values.append(body.title)
+        idx += 1
+    if body.description is not None:
+        fields.append(f"description = ${idx}")
+        values.append(body.description)
+        idx += 1
+    if body.priority is not None:
+        fields.append(f"priority = ${idx}")
+        values.append(body.priority)
+        idx += 1
+
+    # JSONB column: deliverable_spec (kind)
+    if body.deliverable_kind is not None:
+        fields.append(
+            f"deliverable_spec = jsonb_set(COALESCE(deliverable_spec, '{{}}'::jsonb), '{{kind}}', to_jsonb(${idx}::text))"
+        )
+        values.append(body.deliverable_kind)
+        idx += 1
+
+    # JSONB column: budget (max_retry_count, max_review_rounds) — merge into one SET
+    budget_patch: dict[str, Any] = {}
+    if body.max_retry_count is not None:
+        budget_patch["max_retry_count"] = body.max_retry_count
+    if body.max_review_rounds is not None:
+        budget_patch["max_review_rounds"] = body.max_review_rounds
+    if budget_patch:
+        import json as _json
+        fields.append(
+            f"budget = COALESCE(budget, '{{}}'::jsonb) || ${idx}::jsonb"
+        )
+        values.append(_json.dumps(budget_patch))
+        idx += 1
+
+    if not fields:
+        return {"id": task_id, "status": "no_changes"}
+
+    fields.append("updated_at = now()")
+    sql = f"UPDATE task SET {', '.join(fields)} WHERE id = ${idx} RETURNING id, title, state"
+    values.append(task_id)
+
+    row = await _db.fetchrow(sql, *values)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    return {"id": str(row["id"]), "title": row["title"], "state": row["state"], "status": "updated"}

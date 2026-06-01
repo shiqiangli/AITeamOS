@@ -110,6 +110,10 @@ class AssignMemoryRequest(BaseModel):
     memory_id: str
 
 
+class UpdatePromptTemplateRequest(BaseModel):
+    prompt_template: str = ""
+
+
 @router.post("/api/v1/members", status_code=201, response_model=dict[str, Any])
 async def create_member(
     body: CreateMemberRequest,
@@ -241,6 +245,23 @@ async def assign_memory_to_member(
     )
     member = await _assign_memory_handler.handle(cmd)
     return {"id": str(member.id), "status": "memory_assigned"}
+
+
+@router.put("/api/v1/members/{member_id}/prompt-template", response_model=dict[str, Any])
+async def update_member_prompt_template(
+    member_id: UUID,
+    body: UpdatePromptTemplateRequest,
+    user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Service not available")
+    result = await _db.execute(
+        "UPDATE member SET prompt_template = $1 WHERE id = $2",
+        body.prompt_template, member_id,
+    )
+    if "UPDATE 0" in result:
+        raise HTTPException(status_code=404, detail=f"Member {member_id} not found")
+    return {"id": str(member_id), "status": "prompt_template_updated"}
 
 
 async def _resolve_skill_id(body: AssignSkillRequest) -> UUID:
