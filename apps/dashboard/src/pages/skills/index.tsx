@@ -8,6 +8,7 @@ import {
   Status,
   navigateTo,
 } from "../../components/shared";
+import { ResizableDetailLayout } from "../../components/resizable-layout";
 import {
   Table,
   TableBody,
@@ -48,12 +49,26 @@ export function SkillsPage({ selectedId }: { selectedId: string | null }) {
   if (error) return <ErrorState message={error} onRetry={loadSkills} />;
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <section className="rounded-md border bg-background">
+    <ResizableDetailLayout
+      id="aiteamos-skills-layout"
+      main={(
+        <section className="rounded-md border bg-background">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div className="flex items-center gap-2">
             <BookOpen className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Skills</h3>
+            <div>
+              <h3 className="text-sm font-semibold">Skills</h3>
+              <p className="text-xs text-muted-foreground">
+                Employee methods and workflows. Executable tools, MCP, and agent executors are in{" "}
+                <button
+                  type="button"
+                  className="font-medium text-primary hover:underline"
+                  onClick={() => navigateTo("library", "tools")}
+                >
+                  Library / Tools
+                </button>.
+              </p>
+            </div>
           </div>
           <Button type="button" variant="outline" onClick={() => navigateTo("chat")}>
             <MessageSquare className="h-4 w-4" />
@@ -66,7 +81,7 @@ export function SkillsPage({ selectedId }: { selectedId: string | null }) {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Description</TableHead>
-              <TableHead className="text-right">Members</TableHead>
+              <TableHead className="text-right">Employees</TableHead>
               <TableHead className="text-right">Files</TableHead>
             </TableRow>
           </TableHeader>
@@ -77,7 +92,7 @@ export function SkillsPage({ selectedId }: { selectedId: string | null }) {
                 <TableRow
                   key={skill.id}
                   className={cn("cursor-pointer", active && "bg-muted/60")}
-                  onClick={() => navigateTo("skills", skill.id)}
+                  onClick={() => navigateTo("library", "skills", skill.id)}
                 >
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -91,16 +106,18 @@ export function SkillsPage({ selectedId }: { selectedId: string | null }) {
                   <TableCell className="max-w-[32rem] truncate text-muted-foreground">
                     {skill.description || "No description configured."}
                   </TableCell>
-                  <TableCell className="text-right">{skill.assigned_members.length}</TableCell>
+                  <TableCell className="text-right">{skill.assigned_employees.length}</TableCell>
                   <TableCell className="text-right">{skill.resources.length + 1}</TableCell>
                 </TableRow>
               );
             })}
           </TableBody>
         </Table>
-      </section>
+        </section>
+      )}
 
-      <aside className="space-y-4">
+      detail={(
+        <aside className="space-y-4">
         {selectedSkill ? (
           <>
             <section className="rounded-md border bg-background p-4">
@@ -109,7 +126,7 @@ export function SkillsPage({ selectedId }: { selectedId: string | null }) {
                 <h3 className="text-sm font-semibold">{selectedSkill.title}</h3>
               </div>
               <div className="space-y-3">
-                <Status label="Members" value={selectedSkill.assigned_members.length} />
+                <Status label="Employees" value={selectedSkill.assigned_employees.length} />
                 <Status label="Files" value={selectedSkill.resources.length + 1} />
                 <Status label="ID" value={selectedSkill.id} />
               </div>
@@ -125,13 +142,13 @@ export function SkillsPage({ selectedId }: { selectedId: string | null }) {
             <section className="rounded-md border bg-background p-4">
               <div className="mb-3 flex items-center gap-2">
                 <Users className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">Members</h3>
+                <h3 className="text-sm font-semibold">Employees</h3>
               </div>
-              {selectedSkill.assigned_members.length ? (
+              {selectedSkill.assigned_employees.length ? (
                 <div className="flex flex-wrap gap-2">
-                  {selectedSkill.assigned_members.map((memberId) => (
-                    <button key={memberId} type="button" onClick={() => navigateTo("members", memberId)}>
-                      <Badge variant="secondary">{memberId}</Badge>
+                  {selectedSkill.assigned_employees.map((employeeId) => (
+                    <button key={employeeId} type="button" onClick={() => navigateTo("employees", employeeId)}>
+                      <Badge variant="secondary">{employeeId}</Badge>
                     </button>
                   ))}
                 </div>
@@ -160,7 +177,8 @@ export function SkillsPage({ selectedId }: { selectedId: string | null }) {
             <p className="text-sm text-muted-foreground">No skills configured.</p>
           </section>
         )}
-      </aside>
-    </div>
+        </aside>
+      )}
+    />
   );
 }

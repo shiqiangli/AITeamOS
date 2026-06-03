@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CapabilitiesPage } from "../pages/capabilities";
 import { SettingsPage } from "../pages/settings";
 
 const runtime = {
@@ -44,17 +45,17 @@ const runtime = {
   },
 };
 
-const members = [
+const employees = [
   {
     id: "clara",
     display_name: "Clara",
     kind: "ai",
-    role: "AI Team Lead",
+    role: "AI Team OS Manager",
     summary: "Coordinator",
     skills: [],
     runtime_mode: "deepseek_chat_or_file_stub",
     preserve_provider_thread: true,
-    default_thread_id: "member-clara-default",
+    default_thread_id: "employee-clara-default",
   },
 ];
 
@@ -115,9 +116,9 @@ const mcpConnectors = [
     transport: "rest",
     enabled: false,
     configured: false,
-    description: "Default WorkItem/Docs backend.",
-    capabilities: ["work_items.search", "knowledge.docs.search"],
-    permissions: ["work_items:read", "docs:read"],
+    description: "Default Ticket/Docs backend.",
+    capabilities: ["tickets.search", "knowledge.docs.search"],
+    permissions: ["tickets:read", "docs:read"],
     required_settings: ["base_url", "api_token", "workspace_slug"],
     server: {},
     updated_at: "2026-06-03T00:00:00Z",
@@ -145,41 +146,41 @@ const capabilityRegistry = {
   },
   capabilities: [
     {
-      id: "list_members",
-      name: "List members",
+      id: "list_employees",
+      name: "List employees",
       kind: "local_tool",
-      domain: "members",
+      domain: "employees",
       source: "AITeamOS Kernel",
       status: "ready",
       enabled: true,
       configured: true,
-      description: "List file-backed members.",
-      owner_scope: "Clara and authorized members",
-      permissions: ["members:read"],
+      description: "List file-backed employees.",
+      owner_scope: "Clara and authorized employees",
+      permissions: ["employees:read"],
       required_settings: [],
       arguments: [],
       produces: ["chat_result"],
-      boundary: "Read-only member inventory.",
-      deep_link: "#/members",
+      boundary: "Read-only employee inventory.",
+      deep_link: "#/employees",
       connector_id: "",
     },
     {
-      id: "create_work_item",
-      name: "Create work item",
+      id: "create_ticket",
+      name: "Create ticket",
       kind: "local_tool",
-      domain: "work",
+      domain: "tickets",
       source: "AITeamOS Kernel",
       status: "ready",
       enabled: true,
       configured: true,
-      description: "Create a local work item.",
+      description: "Create a local ticket.",
       owner_scope: "Clara",
-      permissions: ["work_items:write"],
+      permissions: ["tickets:write"],
       required_settings: [],
       arguments: ["title"],
-      produces: ["work_item"],
-      boundary: "Local P0 work item.",
-      deep_link: "#/work/tickets",
+      produces: ["ticket"],
+      boundary: "Local P0 ticket.",
+      deep_link: "#/tickets/tickets",
       connector_id: "",
     },
     {
@@ -193,7 +194,7 @@ const capabilityRegistry = {
       configured: false,
       description: "Plane connector.",
       owner_scope: "Connector adapter",
-      permissions: ["work_items:read"],
+      permissions: ["tickets:read"],
       required_settings: ["base_url"],
       arguments: [],
       produces: ["external_capabilities"],
@@ -202,17 +203,17 @@ const capabilityRegistry = {
       connector_id: "plane",
     },
     {
-      id: "mcp:plane:work_items.search",
-      name: "work_items.search",
+      id: "mcp:plane:tickets.search",
+      name: "tickets.search",
       kind: "mcp_capability",
-      domain: "work_items",
+      domain: "tickets",
       source: "MCP connector: Plane",
       status: "planned",
       enabled: false,
       configured: false,
-      description: "Plane exposes work_items.search.",
-      owner_scope: "Authorized members through connector adapter",
-      permissions: ["work_items:read"],
+      description: "Plane exposes tickets.search.",
+      owner_scope: "Authorized employees through connector adapter",
+      permissions: ["tickets:read"],
       required_settings: ["base_url"],
       arguments: [],
       produces: ["external_result"],
@@ -230,7 +231,7 @@ const capabilityRegistry = {
       enabled: false,
       configured: false,
       description: "Plane exposes knowledge.docs.search.",
-      owner_scope: "Authorized members through connector adapter",
+      owner_scope: "Authorized employees through connector adapter",
       permissions: ["docs:read"],
       required_settings: ["base_url"],
       arguments: [],
@@ -249,11 +250,11 @@ const capabilityRegistry = {
       enabled: false,
       configured: false,
       description: "Planned coding executor.",
-      owner_scope: "RD/PV/Architect members",
+      owner_scope: "RD/PV/Architect employees",
       permissions: ["repo:read"],
       required_settings: ["executor_profile"],
       arguments: [],
-      produces: ["work_item_report"],
+      produces: ["ticket_report"],
       boundary: "Reuse mature agent behavior.",
       deep_link: "#/settings/agent-executors",
       connector_id: "",
@@ -261,7 +262,7 @@ const capabilityRegistry = {
   ],
   model: {
     knowledge: "Facts and history that ground reasoning.",
-    skill: "Method and workflow assigned to members.",
+    skill: "Method and workflow assigned to employees.",
     tool: "Deterministic executable action.",
     mcp: "External tool and resource connector layer.",
     executor: "Mature agent runtime.",
@@ -324,8 +325,8 @@ describe("SettingsPage", () => {
         if (url.endsWith("/chat/runtime")) {
           return new Response(JSON.stringify(runtime), { status: 200, headers: { "Content-Type": "application/json" } });
         }
-        if (url.endsWith("/chat/members")) {
-          return new Response(JSON.stringify(members), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (url.endsWith("/chat/employees")) {
+          return new Response(JSON.stringify(employees), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         if (url.endsWith("/knowledge/status")) {
           return new Response(JSON.stringify(knowledge), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -360,13 +361,14 @@ describe("SettingsPage", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
   });
 
   it("renders runtime settings and configured secret state", async () => {
     render(<SettingsPage selectedSection="runtimes" />);
 
-    expect((await screen.findAllByText("Runtimes")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Runtime Policy")).toBeTruthy();
     expect(screen.getByLabelText("Runtime provider")).toBeTruthy();
     expect(screen.getAllByText("DeepSeek").length).toBeGreaterThan(0);
     expect(screen.getByText("Save DeepSeek")).toBeTruthy();
@@ -375,18 +377,19 @@ describe("SettingsPage", () => {
   it("renders MCP connector section", async () => {
     render(<SettingsPage selectedSection="mcp-connectors" />);
 
-    expect(await screen.findByText("MCP Connectors")).toBeTruthy();
+    expect((await screen.findAllByText("Integrations")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Plane Connector")).toBeTruthy();
     expect(screen.getByText("Plane")).toBeTruthy();
     expect(screen.getByLabelText("Plane API base URL")).toBeTruthy();
   });
 
-  it("renders Capability registry section", async () => {
-    render(<SettingsPage selectedSection="capabilities" />);
+  it("renders Capability registry page", async () => {
+    render(<CapabilitiesPage />);
 
     expect((await screen.findAllByText("Capabilities")).length).toBeGreaterThan(0);
     expect(screen.getByText("Capability Model")).toBeTruthy();
     expect(screen.getByText("Local Tools")).toBeTruthy();
-    expect(screen.getByText("List members")).toBeTruthy();
+    expect(screen.getByText("List employees")).toBeTruthy();
     expect(screen.getByText("MCP Capabilities")).toBeTruthy();
   });
 

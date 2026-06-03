@@ -3,7 +3,7 @@ API Gateway — Authentication Middleware (plan.md §1.5.4, §1.5.5).
 
 PRD §2.9 极简权限模型:
 - Admin（最高权限）: 通过环境变量 AITEAMOS_ADMIN_API_KEY 认证
-- Member: 后续可扩展 JWT / OAuth（当前阶段所有 API 均为 Admin-only）
+- Employee: 后续可扩展 JWT / OAuth（当前阶段所有 API 均为 Admin-only）
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from fastapi import Depends, HTTPException, Request, status
 class AuthContext:
     """认证上下文。"""
 
-    role: str  # "admin" | "member"
-    member_id: Optional[str] = None
+    role: str  # "admin" | "employee"
+    employee_id: Optional[str] = None
 
 
 async def get_current_user(request: Request) -> AuthContext:
@@ -35,7 +35,7 @@ async def get_current_user(request: Request) -> AuthContext:
 
     # 开发模式：未配置密钥时放行
     if not admin_key:
-        return AuthContext(role="admin", member_id=None)
+        return AuthContext(role="admin", employee_id=None)
 
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
@@ -48,9 +48,9 @@ async def get_current_user(request: Request) -> AuthContext:
     token = auth_header.removeprefix("Bearer ").strip()
 
     if hmac.compare_digest(token, admin_key):
-        return AuthContext(role="admin", member_id=None)
+        return AuthContext(role="admin", employee_id=None)
 
-    # 后续可扩展 JWT / OAuth 用于 Member 级认证
+    # 后续可扩展 JWT / OAuth 用于 Employee 级认证
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Unauthorized",

@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover - depends on optional environment instal
 _JIRA_KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 _MEMORY_SIGNAL_RE = re.compile(
     r"记住|记忆|沉淀|经验|原则|规范|风格|架构|决定|决策|结论|原因|根因|修复|验证|复盘|"
-    r"\b(jira|decision|decided|resolve|resolved|root cause|fix|fixed|verified|lesson|"
+    r"\b(ticket|decision|decided|resolve|resolved|root cause|fix|fixed|verified|lesson|"
     r"principle|coding style|architecture|postmortem|regression)\b",
     re.IGNORECASE,
 )
@@ -100,7 +100,7 @@ class MemoryCandidate(BaseModel):
     scope_ref: str = "aiteamos"
     memory_type: str = "fact"
     confidence: float = 0.5
-    member_ids: list[str] = Field(default_factory=list)
+    employee_ids: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     provenance: dict[str, Any] = Field(default_factory=dict)
     created_at: str
@@ -118,7 +118,7 @@ class MemoryCandidateCreateRequest(BaseModel):
     scope_ref: str = "aiteamos"
     memory_type: str = "fact"
     confidence: float = 0.5
-    member_ids: list[str] = Field(default_factory=list)
+    employee_ids: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     provenance: dict[str, Any] = Field(default_factory=dict)
 
@@ -141,7 +141,7 @@ class MemorySearchResult(BaseModel):
     scope_kind: str = ""
     scope_ref: str = ""
     memory_type: str = ""
-    member_ids: list[str] = Field(default_factory=list)
+    employee_ids: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     provenance: dict[str, Any] = Field(default_factory=dict)
 
@@ -432,7 +432,7 @@ def create_memory_candidate(request: MemoryCandidateCreateRequest) -> MemoryCand
         scope_ref=request.scope_ref.strip() or "aiteamos",
         memory_type=request.memory_type.strip() or "fact",
         confidence=max(0.0, min(float(request.confidence), 1.0)),
-        member_ids=sorted({item.strip() for item in request.member_ids if item.strip()}),
+        employee_ids=sorted({item.strip() for item in request.employee_ids if item.strip()}),
         tags=sorted({item.strip() for item in request.tags if item.strip()}),
         provenance=request.provenance,
         created_at=timestamp,
@@ -508,7 +508,7 @@ async def _ingest_graphiti(candidate: MemoryCandidate) -> dict[str, Any]:
         episode_body = (
             f"Memory id: {candidate.id}\n"
             f"Scope: {candidate.scope_kind}:{candidate.scope_ref}\n"
-            f"Members: {', '.join(candidate.member_ids) or 'all'}\n"
+            f"Employees: {', '.join(candidate.employee_ids) or 'all'}\n"
             f"Content: {candidate.content}"
         )
         add_episode = getattr(graphiti, "add_episode")
@@ -593,13 +593,13 @@ def _candidate_matches_query(candidate: MemoryCandidate, query: str) -> bool:
 def _candidate_matches_scope(
     candidate: MemoryCandidate,
     *,
-    member_id: str | None = None,
-    jira_key: str | None = None,
+    employee_id: str | None = None,
+    ticket_key: str | None = None,
     project: str | None = None,
 ) -> bool:
-    if member_id and candidate.member_ids and member_id not in candidate.member_ids:
+    if employee_id and candidate.employee_ids and employee_id not in candidate.employee_ids:
         return False
-    if jira_key and candidate.scope_kind == "jira" and candidate.scope_ref != jira_key:
+    if ticket_key and candidate.scope_kind == "ticket" and candidate.scope_ref != ticket_key:
         return False
     if project and candidate.scope_kind == "project" and candidate.scope_ref not in {project, "aiteamos"}:
         return False
@@ -609,8 +609,8 @@ def _candidate_matches_scope(
 def _file_memory_results(
     *,
     query: str,
-    member_id: str | None = None,
-    jira_key: str | None = None,
+    employee_id: str | None = None,
+    ticket_key: str | None = None,
     project: str | None = None,
     limit: int = 10,
 ) -> list[MemorySearchResult]:
@@ -618,7 +618,7 @@ def _file_memory_results(
     for candidate in list_approved_memories():
         if not _candidate_matches_query(candidate, query):
             continue
-        if not _candidate_matches_scope(candidate, member_id=member_id, jira_key=jira_key, project=project):
+        if not _candidate_matches_scope(candidate, employee_id=employee_id, ticket_key=ticket_key, project=project):
             continue
         results.append(
             MemorySearchResult(
@@ -630,7 +630,7 @@ def _file_memory_results(
                 scope_kind=candidate.scope_kind,
                 scope_ref=candidate.scope_ref,
                 memory_type=candidate.memory_type,
-                member_ids=candidate.member_ids,
+                employee_ids=candidate.employee_ids,
                 tags=candidate.tags,
                 provenance=candidate.provenance,
             )
@@ -688,8 +688,8 @@ async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchR
 async def search_memory(
     *,
     query: str,
-    member_id: str | None = None,
-    jira_key: str | None = None,
+    employee_id: str | None = None,
+    ticket_key: str | None = None,
     project: str | None = None,
     limit: int = 10,
     include_graphiti: bool = True,
@@ -697,8 +697,8 @@ async def search_memory(
     capped_limit = max(1, min(limit, 50))
     file_results = _file_memory_results(
         query=query,
-        member_id=member_id,
-        jira_key=jira_key,
+        employee_id=employee_id,
+        ticket_key=ticket_key,
         project=project,
         limit=capped_limit,
     )
@@ -715,7 +715,7 @@ async def search_memory(
     )
 
 
-def _legacy_memory_snippets(member_id: str, limit: int) -> list[str]:
+def _legacy_memory_snippets(employee_id: str, limit: int) -> list[str]:
     memories_dir = _workspace_dir() / "memories"
     if not memories_dir.exists():
         return []
@@ -729,23 +729,23 @@ def _legacy_memory_snippets(member_id: str, limit: int) -> list[str]:
             )
         except OSError:
             first_line = path.stem
-        snippets.append(f"{member_id}:{path.relative_to(memories_dir)}:{first_line}")
+        snippets.append(f"{employee_id}:{path.relative_to(memories_dir)}:{first_line}")
     return snippets
 
 
 def recall_memory_snippets(
     *,
-    member_id: str,
+    employee_id: str,
     query: str = "",
-    jira_keys: list[str] | None = None,
+    ticket_keys: list[str] | None = None,
     limit: int = 5,
 ) -> list[str]:
     snippets: list[str] = []
-    search_terms = " ".join(jira_keys or []).strip() or query
+    search_terms = " ".join(ticket_keys or []).strip() or query
     for result in _file_memory_results(
         query=search_terms,
-        member_id=member_id,
-        jira_key=(jira_keys or [None])[0],
+        employee_id=employee_id,
+        ticket_key=(ticket_keys or [None])[0],
         limit=limit,
     ):
         snippets.append(
@@ -756,7 +756,7 @@ def recall_memory_snippets(
             break
 
     if len(snippets) < limit:
-        snippets.extend(_legacy_memory_snippets(member_id, limit - len(snippets)))
+        snippets.extend(_legacy_memory_snippets(employee_id, limit - len(snippets)))
     return snippets[:limit]
 
 
@@ -764,26 +764,26 @@ def propose_memory_from_chat_turn(
     *,
     run_id: str,
     thread_id: str,
-    member_id: str,
-    member_display_name: str,
+    employee_id: str,
+    employee_display_name: str,
     user_message: str,
     assistant_reply: str,
-    jira_keys: list[str],
+    ticket_keys: list[str],
     trace_path: str,
 ) -> MemoryCandidate | None:
     if any(candidate.source_kind == "chat" and candidate.source_ref == run_id for candidate in _load_candidates()):
         return None
 
     text = f"{user_message}\n{assistant_reply}"
-    detected_jira = sorted(set(jira_keys or _JIRA_KEY_RE.findall(text)))
-    if not detected_jira and not _MEMORY_SIGNAL_RE.search(text):
+    detected_ticket = sorted(set(ticket_keys or _JIRA_KEY_RE.findall(text)))
+    if not detected_ticket and not _MEMORY_SIGNAL_RE.search(text):
         return None
 
-    scope_kind = "jira" if detected_jira else "member"
-    scope_ref = detected_jira[0] if detected_jira else member_id
+    scope_kind = "ticket" if detected_ticket else "employee"
+    scope_ref = detected_ticket[0] if detected_ticket else employee_id
     content = _compact_text(
-        f"In thread {thread_id}, user asked {member_display_name}: {user_message} "
-        f"{member_display_name} replied: {assistant_reply}",
+        f"In thread {thread_id}, user asked {employee_display_name}: {user_message} "
+        f"{employee_display_name} replied: {assistant_reply}",
         900,
     )
     return create_memory_candidate(
@@ -794,15 +794,15 @@ def propose_memory_from_chat_turn(
             scope_kind=scope_kind,
             scope_ref=scope_ref,
             memory_type="episode",
-            confidence=0.62 if detected_jira else 0.42,
-            member_ids=[member_id],
-            tags=sorted({"auto-chat", *detected_jira}),
+            confidence=0.62 if detected_ticket else 0.42,
+            employee_ids=[employee_id],
+            tags=sorted({"auto-chat", *detected_ticket}),
             provenance={
                 "thread_id": thread_id,
                 "run_id": run_id,
-                "member_id": member_id,
+                "employee_id": employee_id,
                 "trace": trace_path,
-                "jira_keys": detected_jira,
+                "ticket_keys": detected_ticket,
             },
         )
     )

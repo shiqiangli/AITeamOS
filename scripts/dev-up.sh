@@ -30,7 +30,7 @@ echo "Starting Neo4j for Graphiti..."
 AITEAMOS_NEO4J_PASSWORD="$NEO4J_PASSWORD" "${COMPOSE_CMD[@]}" -f "$ROOT_DIR/docker/docker-compose.yml" up -d neo4j
 
 if [[ "${AITEAMOS_WITH_PLANE:-0}" == "1" ]]; then
-  echo "Starting Plane WorkItem/Docs backend..."
+  echo "Starting Plane Ticket/Docs backend..."
   "$ROOT_DIR/scripts/plane-up.sh" up
 fi
 

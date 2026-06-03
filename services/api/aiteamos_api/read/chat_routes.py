@@ -1,7 +1,7 @@
 """
-File-backed Member Chat routes.
+File-backed Employee Chat routes.
 
-P0 intentionally avoids database dependencies. Member profiles, conversation
+P0 intentionally avoids database dependencies. Employee profiles, conversation
 history, trace events, and external provider thread mappings live under the
 local .aiteamos workspace directory.
 """
@@ -48,13 +48,13 @@ from .capability_service import local_chat_tool_ids, local_chat_tool_prompt, loc
 from .knowledge_service import knowledge_snippets, search_knowledge_sync
 from .memory_service import propose_memory_from_chat_turn, recall_memory_snippets
 from .repository_service import CodeRepository, get_code_repository, inspect_code_repository, list_code_repositories
-from .work_item_service import (
-    WorkItemCreateRequest,
-    WorkItemReportRequest,
-    add_work_item_report,
-    create_work_item,
-    get_work_item,
-    list_work_items,
+from .ticket_service import (
+    TicketCreateRequest,
+    TicketReportRequest,
+    add_ticket_report,
+    create_ticket,
+    get_ticket,
+    list_tickets,
 )
 
 try:  # The dependency is explicit in pyproject, but keep dev checkouts bootable.
@@ -62,23 +62,23 @@ try:  # The dependency is explicit in pyproject, but keep dev checkouts bootable
 except ImportError:  # pragma: no cover - exercised only when dependency is absent.
     SqliteSaver = None  # type: ignore[assignment]
 
-router = APIRouter(prefix="/api/v1/chat", tags=["member-chat"])
+router = APIRouter(prefix="/api/v1/chat", tags=["employee-chat"])
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
-_JIRA_KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
-_LIST_MEMBERS_EN_RE = re.compile(
-    r"\b(list|show|display|view)\b.*\b(ai\s+)?members\b|\bmembers\b.*\b(list|show|all|available)\b"
+_TICKET_KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b|\bticket-[A-Za-z0-9_.:-]+\b", re.IGNORECASE)
+_LIST_EMPLOYEES_EN_RE = re.compile(
+    r"\b(list|show|display|view)\b.*\b(ai\s+)?employees\b|\bemployees\b.*\b(list|show|all|available)\b"
 )
-_CREATE_MEMBER_EN_RE = re.compile(r"\b(create|add|new|setup|set up)\b.*\b(member|profile|user|employee)\b")
-_EDIT_MEMBER_EN_RE = re.compile(r"\b(edit|update|modify|change)\b.*\b(member|profile)\b")
-_DELETE_MEMBER_EN_RE = re.compile(r"\b(delete|remove|drop)\b.*\b(member|profile|user|employee)\b")
+_CREATE_EMPLOYEE_EN_RE = re.compile(r"\b(create|add|new|setup|set up)\b.*\b(employee|profile|user|employee)\b")
+_EDIT_EMPLOYEE_EN_RE = re.compile(r"\b(edit|update|modify|change)\b.*\b(employee|profile)\b")
+_DELETE_EMPLOYEE_EN_RE = re.compile(r"\b(delete|remove|drop)\b.*\b(employee|profile|user|employee)\b")
 _LIST_SKILLS_EN_RE = re.compile(r"\b(list|show|display|view)\b.*\bskills?\b|\bskills?\b.*\b(list|show|all|available)\b")
 _CREATE_SKILL_EN_RE = re.compile(r"\b(create|add|new|setup|set up)\b.*\bskill\b")
 _ASSIGN_SKILL_EN_RE = re.compile(r"\b(assign|add|give|attach)\b.*\bskill\b.*\b(to|for)\b")
 _DELETE_SKILL_EN_RE = re.compile(r"\b(delete|remove|drop)\b.*\bskill\b")
 _SEARCH_KNOWLEDGE_EN_RE = re.compile(r"\b(search|find|lookup|read|query)\b.*\b(knowledge|docs?|documents?|memories|decisions)\b")
-_CREATE_WORK_ITEM_EN_RE = re.compile(r"\b(create|open|plan|delegate|assign)\b.*\b(work\s*item|task|ticket)\b")
-_REPORT_WORK_ITEM_EN_RE = re.compile(r"\b(report|record|complete|finish|validate)\b.*\b(work\s*item|task|ticket)\b")
+_CREATE_TICKET_EN_RE = re.compile(r"\b(create|open|plan|delegate|assign)\b.*\b(task|ticket)\b")
+_REPORT_TICKET_EN_RE = re.compile(r"\b(report|record|complete|finish|validate)\b.*\b(task|ticket)\b")
 _LIST_CODE_REPOSITORIES_EN_RE = re.compile(
     r"\b(list|show|display|view)\b.*\b(code\s+)?(repos?|repositories)\b|"
     r"\b(code\s+)?(repos?|repositories)\b.*\b(list|show|all|available)\b"
@@ -91,19 +91,19 @@ _FILE_PATH_RE = re.compile(
     r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\.(?:css|html|json|md|py|sh|toml|ts|tsx|txt|yaml|yml)"
 )
 _TOOL_PLANNING_SIGNAL_RE = re.compile(
-    r"create_member|edit_member_profile|delete_member|list_members|"
-    r"list_skills|create_skill|assign_skill_to_member|delete_skill|"
-    r"search_knowledge|create_work_item|record_work_item_report|list_work_items|list_code_repositories|inspect_code_repository|"
+    r"create_employee|edit_employee_profile|delete_employee|list_employees|"
+    r"list_skills|create_skill|assign_skill_to_employee|delete_skill|"
+    r"search_knowledge|create_ticket|record_ticket_report|list_tickets|list_code_repositories|inspect_code_repository|"
     r"创建|新增|添加|新建|补|配置|设置|编辑|修改|更新|调整|改成|改为|删除|移除|删掉|分配|关联|"
     r"列出|列表|清单|有哪些|所有|员工|成员|用户|委派|派给|交给|推进|汇报|验证|完成|"
-    r"技能|知识库|文档|决策|记忆|代码仓库|代码库|仓库|\brepos?\b|\brepository\b|\brepositories\b|work\s*item|"
-    r"\b(create|add|new|setup|edit|update|modify|change|delete|remove|drop|assign|list|show|member|employee|profile|user|skills?)\b",
+    r"技能|知识库|文档|决策|记忆|代码仓库|代码库|仓库|工单|任务|\brepos?\b|\brepository\b|\brepositories\b|"
+    r"\b(create|add|new|setup|edit|update|modify|change|delete|remove|drop|assign|list|show|employee|employee|profile|user|skills?)\b",
     re.IGNORECASE,
 )
-TEAM_LEAD_MEMBER_ID = "clara"
-TEAM_LEAD_DISPLAY_NAME = "Clara"
-TEAM_LEAD_ROLE = "AI Team Lead"
-_CORE_MEMBER_GAPS: dict[str, tuple[str, ...]] = {
+CLARA_SYSTEM_EMPLOYEE_ID = "clara"
+CLARA_SYSTEM_DISPLAY_NAME = "Clara"
+CLARA_SYSTEM_ROLE = "AI Team OS Manager"
+_CORE_EMPLOYEE_GAPS: dict[str, tuple[str, ...]] = {
     "AI Architect": ("architect", "架构"),
     "AI PV": ("pv", "verification", "验证"),
     "AI Release": ("release", "发布"),
@@ -117,10 +117,10 @@ _ROLE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("AI QA / Harness Runner", ("qa", "harness", "test runner", "测试")),
     ("AI Memory Curator", ("memory curator", "memory", "记忆")),
     ("AI RD / Implementer", ("implementer", "developer", "engineer", " rd", "研发", "开发")),
-    ("AI Team Lead", ("clara", "team lead", "团队负责人", "协调者")),
+    ("AI Team OS Manager", ("clara", "ai team os", "os manager", "系统管理", "团队运营")),
 )
 _ROLE_DEFAULT_SKILLS: dict[str, list[str]] = {
-    "AI Team Lead": ["task-specification", "agent-topology-design", "technical-decision", "validation-strategy"],
+    "AI Team OS Manager": ["task-specification", "agent-topology-design", "technical-decision", "validation-strategy"],
     "AI Architect": ["system-architecture-design", "architecture-review", "technical-decision"],
     "AI PV": ["test-engineering", "validation-strategy"],
     "AI Release": ["resource-planning", "validation-strategy"],
@@ -130,7 +130,7 @@ _ROLE_DEFAULT_SKILLS: dict[str, list[str]] = {
 }
 
 
-class ChatMemberSummary(BaseModel):
+class ChatEmployeeSummary(BaseModel):
     id: str
     display_name: str
     kind: str = "ai"
@@ -146,16 +146,16 @@ class ChatSkillSummary(BaseModel):
     id: str
     title: str
     description: str = ""
-    assigned_members: list[str] = Field(default_factory=list)
+    assigned_employees: list[str] = Field(default_factory=list)
     resources: list[str] = Field(default_factory=list)
     saved_path: str
 
 
 class ChatMessageRequest(BaseModel):
     message: str = Field(min_length=1)
-    target_member_id: str | None = None
+    target_employee_id: str | None = None
     thread_id: str | None = None
-    jira_key: str | None = None
+    ticket_key: str | None = None
 
 
 class ChatTraceEvent(BaseModel):
@@ -167,11 +167,12 @@ class ChatTraceEvent(BaseModel):
 class ChatMessageResponse(BaseModel):
     thread_id: str
     run_id: str
-    target_member: ChatMemberSummary
+    target_employee: ChatEmployeeSummary
     provider_thread_id: str
-    jira_keys: list[str]
+    ticket_keys: list[str]
     reply: str
     trace_events: list[ChatTraceEvent]
+    run_metadata: dict[str, Any] = Field(default_factory=dict)
     saved_paths: dict[str, str]
 
 
@@ -179,8 +180,9 @@ class ConversationMessage(BaseModel):
     timestamp: str
     role: str
     content: str
-    member_id: str | None = None
+    employee_id: str | None = None
     run_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConversationResponse(BaseModel):
@@ -191,7 +193,7 @@ class ConversationResponse(BaseModel):
 
 class ChatThreadSummary(BaseModel):
     id: str
-    member_id: str
+    employee_id: str
     title: str
     created_at: str
     updated_at: str
@@ -202,18 +204,18 @@ class ChatThreadSummary(BaseModel):
 
 
 class ChatThreadListResponse(BaseModel):
-    member_id: str
+    employee_id: str
     active_thread_id: str
     threads: list[ChatThreadSummary]
 
 
 class ChatThreadCreateRequest(BaseModel):
-    member_id: str
+    employee_id: str
     title: str | None = None
 
 
 class ChatThreadActivateRequest(BaseModel):
-    member_id: str | None = None
+    employee_id: str | None = None
 
 
 class ChatRuntimeProviderSettings(BaseModel):
@@ -265,8 +267,8 @@ class ChatToolPlan(BaseModel):
 
 class AiteamosChatGraphState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
-    target_member_id: str | None
-    jira_key: str | None
+    target_employee_id: str | None
+    ticket_key: str | None
     aiteamos_chat_response: dict[str, Any]
 
 
@@ -274,10 +276,10 @@ class AiteamosChatGraphState(TypedDict, total=False):
 class ChatRunContext:
     request: ChatMessageRequest
     selected_profile: dict[str, Any]
-    member: ChatMemberSummary
+    employee: ChatEmployeeSummary
     thread_id: str
     run_id: str
-    jira_keys: list[str]
+    ticket_keys: list[str]
     runtime_dirs: dict[str, Path]
     provider_state: dict[str, Any]
     provider_thread_id: str
@@ -476,16 +478,16 @@ def _require_safe_id(value: str, *, field: str) -> str:
 
 def _safe_thread_component(value: str) -> str:
     component = re.sub(r"[^A-Za-z0-9_.:-]+", "-", value.strip()).strip("-")
-    return component[:80] or "member"
+    return component[:80] or "employee"
 
 
-def _member_default_thread_id(member_id: str) -> str:
-    return _require_safe_id(f"member-{_safe_thread_component(member_id)}-default", field="thread_id")
+def _employee_default_thread_id(employee_id: str) -> str:
+    return _require_safe_id(f"employee-{_safe_thread_component(employee_id)}-default", field="thread_id")
 
 
-def _is_team_lead_member_id(value: str | None) -> bool:
+def _is_clara_system_employee_id(value: str | None) -> bool:
     normalized = (value or "").strip().lower()
-    return normalized == TEAM_LEAD_MEMBER_ID
+    return normalized == CLARA_SYSTEM_EMPLOYEE_ID
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -494,7 +496,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Cannot read {path.name}") from exc
     if not isinstance(data, dict):
-        raise HTTPException(status_code=500, detail=f"Invalid member profile: {path.name}")
+        raise HTTPException(status_code=500, detail=f"Invalid employee profile: {path.name}")
     return data
 
 
@@ -503,95 +505,132 @@ def _write_yaml(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
-def _normalize_member_profile(profile: dict[str, Any], path: Path) -> dict[str, Any]:
+def _normalize_employee_profile(profile: dict[str, Any], path: Path) -> dict[str, Any]:
     normalized = dict(profile)
     profile_id = str(normalized.get("id") or path.stem)
     normalized["id"] = profile_id
 
-    if _is_team_lead_member_id(profile_id):
-        display_name = str(normalized.get("display_name") or "").strip()
-        if not display_name:
-            normalized["display_name"] = TEAM_LEAD_DISPLAY_NAME
-
-        if not str(normalized.get("role") or "").strip():
-            normalized["role"] = TEAM_LEAD_ROLE
+    if _is_clara_system_employee_id(profile_id):
+        default_profile = _default_clara_profile()
+        normalized["id"] = CLARA_SYSTEM_EMPLOYEE_ID
+        normalized["display_name"] = CLARA_SYSTEM_DISPLAY_NAME
+        normalized["kind"] = "ai"
+        normalized["role"] = CLARA_SYSTEM_ROLE
+        normalized["summary"] = default_profile["summary"]
+        normalized["personality"] = default_profile["personality"]
+        normalized["responsibilities"] = default_profile["responsibilities"]
+        if not normalized.get("skills"):
+            normalized["skills"] = _default_skills_for_role(CLARA_SYSTEM_ROLE)
+        normalized["permissions"] = default_profile["permissions"]
 
         runtime = normalized.get("runtime") if isinstance(normalized.get("runtime"), dict) else {}
         runtime = dict(runtime)
         provider_identity = str(runtime.get("provider_identity") or "").strip()
         if not provider_identity:
-            runtime["provider_identity"] = TEAM_LEAD_MEMBER_ID
+            runtime["provider_identity"] = CLARA_SYSTEM_EMPLOYEE_ID
+        runtime["preserve_provider_thread"] = True
         normalized["runtime"] = runtime
+        normalized["system"] = {"protected": True, "bootstrap": True}
 
     return normalized
 
 
-def _load_members() -> list[dict[str, Any]]:
-    members_dir = _workspace_dir() / "members"
-    if not members_dir.exists():
-        return [_fallback_team_lead()]
+def _ensure_clara_system_employee() -> dict[str, Any]:
+    profile_path = _employee_profile_path(CLARA_SYSTEM_EMPLOYEE_ID)
+    if profile_path.exists():
+        raw_profile = _read_yaml(profile_path)
+    else:
+        raw_profile = _default_clara_profile()
+    normalized = _normalize_employee_profile(raw_profile, profile_path)
+    if raw_profile != normalized or not profile_path.exists():
+        normalized["updated_at"] = _now()
+        normalized.setdefault("created_at", _now())
+        _write_yaml(profile_path, normalized)
+    return normalized
 
-    members_by_id: dict[str, dict[str, Any]] = {}
-    for path in sorted(members_dir.glob("*.yaml")):
-        profile = _normalize_member_profile(_read_yaml(path), path)
+
+def _load_employees() -> list[dict[str, Any]]:
+    employees_dir = _employees_dir()
+    _ensure_clara_system_employee()
+
+    employees_by_id: dict[str, dict[str, Any]] = {}
+    for path in sorted(employees_dir.glob("*.yaml")):
+        profile = _normalize_employee_profile(_read_yaml(path), path)
         profile_id = str(profile.get("id") or path.stem).lower()
-        existing = members_by_id.get(profile_id)
+        existing = employees_by_id.get(profile_id)
         if existing is None or path.stem == profile.get("id"):
-            members_by_id[profile_id] = profile
+            employees_by_id[profile_id] = profile
 
-    return list(members_by_id.values()) or [_fallback_team_lead()]
+    return list(employees_by_id.values()) or [_ensure_clara_system_employee()]
 
 
-def _fallback_team_lead() -> dict[str, Any]:
+def _default_clara_profile() -> dict[str, Any]:
     return {
-        "id": TEAM_LEAD_MEMBER_ID,
-        "display_name": TEAM_LEAD_DISPLAY_NAME,
+        "id": CLARA_SYSTEM_EMPLOYEE_ID,
+        "display_name": CLARA_SYSTEM_DISPLAY_NAME,
         "kind": "ai",
-        "role": TEAM_LEAD_ROLE,
-        "summary": "User-facing AI Team Lead for goals, constraints, routing, and final reporting.",
+        "role": CLARA_SYSTEM_ROLE,
+        "summary": (
+            "User-facing AI Team OS Manager for team assets, Tickets, delegation, "
+            "validation, and final reporting."
+        ),
         "personality": "Calm, concise, explicit about blockers, and careful with handoffs.",
         "responsibilities": [
-            "Understand user goals and constraints.",
-            "Route work to the right AI Member or executor.",
-            "Summarize progress, evidence, blockers, and next actions.",
+            "Manage AITeamOS control-plane assets such as employees, skills, memories, Knowledge access, capabilities, and Tickets.",
+            "Understand human goals, constraints, and required outcomes.",
+            "Delegate technical Tickets to the right AI Employee or executor.",
+            "Track progress, request validation, and summarize evidence, blockers, and next actions.",
         ],
-        "skills": _default_skills_for_role(TEAM_LEAD_ROLE),
+        "skills": _default_skills_for_role(CLARA_SYSTEM_ROLE),
         "runtime": {
             "mode": "external_or_file_stub",
-            "provider_identity": TEAM_LEAD_MEMBER_ID,
+            "provider_identity": CLARA_SYSTEM_EMPLOYEE_ID,
             "preserve_provider_thread": True,
         },
-        "permissions": ["chat", "route_member", "read_local_assets", "write_trace"],
+        "permissions": [
+            "chat",
+            "manage_employees",
+            "manage_skills",
+            "manage_memory",
+            "manage_knowledge",
+            "manage_tickets",
+            "read_local_assets",
+            "route_employee",
+            "write_trace",
+        ],
+        "system": {"protected": True, "bootstrap": True},
+        "created_at": _now(),
+        "updated_at": _now(),
     }
 
 
-def _member_summary(profile: dict[str, Any]) -> ChatMemberSummary:
+def _employee_summary(profile: dict[str, Any]) -> ChatEmployeeSummary:
     runtime = profile.get("runtime") if isinstance(profile.get("runtime"), dict) else {}
-    member_id = str(profile.get("id", ""))
-    return ChatMemberSummary(
-        id=member_id,
+    employee_id = str(profile.get("id", ""))
+    return ChatEmployeeSummary(
+        id=employee_id,
         display_name=str(profile.get("display_name") or profile.get("id") or "Unknown"),
         kind=str(profile.get("kind", "ai")),
-        role=str(profile.get("role", "AI Member")),
+        role=str(profile.get("role", "AI Employee")),
         summary=str(profile.get("summary", "")),
         skills=[str(skill) for skill in profile.get("skills", [])],
         runtime_mode=str(runtime.get("mode", "external_or_file_stub")),
         preserve_provider_thread=bool(runtime.get("preserve_provider_thread", True)),
-        default_thread_id=_member_default_thread_id(member_id),
+        default_thread_id=_employee_default_thread_id(employee_id),
     )
 
 
-def _members_dir() -> Path:
-    return _workspace_dir() / "members"
+def _employees_dir() -> Path:
+    return _workspace_dir() / "employees"
 
 
 def _skills_dir() -> Path:
     return _workspace_dir() / "skills"
 
 
-def _member_profile_path(member_id: str) -> Path:
-    member_id = _require_safe_id(member_id, field="member_id")
-    return _members_dir() / f"{member_id}.yaml"
+def _employee_profile_path(employee_id: str) -> Path:
+    employee_id = _require_safe_id(employee_id, field="employee_id")
+    return _employees_dir() / f"{employee_id}.yaml"
 
 
 def _skill_dir(skill_id: str) -> Path:
@@ -603,10 +642,10 @@ def _skill_file_path(skill_id: str) -> Path:
     return _skill_dir(skill_id) / "SKILL.md"
 
 
-def _member_sort_key(member: ChatMemberSummary) -> tuple[int, str]:
-    if _is_team_lead_member_id(member.id):
-        return (0, member.display_name.lower())
-    return (1, member.display_name.lower())
+def _employee_sort_key(employee: ChatEmployeeSummary) -> tuple[int, str]:
+    if _is_clara_system_employee_id(employee.id):
+        return (0, employee.display_name.lower())
+    return (1, employee.display_name.lower())
 
 
 def _clean_extracted_value(value: str) -> str:
@@ -623,12 +662,12 @@ def _extract_first(patterns: list[str], message: str) -> str | None:
     return None
 
 
-def _slugify_member_id(value: str) -> str:
+def _slugify_employee_id(value: str) -> str:
     slug = re.sub(r"[^a-z0-9_-]+", "-", value.lower()).strip("-_")
     slug = re.sub(r"-{2,}", "-", slug)
     if not slug:
-        slug = f"member-{uuid4().hex[:8]}"
-    return _require_safe_id(slug[:80], field="member_id")
+        slug = f"employee-{uuid4().hex[:8]}"
+    return _require_safe_id(slug[:80], field="employee_id")
 
 
 def _slugify_skill_id(value: str) -> str:
@@ -697,13 +736,13 @@ def _dedupe(values: list[str]) -> list[str]:
     return result
 
 
-def _extract_member_display_name(message: str) -> str | None:
+def _extract_employee_display_name(message: str) -> str | None:
     return _extract_first(
         [
             r"(?:名字叫|名为|叫做|叫)\s*([A-Za-z][A-Za-z0-9_. -]{0,63}|[\u4e00-\u9fff]{1,16})",
             r"(?:display_name|name)\s*[:=：]\s*([A-Za-z][A-Za-z0-9_. -]{0,63})",
             r"\b(?:named|called)\s+([A-Za-z][A-Za-z0-9_. -]{0,63})",
-            r"\bcreate_member\s+([A-Za-z][A-Za-z0-9_. -]{0,63})",
+            r"\bcreate_employee\s+([A-Za-z][A-Za-z0-9_. -]{0,63})",
         ],
         message,
     )
@@ -718,18 +757,18 @@ def _extract_new_display_name(message: str) -> str | None:
     )
 
 
-def _extract_explicit_member_id(message: str) -> str | None:
+def _extract_explicit_employee_id(message: str) -> str | None:
     value = _extract_first(
         [
-            r"\b(?:member_id|id)\s*[:=：]\s*([A-Za-z0-9_-]{1,80})",
+            r"\b(?:employee_id|id)\s*[:=：]\s*([A-Za-z0-9_-]{1,80})",
             r"(?:成员\s*id|成员ID)\s*[:=：]\s*([A-Za-z0-9_-]{1,80})",
         ],
         message,
     )
-    return _slugify_member_id(value) if value else None
+    return _slugify_employee_id(value) if value else None
 
 
-def _extract_member_kind(message: str) -> str:
+def _extract_employee_kind(message: str) -> str:
     normalized = message.lower()
     if any(token in normalized for token in ("human", "user", "人类", "用户")):
         return "human"
@@ -741,10 +780,10 @@ def _normalize_role_value(value: str) -> str:
     for role, keywords in _ROLE_KEYWORDS:
         if any(keyword in lower for keyword in keywords):
             return role
-    return value.strip() or "AI Member"
+    return value.strip() or "AI Employee"
 
 
-def _extract_member_role(message: str, *, require_role_marker: bool = False) -> str | None:
+def _extract_employee_role(message: str, *, require_role_marker: bool = False) -> str | None:
     explicit = _extract_first(
         [
             r"(?:角色|定位|role)\s*(?:是|为|改成|改为|更新为|设置为|to|=|:|：)\s*([^,，。;；\n]+)",
@@ -873,36 +912,36 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
 def _normalize_tool_plan(payload: dict[str, Any], *, source: str) -> ChatToolPlan:
     raw_tool = str(payload.get("tool") or "none").strip().lower()
     tool_aliases = {
-        "list_member": "list_members",
-        "list_ai_members": "list_members",
-        "create_ai_member": "create_member",
-        "add_member": "create_member",
-        "new_member": "create_member",
-        "edit_member": "edit_member_profile",
-        "update_member": "edit_member_profile",
-        "update_member_profile": "edit_member_profile",
-        "remove_member": "delete_member",
-        "delete_ai_member": "delete_member",
-        "delete_user": "delete_member",
+        "list_employee": "list_employees",
+        "list_ai_employees": "list_employees",
+        "create_ai_employee": "create_employee",
+        "add_employee": "create_employee",
+        "new_employee": "create_employee",
+        "edit_employee": "edit_employee_profile",
+        "update_employee": "edit_employee_profile",
+        "update_employee_profile": "edit_employee_profile",
+        "remove_employee": "delete_employee",
+        "delete_ai_employee": "delete_employee",
+        "delete_user": "delete_employee",
         "list_skill": "list_skills",
         "show_skills": "list_skills",
         "create_agent_skill": "create_skill",
         "new_skill": "create_skill",
         "add_skill": "create_skill",
-        "assign_skill": "assign_skill_to_member",
-        "attach_skill": "assign_skill_to_member",
-        "add_skill_to_member": "assign_skill_to_member",
+        "assign_skill": "assign_skill_to_employee",
+        "attach_skill": "assign_skill_to_employee",
+        "add_skill_to_employee": "assign_skill_to_employee",
         "remove_skill": "delete_skill",
         "drop_skill": "delete_skill",
         "query_knowledge": "search_knowledge",
         "read_docs": "search_knowledge",
         "search_docs": "search_knowledge",
-        "create_task": "create_work_item",
-        "delegate_task": "create_work_item",
-        "assign_task": "create_work_item",
-        "open_ticket": "create_work_item",
-        "add_work_item_report": "record_work_item_report",
-        "complete_work_item": "record_work_item_report",
+        "create_task": "create_ticket",
+        "delegate_task": "create_ticket",
+        "assign_task": "create_ticket",
+        "open_ticket": "create_ticket",
+        "add_ticket_report": "record_ticket_report",
+        "complete_ticket": "record_ticket_report",
         "list_repositories": "list_code_repositories",
         "list_repos": "list_code_repositories",
         "list_code_repos": "list_code_repositories",
@@ -949,7 +988,7 @@ def _should_use_llm_tool_planner(context: ChatRunContext) -> bool:
 
 
 async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
-    members = [_member_summary(profile).model_dump() for profile in _load_members()]
+    employees = [_employee_summary(profile).model_dump() for profile in _load_employees()]
     skills = [skill.model_dump() for skill in _load_skills()]
     request_body: dict[str, Any] = {
         "model": _deepseek_model(),
@@ -968,33 +1007,33 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
                     "\"confidence\":0.0,"
                     "\"reason\":\"short reason\""
                     "}\n\n"
-                    "Arguments for create_member: display_name, member_id, kind, role, summary, responsibility, skills. "
-                    "Arguments for edit_member_profile: target_member_id or target_member_name, display_name, role, "
+                    "Arguments for create_employee: display_name, employee_id, kind, role, summary, responsibility, skills. "
+                    "Arguments for edit_employee_profile: target_employee_id or target_employee_name, display_name, role, "
                     "summary, skills, add_skills, runtime_mode. "
-                    "Arguments for delete_member: target_member_id or target_member_name. "
+                    "Arguments for delete_employee: target_employee_id or target_employee_name. "
                     "Arguments for create_skill: skill_id, title, description, body. "
-                    "Arguments for assign_skill_to_member: skill_id or skill_name, target_member_id or target_member_name. "
+                    "Arguments for assign_skill_to_employee: skill_id or skill_name, target_employee_id or target_employee_name. "
                     "Arguments for delete_skill: skill_id or skill_name. "
                     "Arguments for search_knowledge: query. "
-                    "Arguments for create_work_item: title, description, target_member_id or target_member_name, "
-                    "assigned_role, validation_member_id, validation_role, code_repository_ids or code_repository_name. "
-                    "Arguments for record_work_item_report: work_item_id, reporter_member_id, reporter_role, content, "
+                    "Arguments for create_ticket: title, description, target_employee_id or target_employee_name, "
+                    "assigned_role, validation_employee_id, validation_role, code_repository_ids or code_repository_name. "
+                    "Arguments for record_ticket_report: ticket_id, reporter_employee_id, reporter_role, content, "
                     "report_type, evidence. "
                     "Arguments for list_code_repositories: none. "
-                    "Arguments for inspect_code_repository: work_item_id, code_repository_id or code_repository_name, "
+                    "Arguments for inspect_code_repository: ticket_id, code_repository_id or code_repository_name, "
                     "query, file_path or file_paths. "
                     "Map PV, verification, regression, and harness triage roles to role='AI PV'. "
-                    "Map release work to role='AI Release'. Map QA or harness runner to role='AI QA / Harness Runner'. "
-                    "Use kind='ai' for AI employee/member requests and kind='human' only for human user/member requests. "
-                    "Choose a tool only when the user intends to inspect or change AITeamOS local member profiles "
+                    "Map release Tickets to role='AI Release'. Map QA or harness runner to role='AI QA / Harness Runner'. "
+                    "Use kind='ai' for AI employee/employee requests and kind='human' only for human user/employee requests. "
+                    "Choose a tool only when the user intends to inspect or change AITeamOS local employee profiles "
                     "or local SKILL.md assets. Choose search_knowledge when the user asks Clara to read docs, "
-                    "memories, decisions, or project knowledge. Choose create_work_item when the user asks Clara "
-                    "to delegate or plan work for a member role. Choose list_code_repositories when the user asks "
+                    "memories, decisions, or project knowledge. Choose create_ticket when the user asks Clara "
+                    "to delegate or plan a Ticket for a employee role. Choose list_code_repositories when the user asks "
                     "what code repositories, repos, GitHub/Gitea repositories, or local project paths are configured. "
-                    "Choose inspect_code_repository when an RD, PV, QA, Architect, or other non-Clara member is asked "
+                    "Choose inspect_code_repository when an RD, PV, QA, Architect, or other non-Clara employee is asked "
                     "to inspect, search, read, review, or analyze configured repository files. "
-                    "Choose record_work_item_report when a member "
-                    "or Clara records a result or validation report for an existing work item."
+                    "Choose record_ticket_report when a employee "
+                    "or Clara records a result or validation report for an existing ticket."
                 ),
             },
             {
@@ -1002,8 +1041,8 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
                 "content": json.dumps(
                     {
                         "message": context.request.message,
-                        "target_member": context.member.model_dump(),
-                        "existing_members": members,
+                        "target_employee": context.employee.model_dump(),
+                        "existing_employees": employees,
                         "existing_skills": skills,
                         "recent_messages": [
                             message.model_dump(mode="json") for message in context.recent_messages[-8:]
@@ -1045,11 +1084,11 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
 
 
 def _heuristic_tool_plan(message: str) -> ChatToolPlan:
-    if _is_record_work_item_report_request(message):
+    if _is_record_ticket_report_request(message):
         return ChatToolPlan(
-            tool="record_work_item_report",
+            tool="record_ticket_report",
             confidence=0.45,
-            reason="Matched local work-item report fallback.",
+            reason="Matched local ticket report fallback.",
         )
     if _is_list_code_repositories_request(message):
         return ChatToolPlan(
@@ -1063,17 +1102,17 @@ def _heuristic_tool_plan(message: str) -> ChatToolPlan:
             confidence=0.45,
             reason="Matched local inspect-code-repository fallback.",
         )
-    if _is_list_work_items_request(message):
-        return ChatToolPlan(tool="list_work_items", confidence=0.45, reason="Matched local list-work-items fallback.")
-    if _is_create_work_item_request(message):
-        return ChatToolPlan(tool="create_work_item", confidence=0.45, reason="Matched local create-work-item fallback.")
+    if _is_list_tickets_request(message):
+        return ChatToolPlan(tool="list_tickets", confidence=0.45, reason="Matched local list-tickets fallback.")
+    if _is_create_ticket_request(message):
+        return ChatToolPlan(tool="create_ticket", confidence=0.45, reason="Matched local create-ticket fallback.")
     if _is_search_knowledge_request(message):
         return ChatToolPlan(tool="search_knowledge", confidence=0.45, reason="Matched local search-knowledge fallback.")
     if _is_create_skill_request(message):
         return ChatToolPlan(tool="create_skill", confidence=0.45, reason="Matched local create-skill fallback.")
     if _is_assign_skill_request(message):
         return ChatToolPlan(
-            tool="assign_skill_to_member",
+            tool="assign_skill_to_employee",
             confidence=0.45,
             reason="Matched local assign-skill fallback.",
         )
@@ -1081,18 +1120,18 @@ def _heuristic_tool_plan(message: str) -> ChatToolPlan:
         return ChatToolPlan(tool="delete_skill", confidence=0.45, reason="Matched local delete-skill fallback.")
     if _is_list_skills_request(message):
         return ChatToolPlan(tool="list_skills", confidence=0.45, reason="Matched local list-skills fallback.")
-    if _is_create_member_request(message):
-        return ChatToolPlan(tool="create_member", confidence=0.45, reason="Matched local create-member fallback.")
-    if _is_delete_member_request(message):
-        return ChatToolPlan(tool="delete_member", confidence=0.45, reason="Matched local delete-member fallback.")
-    if _is_edit_member_profile_request(message):
+    if _is_create_employee_request(message):
+        return ChatToolPlan(tool="create_employee", confidence=0.45, reason="Matched local create-employee fallback.")
+    if _is_delete_employee_request(message):
+        return ChatToolPlan(tool="delete_employee", confidence=0.45, reason="Matched local delete-employee fallback.")
+    if _is_edit_employee_profile_request(message):
         return ChatToolPlan(
-            tool="edit_member_profile",
+            tool="edit_employee_profile",
             confidence=0.45,
-            reason="Matched local edit-member fallback.",
+            reason="Matched local edit-employee fallback.",
         )
-    if _is_list_members_request(message):
-        return ChatToolPlan(tool="list_members", confidence=0.45, reason="Matched local list-members fallback.")
+    if _is_list_employees_request(message):
+        return ChatToolPlan(tool="list_employees", confidence=0.45, reason="Matched local list-employees fallback.")
     return ChatToolPlan(tool="none", confidence=0, reason="No local tool fallback matched.")
 
 
@@ -1134,17 +1173,17 @@ def _default_summary(display_name: str, role: str, responsibility: str | None) -
     if responsibility:
         return f"{display_name} focuses on {responsibility}."
     if role == "AI PV":
-        return "Verification-focused AI Member for regression, harness, and failing case triage."
+        return "Verification-focused AI Employee for regression, harness, and failing case triage."
     if role == "AI Release":
-        return "Release-focused AI Member for build, packaging, integration, and release-flow analysis."
+        return "Release-focused AI Employee for build, packaging, integration, and release-flow analysis."
     if role == "AI Architect":
-        return "Architecture-focused AI Member for system design, tradeoff analysis, and boundary review."
+        return "Architecture-focused AI Employee for system design, tradeoff analysis, and boundary review."
     if role == "AI QA / Harness Runner":
-        return "QA-focused AI Member for test execution, harness evidence, and validation reporting."
+        return "QA-focused AI Employee for test execution, harness evidence, and validation reporting."
     if role == "AI Memory Curator":
-        return "Memory-focused AI Member for extracting reusable project knowledge from execution traces."
+        return "Memory-focused AI Employee for extracting reusable project knowledge from execution traces."
     if role == "AI RD / Implementer":
-        return "Implementation-focused AI Member for code changes, bug fixing, and engineering handoff reports."
+        return "Implementation-focused AI Employee for code changes, bug fixing, and engineering handoff reports."
     return f"File-backed {role} profile."
 
 
@@ -1159,7 +1198,7 @@ def _default_responsibilities(role: str, responsibility: str | None) -> list[str
         "AI Memory Curator": ["Extract memory candidates from traces.", "Keep reusable knowledge scoped and evidence-backed."],
         "AI RD / Implementer": ["Investigate bounded engineering tasks.", "Implement changes and report verification results."],
     }
-    return defaults.get(role, ["Handle delegated AITeamOS member work within profile boundaries."])
+    return defaults.get(role, ["Handle delegated AITeamOS Tickets within profile boundaries."])
 
 
 def _default_permissions(kind: str, role: str) -> list[str]:
@@ -1175,8 +1214,8 @@ def _default_permissions(kind: str, role: str) -> list[str]:
 
 def _default_handoff_rules(role: str) -> list[str]:
     rules = ["Ask for human approval before destructive or externally visible actions."]
-    if role != TEAM_LEAD_ROLE:
-        rules.append("Escalate cross-member coordination needs to Clara.")
+    if role != CLARA_SYSTEM_ROLE:
+        rules.append("Escalate cross-employee coordination needs to Clara.")
     if role != "AI Architect":
         rules.append("Escalate architecture ambiguity to AI Architect.")
     if role not in {"AI PV", "AI QA / Harness Runner"}:
@@ -1188,9 +1227,9 @@ def _default_skills_for_role(role: str) -> list[str]:
     return list(_ROLE_DEFAULT_SKILLS.get(role, []))
 
 
-def _build_member_profile(
+def _build_employee_profile(
     *,
-    member_id: str,
+    employee_id: str,
     display_name: str,
     kind: str,
     role: str,
@@ -1200,7 +1239,7 @@ def _build_member_profile(
 ) -> dict[str, Any]:
     runtime_mode = "human" if kind == "human" else "external_or_file_stub"
     return {
-        "id": member_id,
+        "id": employee_id,
         "display_name": display_name,
         "kind": kind,
         "role": role,
@@ -1208,10 +1247,10 @@ def _build_member_profile(
         "personality": "Concise, evidence-driven, and explicit about blockers.",
         "responsibilities": _default_responsibilities(role, responsibility),
         "skills": skills,
-        "memory_scopes": ["global", "aiteamos"] if role == TEAM_LEAD_ROLE else ["project", f"member:{member_id}"],
+        "memory_scopes": ["global", "aiteamos"] if role == CLARA_SYSTEM_ROLE else ["project", f"employee:{employee_id}"],
         "runtime": {
             "mode": runtime_mode,
-            "provider_identity": member_id,
+            "provider_identity": employee_id,
             "preserve_provider_thread": True,
         },
         "permissions": _default_permissions(kind, role),
@@ -1221,12 +1260,13 @@ def _build_member_profile(
     }
 
 
-def _find_member_profile(member_id_or_name: str) -> tuple[Path, dict[str, Any]] | None:
-    lookup = member_id_or_name.strip().lower()
-    members_dir = _members_dir()
-    if not members_dir.exists():
+def _find_employee_profile(employee_id_or_name: str) -> tuple[Path, dict[str, Any]] | None:
+    _ensure_clara_system_employee()
+    lookup = employee_id_or_name.strip().lower()
+    employees_dir = _employees_dir()
+    if not employees_dir.exists():
         return None
-    for path in sorted(members_dir.glob("*.yaml")):
+    for path in sorted(employees_dir.glob("*.yaml")):
         profile = _read_yaml(path)
         profile_id = str(profile.get("id") or path.stem)
         display_name = str(profile.get("display_name") or profile_id)
@@ -1236,37 +1276,37 @@ def _find_member_profile(member_id_or_name: str) -> tuple[Path, dict[str, Any]] 
     return None
 
 
-def _extract_edit_member_target(message: str, context: ChatRunContext) -> str | None:
-    explicit_id = _extract_explicit_member_id(message)
+def _extract_edit_employee_target(message: str, context: ChatRunContext) -> str | None:
+    explicit_id = _extract_explicit_employee_id(message)
     if explicit_id:
         return explicit_id
 
     normalized = message.lower()
-    profiles = sorted((_member_summary(profile) for profile in _load_members()), key=_member_sort_key)
+    profiles = sorted((_employee_summary(profile) for profile in _load_employees()), key=_employee_sort_key)
     ordered_profiles = [
-        *[member for member in profiles if member.id != context.member.id],
-        *[member for member in profiles if member.id == context.member.id],
+        *[employee for employee in profiles if employee.id != context.employee.id],
+        *[employee for employee in profiles if employee.id == context.employee.id],
     ]
-    for member in ordered_profiles:
-        if re.search(rf"\b{re.escape(member.id.lower())}\b", normalized):
-            return member.id
-        if member.display_name.lower() in normalized:
-            return member.id
+    for employee in ordered_profiles:
+        if re.search(rf"\b{re.escape(employee.id.lower())}\b", normalized):
+            return employee.id
+        if employee.display_name.lower() in normalized:
+            return employee.id
 
-    if context.member.id != "clara":
-        return context.member.id
+    if context.employee.id != "clara":
+        return context.employee.id
     return None
 
 
-def _is_list_members_request(message: str) -> bool:
+def _is_list_employees_request(message: str) -> bool:
     normalized = message.strip().lower()
-    if "list_members" in normalized:
+    if "list_employees" in normalized:
         return True
-    if _LIST_MEMBERS_EN_RE.search(normalized):
+    if _LIST_EMPLOYEES_EN_RE.search(normalized):
         return True
 
     compact = re.sub(r"\s+", "", normalized)
-    if not any(token in compact for token in ("成员", "员工", "member", "employee")):
+    if not any(token in compact for token in ("成员", "员工", "employee", "employee")):
         return False
     return any(
         token in compact
@@ -1284,37 +1324,37 @@ def _is_list_members_request(message: str) -> bool:
     )
 
 
-def _is_create_member_request(message: str) -> bool:
+def _is_create_employee_request(message: str) -> bool:
     normalized = message.strip().lower()
-    if "create_member" in normalized:
+    if "create_employee" in normalized:
         return True
-    if _CREATE_MEMBER_EN_RE.search(normalized):
+    if _CREATE_EMPLOYEE_EN_RE.search(normalized):
         return True
     compact = re.sub(r"\s+", "", normalized)
-    if not any(token in compact for token in ("成员", "员工", "member", "employee", "用户", "user")):
+    if not any(token in compact for token in ("成员", "员工", "employee", "employee", "用户", "user")):
         return False
     return any(token in compact for token in ("创建", "新增", "添加", "新建"))
 
 
-def _is_edit_member_profile_request(message: str) -> bool:
+def _is_edit_employee_profile_request(message: str) -> bool:
     normalized = message.strip().lower()
-    if "edit_member_profile" in normalized:
+    if "edit_employee_profile" in normalized:
         return True
-    if _EDIT_MEMBER_EN_RE.search(normalized):
+    if _EDIT_EMPLOYEE_EN_RE.search(normalized):
         return True
     compact = re.sub(r"\s+", "", normalized)
-    has_profile_token = any(token in compact for token in ("成员", "员工", "member", "employee", "profile", "用户", "user"))
+    has_profile_token = any(token in compact for token in ("成员", "员工", "employee", "employee", "profile", "用户", "user"))
     has_field_token = any(token in compact for token in ("summary", "role", "skills", "skill", "技能", "runtime", "名字", "角色", "摘要", "描述"))
     if not has_profile_token and not has_field_token:
         return False
     return any(token in compact for token in ("编辑", "修改", "更新", "调整", "改成", "改为"))
 
 
-def _is_delete_member_request(message: str) -> bool:
+def _is_delete_employee_request(message: str) -> bool:
     normalized = message.strip().lower()
-    if "delete_member" in normalized:
+    if "delete_employee" in normalized:
         return True
-    if _DELETE_MEMBER_EN_RE.search(normalized):
+    if _DELETE_EMPLOYEE_EN_RE.search(normalized):
         return True
 
     compact = re.sub(r"\s+", "", normalized)
@@ -1326,14 +1366,14 @@ def _is_delete_member_request(message: str) -> bool:
     )
     if not has_delete_token:
         return False
-    if any(token in compact for token in ("成员", "员工", "member", "employee", "profile", "用户", "user")):
+    if any(token in compact for token in ("成员", "员工", "employee", "employee", "profile", "用户", "user")):
         return True
 
-    for profile in _load_members():
-        member = _member_summary(profile)
-        if re.search(rf"\b{re.escape(member.id.lower())}\b", normalized):
+    for profile in _load_employees():
+        employee = _employee_summary(profile)
+        if re.search(rf"\b{re.escape(employee.id.lower())}\b", normalized):
             return True
-        if member.display_name.lower() in normalized:
+        if employee.display_name.lower() in normalized:
             return True
     return False
 
@@ -1360,14 +1400,14 @@ def _is_create_skill_request(message: str) -> bool:
     compact = re.sub(r"\s+", "", normalized)
     if not any(token in compact for token in ("skill", "skills", "技能")):
         return False
-    if any(token in compact for token in ("成员", "员工", "member", "employee", "用户", "user")):
+    if any(token in compact for token in ("成员", "员工", "employee", "employee", "用户", "user")):
         return False
     return any(token in compact for token in ("创建", "新增", "新建"))
 
 
 def _is_assign_skill_request(message: str) -> bool:
     normalized = message.strip().lower()
-    if "assign_skill_to_member" in normalized:
+    if "assign_skill_to_employee" in normalized:
         return True
     if _ASSIGN_SKILL_EN_RE.search(normalized):
         return True
@@ -1379,11 +1419,11 @@ def _is_assign_skill_request(message: str) -> bool:
         return False
     if not any(token in compact for token in ("分配", "关联", "添加", "增加", "assign", "attach")):
         return False
-    if any(token in compact for token in ("成员", "member", "员工")):
+    if any(token in compact for token in ("成员", "employee", "员工")):
         return True
     return any(
-        member.id.lower() in normalized or member.display_name.lower() in normalized
-        for member in (_member_summary(profile) for profile in _load_members())
+        employee.id.lower() in normalized or employee.display_name.lower() in normalized
+        for employee in (_employee_summary(profile) for profile in _load_employees())
     )
 
 
@@ -1415,14 +1455,14 @@ def _is_search_knowledge_request(message: str) -> bool:
     return any(token in compact for token in ("搜索", "查找", "查询", "读取", "检索", "看看", "相关"))
 
 
-def _is_create_work_item_request(message: str) -> bool:
+def _is_create_ticket_request(message: str) -> bool:
     normalized = message.strip().lower()
-    if "create_work_item" in normalized:
+    if "create_ticket" in normalized:
         return True
-    if _CREATE_WORK_ITEM_EN_RE.search(normalized):
+    if _CREATE_TICKET_EN_RE.search(normalized):
         return True
     compact = re.sub(r"\s+", "", normalized)
-    if any(token in compact for token in ("workitem", "工作项", "本地任务", "任务")) and any(
+    if any(token in compact for token in ("ticket", "工单", "本地ticket", "本地任务", "任务")) and any(
         token in compact for token in ("创建", "新增", "打开", "分解", "委派", "分配", "派给", "交给")
     ):
         return True
@@ -1431,23 +1471,23 @@ def _is_create_work_item_request(message: str) -> bool:
     )
 
 
-def _is_list_work_items_request(message: str) -> bool:
+def _is_list_tickets_request(message: str) -> bool:
     normalized = message.strip().lower()
-    if "list_work_items" in normalized:
+    if "list_tickets" in normalized:
         return True
     compact = re.sub(r"\s+", "", normalized)
-    if "workitem" in compact or "工作项" in compact:
+    if any(token in compact for token in ("ticket", "tickets", "工单", "本地ticket", "本地任务", "任务")):
         return any(token in compact for token in ("列出", "列表", "清单", "查看", "有哪些", "所有", "list", "show"))
     return False
 
 
-def _is_record_work_item_report_request(message: str) -> bool:
+def _is_record_ticket_report_request(message: str) -> bool:
     normalized = message.strip().lower()
-    if "record_work_item_report" in normalized:
+    if "record_ticket_report" in normalized:
         return True
-    if not re.search(r"\bwork-[A-Za-z0-9_.:-]+\b", message):
+    if not re.search(r"\bticket-[A-Za-z0-9_.:-]+\b", message, re.IGNORECASE):
         return False
-    if _REPORT_WORK_ITEM_EN_RE.search(normalized):
+    if _REPORT_TICKET_EN_RE.search(normalized):
         return True
     compact = re.sub(r"\s+", "", normalized)
     return any(token in compact for token in ("汇报", "报告", "完成", "验证", "记录", "结果"))
@@ -1478,7 +1518,7 @@ def _is_inspect_code_repository_request(message: str) -> bool:
     has_repo_token = any(token in compact for token in ("代码仓库", "代码库", "仓库", "代码", "源码", "文件", "实现")) or bool(
         re.search(r"\b(codebase|source|files?|paths?|repos?|repositories|repository)\b", normalized)
     )
-    if not has_repo_token and not re.search(r"\bwork-[A-Za-z0-9_.:-]+\b", message):
+    if not has_repo_token and not re.search(r"\bticket-[A-Za-z0-9_.:-]+\b", message, re.IGNORECASE):
         return False
     return any(
         token in compact
@@ -1488,51 +1528,51 @@ def _is_inspect_code_repository_request(message: str) -> bool:
 
 def _is_local_tool_request(message: str) -> bool:
     return (
-        _is_create_member_request(message)
-        or _is_edit_member_profile_request(message)
-        or _is_delete_member_request(message)
-        or _is_list_members_request(message)
+        _is_create_employee_request(message)
+        or _is_edit_employee_profile_request(message)
+        or _is_delete_employee_request(message)
+        or _is_list_employees_request(message)
         or _is_list_skills_request(message)
         or _is_create_skill_request(message)
         or _is_assign_skill_request(message)
         or _is_delete_skill_request(message)
         or _is_search_knowledge_request(message)
-        or _is_create_work_item_request(message)
-        or _is_list_work_items_request(message)
-        or _is_record_work_item_report_request(message)
+        or _is_create_ticket_request(message)
+        or _is_list_tickets_request(message)
+        or _is_record_ticket_report_request(message)
         or _is_list_code_repositories_request(message)
         or _is_inspect_code_repository_request(message)
     )
 
 
-def _detect_member_gaps(members: list[ChatMemberSummary]) -> list[str]:
+def _detect_employee_gaps(employees: list[ChatEmployeeSummary]) -> list[str]:
     haystack = "\n".join(
-        f"{member.id} {member.display_name} {member.role} {member.summary}".lower()
-        for member in members
+        f"{employee.id} {employee.display_name} {employee.role} {employee.summary}".lower()
+        for employee in employees
     )
     return [
         label
-        for label, keywords in _CORE_MEMBER_GAPS.items()
+        for label, keywords in _CORE_EMPLOYEE_GAPS.items()
         if not any(keyword.lower() in haystack for keyword in keywords)
     ]
 
 
-def _list_members_tool_result() -> dict[str, Any]:
-    members = sorted((_member_summary(profile) for profile in _load_members()), key=_member_sort_key)
-    member_payloads = [member.model_dump() for member in members]
+def _list_employees_tool_result() -> dict[str, Any]:
+    employees = sorted((_employee_summary(profile) for profile in _load_employees()), key=_employee_sort_key)
+    employee_payloads = [employee.model_dump() for employee in employees]
     return {
-        "count": len(members),
-        "members": member_payloads,
-        "gaps": _detect_member_gaps(members),
+        "count": len(employees),
+        "employees": employee_payloads,
+        "gaps": _detect_employee_gaps(employees),
         "deep_links": {
-            "members": "#/members",
-            **{f"member:{member.id}": f"#/members/{member.id}" for member in members},
+            "employees": "#/employees",
+            **{f"employee:{employee.id}": f"#/employees/{employee.id}" for employee in employees},
         },
     }
 
 
-def _build_list_members_reply(tool_result: dict[str, Any]) -> str:
-    members = tool_result["members"]
+def _build_list_employees_reply(tool_result: dict[str, Any]) -> str:
+    employees = tool_result["employees"]
     gaps = tool_result["gaps"]
     deep_links = tool_result["deep_links"]
     lines = [
@@ -1541,12 +1581,12 @@ def _build_list_members_reply(tool_result: dict[str, Any]) -> str:
         "成员列表：",
     ]
 
-    for member in members:
-        skill_count = len(member["skills"])
-        summary = member["summary"] or "No summary"
+    for employee in employees:
+        skill_count = len(employee["skills"])
+        summary = employee["summary"] or "No summary"
         lines.append(
-            f"- {member['display_name']} ({member['id']}) - {member['role']}；"
-            f"{skill_count} skill(s)；runtime: {member['runtime_mode']}；{summary}"
+            f"- {employee['display_name']} ({employee['id']}) - {employee['role']}；"
+            f"{skill_count} skill(s)；runtime: {employee['runtime_mode']}；{summary}"
         )
 
     lines.append("")
@@ -1559,15 +1599,15 @@ def _build_list_members_reply(tool_result: dict[str, Any]) -> str:
     lines.extend([
         "",
         "建议下一步：",
-        "- 如果要推进具体 Jira，可以直接点名成员，例如：Alex，请推进 Jira SV-1234 并汇报结果。",
+        "- 如果要推进具体 Ticket，可以直接点名成员，例如：Alex，请推进 Ticket SV-1234 并汇报结果。",
         "- 如果要补齐团队拓扑，可以先创建 PV / Release / QA 等成员，再分配对应 Skills。",
         "",
         "查看入口：",
-        f"- Members: {deep_links['members']}",
+        f"- Employees: {deep_links['employees']}",
     ])
-    for member in members:
-        member_link = deep_links[f"member:{member['id']}"]
-        lines.append(f"- {member['display_name']}: {member_link}")
+    for employee in employees:
+        employee_link = deep_links[f"employee:{employee['id']}"]
+        lines.append(f"- {employee['display_name']}: {employee_link}")
 
     return "\n".join(lines)
 
@@ -1578,8 +1618,8 @@ def _list_skills_tool_result() -> dict[str, Any]:
         "count": len(skills),
         "skills": [skill.model_dump() for skill in skills],
         "deep_links": {
-            "skills": "#/skills",
-            **{f"skill:{skill.id}": f"#/skills/{skill.id}" for skill in skills},
+            "skills": "#/library/skills",
+            **{f"skill:{skill.id}": f"#/library/skills/{skill.id}" for skill in skills},
         },
     }
 
@@ -1595,7 +1635,7 @@ def _build_list_skills_reply(tool_result: dict[str, Any]) -> str:
     if not skills:
         lines.append("- none")
     for skill in skills:
-        assigned = ", ".join(skill["assigned_members"]) if skill["assigned_members"] else "unassigned"
+        assigned = ", ".join(skill["assigned_employees"]) if skill["assigned_employees"] else "unassigned"
         description = skill["description"] or "No description"
         lines.append(
             f"- {skill['title']} ({skill['id']})；assigned: {assigned}；"
@@ -1606,7 +1646,7 @@ def _build_list_skills_reply(tool_result: dict[str, Any]) -> str:
         "",
         "建议下一步：",
         "- 如果要新增可复用能力，可以让我创建一个本地 SKILL.md。",
-        "- 如果要让某个成员使用它，可以让我把 Skill 分配给对应 Member。",
+        "- 如果要让某个成员使用它，可以让我把 Skill 分配给对应 Employee。",
         "",
         "查看入口：",
         f"- Skills: {deep_links['skills']}",
@@ -1650,8 +1690,8 @@ def _build_list_code_repositories_reply(tool_result: dict[str, Any]) -> str:
     lines.extend([
         "",
         "说明：",
-        "- Clara 只使用这些 repo 配置作为 WorkItem context，不直接读取代码。",
-        "- RD/PV Member 会通过 repo tools、MCP connector 或外部 agent executor 读取、修改和验证代码。",
+        "- Clara 只使用这些 repo 配置作为 Ticket context，不直接读取代码。",
+        "- RD/PV Employee 会通过 repo tools、MCP connector 或外部 agent executor 读取、修改和验证代码。",
         "",
         "查看入口：",
         f"- Code Repositories: {tool_result['deep_links']['code_repositories']}",
@@ -1683,7 +1723,7 @@ def _persist_local_tool_response(
             ChatTraceEvent(
                 event=f"tool.{tool_name}.called",
                 detail=f"Resolved {tool_name} as a local file-backed tool.",
-                data={"requested_by": context.member.id, "tool": tool_name},
+                data={"requested_by": context.employee.id, "tool": tool_name},
             ),
             ChatTraceEvent(
                 event=f"tool.{tool_name}.{suffix}",
@@ -1698,64 +1738,64 @@ def _plan_trace_data(plan: ChatToolPlan | None) -> dict[str, Any]:
     return plan.model_dump() if plan is not None else {"source": "unknown"}
 
 
-def _member_from_plan_or_name(plan: ChatToolPlan | None, *names: str) -> ChatMemberSummary | None:
+def _employee_from_plan_or_name(plan: ChatToolPlan | None, *names: str) -> ChatEmployeeSummary | None:
     for name in names:
         value = _tool_str_arg(plan, name)
         if value:
-            found = _find_member_profile(value)
+            found = _find_employee_profile(value)
             if found is not None:
-                return _member_summary(found[1])
+                return _employee_summary(found[1])
     return None
 
 
-def _member_for_role(role: str | None) -> ChatMemberSummary | None:
+def _employee_for_role(role: str | None) -> ChatEmployeeSummary | None:
     normalized_role = _normalize_role_value(role or "").lower()
-    members = sorted((_member_summary(profile) for profile in _load_members()), key=_member_sort_key)
-    for member in members:
-        if member.role.lower() == normalized_role:
-            return member
-    for member in members:
-        if normalized_role and normalized_role in member.role.lower():
-            return member
+    employees = sorted((_employee_summary(profile) for profile in _load_employees()), key=_employee_sort_key)
+    for employee in employees:
+        if employee.role.lower() == normalized_role:
+            return employee
+    for employee in employees:
+        if normalized_role and normalized_role in employee.role.lower():
+            return employee
     return None
 
 
-def _default_work_assignee(message: str) -> tuple[ChatMemberSummary | None, str]:
+def _default_ticket_assignee(message: str) -> tuple[ChatEmployeeSummary | None, str]:
     lower = f" {message.lower()} "
     if any(token in lower for token in (" architect", "architecture", "架构")):
-        return _member_for_role("AI Architect"), "AI Architect"
+        return _employee_for_role("AI Architect"), "AI Architect"
     if re.search(r"(?<![a-z0-9])pv(?![a-z0-9])", lower) or any(token in lower for token in ("验证", "validation", "test")):
-        return _member_for_role("AI PV") or _member_for_role("AI QA / Harness Runner"), "AI PV"
+        return _employee_for_role("AI PV") or _employee_for_role("AI QA / Harness Runner"), "AI PV"
     if any(token in lower for token in ("release", "发布")):
-        return _member_for_role("AI Release"), "AI Release"
-    return _member_for_role("AI RD / Implementer"), "AI RD / Implementer"
+        return _employee_for_role("AI Release"), "AI Release"
+    return _employee_for_role("AI RD / Implementer"), "AI RD / Implementer"
 
 
-def _explicit_delegated_member(message: str) -> ChatMemberSummary | None:
-    profiles = sorted((_member_summary(profile) for profile in _load_members()), key=_member_sort_key)
-    for member in profiles:
-        names = [re.escape(member.id), re.escape(member.display_name)]
+def _explicit_delegated_employee(message: str) -> ChatEmployeeSummary | None:
+    profiles = sorted((_employee_summary(profile) for profile in _load_employees()), key=_employee_sort_key)
+    for employee in profiles:
+        names = [re.escape(employee.id), re.escape(employee.display_name)]
         for name in names:
             if re.search(rf"(?:交给|派给|委派给|assign\s+to|delegate\s+to)\s*{name}\b", message, re.IGNORECASE):
-                return member
+                return employee
     return None
 
 
-def _extract_work_item_id(message: str, plan: ChatToolPlan | None) -> str | None:
-    explicit = _tool_str_arg(plan, "work_item_id", "ticket_id", "task_id")
+def _extract_ticket_id(message: str, plan: ChatToolPlan | None) -> str | None:
+    explicit = _tool_str_arg(plan, "ticket_id", "id", "task_id")
     if explicit:
         return explicit
-    match = re.search(r"\bwork-[A-Za-z0-9_.:-]+\b", message)
+    match = re.search(r"\bticket-[A-Za-z0-9_.:-]+\b", message, re.IGNORECASE)
     return match.group(0) if match else None
 
 
-def _work_item_title(message: str, plan: ChatToolPlan | None) -> str:
+def _ticket_title(message: str, plan: ChatToolPlan | None) -> str:
     title = _tool_str_arg(plan, "title", "summary")
     if title:
         return title[:120]
     cleaned = re.sub(r"^(Clara|clara|@Clara|@clara)[,，:\s]*", "", message.strip())
     cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned[:96] or "AITeamOS delegated work"
+    return cleaned[:96] or "AITeamOS delegated ticket"
 
 
 def _message_mentions_repo_context(message: str) -> bool:
@@ -1833,7 +1873,7 @@ def _resolve_inspection_repository(
     *,
     plan: ChatToolPlan | None,
     message: str,
-    work_item_id: str | None,
+    ticket_id: str | None,
 ) -> CodeRepository | None:
     repositories = list_code_repositories()
     for key in (
@@ -1850,9 +1890,9 @@ def _resolve_inspection_repository(
             if found is not None:
                 return found
 
-    work_item = get_work_item(work_item_id) if work_item_id else None
-    if work_item is not None:
-        for repo_id in work_item.code_repository_ids:
+    ticket = get_ticket(ticket_id) if ticket_id else None
+    if ticket is not None:
+        for repo_id in ticket.code_repository_ids:
             found = get_code_repository(repo_id)
             if found is not None:
                 return found
@@ -1863,7 +1903,7 @@ def _resolve_inspection_repository(
             return repository
 
     enabled = [repository for repository in repositories if repository.enabled]
-    if len(enabled) == 1 and (_message_mentions_repo_context(message) or work_item is not None):
+    if len(enabled) == 1 and (_message_mentions_repo_context(message) or ticket is not None):
         return enabled[0]
     return None
 
@@ -1887,14 +1927,14 @@ def _complete_search_knowledge_tool(context: ChatRunContext, plan: ChatToolPlan 
             f"- [{item.source_type}] {item.title} ({item.source_ref})；score={item.score:.2f}\n"
             f"  {item.content[:260]}"
         )
-    lines.extend(["", "入口：", "- Knowledge: #/knowledge/docs"])
+    lines.extend(["", "入口：", "- Knowledge: #/library/knowledge/docs"])
 
     result = {
         "status": "completed",
         "detail": "Searched local Knowledge docs, decisions, and approved memories.",
         "query": query,
         "results": [item.model_dump(mode="json") for item in response.results],
-        "deep_links": {"knowledge": "#/knowledge/docs"},
+        "deep_links": {"knowledge": "#/library/knowledge/docs"},
         "plan": _plan_trace_data(plan),
     }
     return _persist_local_tool_response(
@@ -1906,27 +1946,27 @@ def _complete_search_knowledge_tool(context: ChatRunContext, plan: ChatToolPlan 
     )
 
 
-def _complete_list_work_items_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
-    items = list_work_items()
-    lines = [f"我找到了 {len(items)} 个本地 Work Items。", ""]
+def _complete_list_tickets_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
+    items = list_tickets()
+    lines = [f"我找到了 {len(items)} 个本地 Tickets。", ""]
     if not items:
         lines.append("- none")
     for item in items:
         lines.append(
-            f"- {item.id}: {item.title}；status={item.status}；assigned={item.assigned_member_id or item.assigned_role or '-'}；"
-            f"validation={item.validation_member_id or item.validation_role or '-'}；"
+            f"- {item.id}: {item.title}；status={item.status}；assigned={item.assigned_employee_id or item.assigned_role or '-'}；"
+            f"validation={item.validation_employee_id or item.validation_role or '-'}；"
             f"repos={len(item.code_repository_ids)}；reports={len(item.reports)}"
         )
-    lines.extend(["", "入口：", "- Work / Tickets: #/work/tickets"])
+    lines.extend(["", "入口：", "- Tickets: #/tickets/tickets"])
     result = {
         "status": "completed",
-        "detail": "Listed local Work Items.",
-        "work_items": [item.model_dump(mode="json") for item in items],
+        "detail": "Listed local Tickets.",
+        "tickets": [item.model_dump(mode="json") for item in items],
         "plan": _plan_trace_data(plan),
     }
     return _persist_local_tool_response(
         context,
-        tool_name="list_work_items",
+        tool_name="list_tickets",
         reply="\n".join(lines),
         result=result,
         completed=True,
@@ -1969,22 +2009,22 @@ def _inspection_report_content(repository_id: str, query: str, matches: list[dic
 
 
 def _complete_inspect_code_repository_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
-    if context.member.id == TEAM_LEAD_MEMBER_ID:
+    if context.employee.id == CLARA_SYSTEM_EMPLOYEE_ID:
         return _persist_local_tool_response(
             context,
             tool_name="inspect_code_repository",
             reply=_build_blocked_tool_reply(
                 "inspect_code_repository",
                 "Clara 是 control-plane manager，不直接读取代码仓库状态。",
-                "请把工作委派给 Alex/RD/PV，例如：Alex，请检查 work-xxx 里的 AITeamOS repo 并写回报告。",
+                "请把 Ticket 委派给 Alex/RD/PV，例如：Alex，请检查 ticket-xxx 里的 AITeamOS repo 并写回报告。",
             ),
             result={"status": "blocked", "detail": "Clara cannot directly inspect repository state.", "plan": _plan_trace_data(plan)},
             completed=False,
         )
 
     message = context.request.message
-    work_item_id = _extract_work_item_id(message, plan)
-    repository = _resolve_inspection_repository(plan=plan, message=message, work_item_id=work_item_id)
+    ticket_id = _extract_ticket_id(message, plan)
+    repository = _resolve_inspection_repository(plan=plan, message=message, ticket_id=ticket_id)
     if repository is None:
         return _persist_local_tool_response(
             context,
@@ -1992,7 +2032,7 @@ def _complete_inspect_code_repository_tool(context: ChatRunContext, plan: ChatTo
             reply=_build_blocked_tool_reply(
                 "inspect_code_repository",
                 "没有识别到可用代码仓库。",
-                "请先在 Settings / Code Repositories 配置 repo，或在消息中包含 repo id / repo name / work item id。",
+                "请先在 Settings / Code Repositories 配置 repo，或在消息中包含 repo id / repo name / ticket id。",
             ),
             result={"status": "blocked", "detail": "Missing repository context.", "plan": _plan_trace_data(plan)},
             completed=False,
@@ -2023,7 +2063,7 @@ def _complete_inspect_code_repository_tool(context: ChatRunContext, plan: ChatTo
     matches = [match.model_dump(mode="json") for match in inspection.matches]
     files = [file.model_dump(mode="json") for file in inspection.files]
     lines = [
-        f"{context.member.display_name} 已检查代码仓库。",
+        f"{context.employee.display_name} 已检查代码仓库。",
         "",
         f"- Repository: {repository.name} ({repository.id})",
         f"- Status: {inspection.status}",
@@ -2042,14 +2082,14 @@ def _complete_inspect_code_repository_tool(context: ChatRunContext, plan: ChatTo
         lines.append(f"- Read {file['path']}:\n  {excerpt}")
 
     recorded_item = None
-    if work_item_id and inspection.status == "completed":
+    if ticket_id and inspection.status == "completed":
         try:
             report_content = _inspection_report_content(repository.id, query, matches, files)
-            recorded_item = add_work_item_report(
-                work_item_id,
-                WorkItemReportRequest(
-                    reporter_member_id=context.member.id,
-                    reporter_role=context.member.role,
+            recorded_item = add_ticket_report(
+                ticket_id,
+                TicketReportRequest(
+                    reporter_employee_id=context.employee.id,
+                    reporter_role=context.employee.role,
                     content=report_content,
                     evidence=[
                         f"repo:{repository.id}",
@@ -2059,9 +2099,9 @@ def _complete_inspect_code_repository_tool(context: ChatRunContext, plan: ChatTo
                     report_type="repo_inspection",
                 ),
             )
-            lines.extend(["", f"已写回 WorkItem report: {recorded_item.id}"])
+            lines.extend(["", f"已写回 Ticket report: {recorded_item.id}"])
         except KeyError:
-            lines.extend(["", f"未写回 WorkItem：没有找到 {work_item_id}。"])
+            lines.extend(["", f"未写回 Ticket：没有找到 {ticket_id}。"])
 
     result = {
         "status": inspection.status,
@@ -2070,7 +2110,7 @@ def _complete_inspect_code_repository_tool(context: ChatRunContext, plan: ChatTo
         "query": query,
         "matches": matches,
         "files": files,
-        "work_item": recorded_item.model_dump(mode="json") if recorded_item is not None else None,
+        "ticket": recorded_item.model_dump(mode="json") if recorded_item is not None else None,
         "plan": _plan_trace_data(plan),
     }
     return _persist_local_tool_response(
@@ -2082,36 +2122,36 @@ def _complete_inspect_code_repository_tool(context: ChatRunContext, plan: ChatTo
     )
 
 
-def _complete_create_work_item_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
+def _complete_create_ticket_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
     message = context.request.message
-    assignee = _member_from_plan_or_name(plan, "target_member_id", "target_member_name", "assigned_member_id", "assignee")
+    assignee = _employee_from_plan_or_name(plan, "target_employee_id", "target_employee_name", "assigned_employee_id", "assignee")
     assigned_role = _tool_str_arg(plan, "assigned_role", "role")
     if assignee is None:
-        assignee = _explicit_delegated_member(message)
+        assignee = _explicit_delegated_employee(message)
     if assignee is None:
-        assignee, inferred_role = _default_work_assignee(message)
+        assignee, inferred_role = _default_ticket_assignee(message)
         assigned_role = assigned_role or inferred_role
     else:
         assigned_role = assigned_role or assignee.role
 
-    validation_member = _member_from_plan_or_name(plan, "validation_member_id", "validation_member_name", "pv_member_id")
+    validation_employee = _employee_from_plan_or_name(plan, "validation_employee_id", "validation_employee_name", "pv_employee_id")
     validation_role = _tool_str_arg(plan, "validation_role") or "AI PV"
-    if validation_member is None and assigned_role != "AI PV":
-        validation_member = _member_for_role("AI PV") or _member_for_role("AI QA / Harness Runner")
-    if validation_member is not None:
-        validation_role = validation_member.role
+    if validation_employee is None and assigned_role != "AI PV":
+        validation_employee = _employee_for_role("AI PV") or _employee_for_role("AI QA / Harness Runner")
+    if validation_employee is not None:
+        validation_role = validation_employee.role
 
     code_repository_ids = _code_repository_ids_from_plan_or_message(plan, message)
     knowledge = search_knowledge_sync(message, limit=5)
     knowledge_refs = [f"{item.source_type}:{item.id}" for item in knowledge.results]
-    item = create_work_item(
-        WorkItemCreateRequest(
-            title=_work_item_title(message, plan),
+    item = create_ticket(
+        TicketCreateRequest(
+            title=_ticket_title(message, plan),
             description=_tool_str_arg(plan, "description", "body") or message,
-            assigned_member_id=assignee.id if assignee else "",
+            assigned_employee_id=assignee.id if assignee else "",
             assigned_role=assigned_role or "",
-            validation_member_id=validation_member.id if validation_member else "",
-            validation_role=validation_role if validation_member else validation_role,
+            validation_employee_id=validation_employee.id if validation_employee else "",
+            validation_role=validation_role if validation_employee else validation_role,
             knowledge_refs=knowledge_refs,
             code_repository_ids=code_repository_ids,
             source_thread_id=context.thread_id,
@@ -2120,60 +2160,60 @@ def _complete_create_work_item_tool(context: ChatRunContext, plan: ChatToolPlan 
     )
 
     lines = [
-        "已创建本地 Work Item。",
+        "已创建本地 Ticket。",
         "",
         f"- ID: {item.id}",
         f"- Title: {item.title}",
-        f"- Assigned: {item.assigned_member_id or item.assigned_role or '-'}",
-        f"- Validation: {item.validation_member_id or item.validation_role or '-'}",
+        f"- Assigned: {item.assigned_employee_id or item.assigned_role or '-'}",
+        f"- Validation: {item.validation_employee_id or item.validation_role or '-'}",
         f"- Knowledge refs: {len(item.knowledge_refs)}",
         f"- Code repositories: {', '.join(item.code_repository_ids) if item.code_repository_ids else '-'}",
         "",
-        "下一步：被分派的 Member 应基于这些 Knowledge refs、自己的 Skills/Memory 和必要的 repo 状态执行；PV 负责验证后写回报告。",
+        "下一步：被分派的 Employee 应基于这些 Knowledge refs、自己的 Skills/Memory 和必要的 repo 状态执行；PV 负责验证后写回报告。",
     ]
     result = {
         "status": "completed",
-        "detail": "Created a local delegated Work Item.",
-        "work_item": item.model_dump(mode="json"),
+        "detail": "Created a local delegated Ticket.",
+        "ticket": item.model_dump(mode="json"),
         "knowledge_results": [entry.model_dump(mode="json") for entry in knowledge.results],
         "plan": _plan_trace_data(plan),
     }
     return _persist_local_tool_response(
         context,
-        tool_name="create_work_item",
+        tool_name="create_ticket",
         reply="\n".join(lines),
         result=result,
         completed=True,
     )
 
 
-def _complete_record_work_item_report_tool(
+def _complete_record_ticket_report_tool(
     context: ChatRunContext,
     plan: ChatToolPlan | None = None,
 ) -> ChatMessageResponse:
-    work_item_id = _extract_work_item_id(context.request.message, plan)
-    if not work_item_id:
+    ticket_id = _extract_ticket_id(context.request.message, plan)
+    if not ticket_id:
         return _persist_local_tool_response(
             context,
-            tool_name="record_work_item_report",
+            tool_name="record_ticket_report",
             reply=_build_blocked_tool_reply(
-                "record_work_item_report",
-                "没有识别到 work item id。",
-                "请包含类似 work-xxx 的本地 Work Item ID。",
+                "record_ticket_report",
+                "没有识别到 ticket id。",
+                "请包含类似 ticket-xxx 的本地 Ticket ID。",
             ),
-            result={"status": "blocked", "detail": "Missing work_item_id.", "plan": _plan_trace_data(plan)},
+            result={"status": "blocked", "detail": "Missing ticket_id.", "plan": _plan_trace_data(plan)},
             completed=False,
         )
 
-    reporter = _member_from_plan_or_name(plan, "reporter_member_id", "reporter_member_name") or context.member
+    reporter = _employee_from_plan_or_name(plan, "reporter_employee_id", "reporter_employee_name") or context.employee
     content = _tool_str_arg(plan, "content", "report") or context.request.message
     report_type = _tool_str_arg(plan, "report_type") or ("validation" if "验证" in context.request.message else "progress")
     evidence = _tool_list_arg(plan, "evidence") or []
     try:
-        item = add_work_item_report(
-            work_item_id,
-            WorkItemReportRequest(
-                reporter_member_id=reporter.id,
+        item = add_ticket_report(
+            ticket_id,
+            TicketReportRequest(
+                reporter_employee_id=reporter.id,
                 reporter_role=reporter.role,
                 content=content,
                 evidence=evidence,
@@ -2183,18 +2223,18 @@ def _complete_record_work_item_report_tool(
     except KeyError:
         return _persist_local_tool_response(
             context,
-            tool_name="record_work_item_report",
+            tool_name="record_ticket_report",
             reply=_build_blocked_tool_reply(
-                "record_work_item_report",
-                f"没有找到 Work Item: {work_item_id}",
-                "请先让我列出本地 Work Items，或确认 ID 是否正确。",
+                "record_ticket_report",
+                f"没有找到 Ticket: {ticket_id}",
+                "请先让我列出本地 Tickets，或确认 ID 是否正确。",
             ),
-            result={"status": "blocked", "detail": "Work item not found.", "work_item_id": work_item_id},
+            result={"status": "blocked", "detail": "Ticket not found.", "ticket_id": ticket_id},
             completed=False,
         )
 
     reply = (
-        "已记录 Work Item 报告。\n\n"
+        "已记录 Ticket 报告。\n\n"
         f"- ID: {item.id}\n"
         f"- Status: {item.status}\n"
         f"- Reporter: {reporter.display_name} ({reporter.role})\n"
@@ -2202,86 +2242,86 @@ def _complete_record_work_item_report_tool(
     )
     result = {
         "status": "completed",
-        "detail": "Recorded a local Work Item report.",
-        "work_item": item.model_dump(mode="json"),
+        "detail": "Recorded a local Ticket report.",
+        "ticket": item.model_dump(mode="json"),
         "plan": _plan_trace_data(plan),
     }
     return _persist_local_tool_response(
         context,
-        tool_name="record_work_item_report",
+        tool_name="record_ticket_report",
         reply=reply,
         result=result,
         completed=True,
     )
 
 
-def _complete_create_member_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
+def _complete_create_employee_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
     message = context.request.message
-    display_name = _tool_str_arg(plan, "display_name", "name") or _extract_member_display_name(message)
+    display_name = _tool_str_arg(plan, "display_name", "name") or _extract_employee_display_name(message)
     if not display_name:
         result = {
             "status": "blocked",
             "reason": "missing_display_name",
-            "detail": "Member display name was not found in the request.",
+            "detail": "Employee display name was not found in the request.",
             "plan": _plan_trace_data(plan),
         }
         reply = _build_blocked_tool_reply(
-            "create_member",
+            "create_employee",
             "没有识别到成员名字。",
             "Clara，请创建一个 AI PV 成员，名字叫 Victor，负责 regression 和 harness fail triage。",
         )
         return _persist_local_tool_response(
             context,
-            tool_name="create_member",
+            tool_name="create_employee",
             reply=reply,
             result=result,
             completed=False,
         )
 
-    member_id = _extract_explicit_member_id(message) or _slugify_member_id(display_name)
-    planned_member_id = _tool_str_arg(plan, "member_id", "id")
-    if planned_member_id:
-        member_id = _slugify_member_id(planned_member_id)
-    existing = _find_member_profile(member_id) or _find_member_profile(display_name)
+    employee_id = _extract_explicit_employee_id(message) or _slugify_employee_id(display_name)
+    planned_employee_id = _tool_str_arg(plan, "employee_id", "id")
+    if planned_employee_id:
+        employee_id = _slugify_employee_id(planned_employee_id)
+    existing = _find_employee_profile(employee_id) or _find_employee_profile(display_name)
     if existing:
-        existing_summary = _member_summary(existing[1])
+        existing_summary = _employee_summary(existing[1])
         result = {
             "status": "blocked",
-            "reason": "member_already_exists",
-            "detail": f"Member already exists: {existing_summary.id}",
-            "member": existing_summary.model_dump(),
+            "reason": "employee_already_exists",
+            "detail": f"Employee already exists: {existing_summary.id}",
+            "employee": existing_summary.model_dump(),
             "deep_links": {
-                "member": f"#/members/{existing_summary.id}",
-                "members": "#/members",
+                "employee": f"#/employees/{existing_summary.id}",
+                "employees": "#/employees",
             },
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有创建新成员，因为 {existing_summary.display_name} 已经存在。\n\n"
-            f"- Member: {existing_summary.display_name} ({existing_summary.id})\n"
+            f"- Employee: {existing_summary.display_name} ({existing_summary.id})\n"
             f"- Role: {existing_summary.role}\n"
-            f"- 查看：#/members/{existing_summary.id}\n\n"
+            f"- 查看：#/employees/{existing_summary.id}\n\n"
             "如果你想修改它，可以说：Clara，请把 "
             f"{existing_summary.display_name} 的 summary 改成 ..."
         )
         return _persist_local_tool_response(
             context,
-            tool_name="create_member",
+            tool_name="create_employee",
             reply=reply,
             result=result,
             completed=False,
         )
 
-    kind = (_tool_str_arg(plan, "kind") or _extract_member_kind(message)).lower()
+    kind = (_tool_str_arg(plan, "kind") or _extract_employee_kind(message)).lower()
     kind = "human" if kind == "human" else "ai"
     planned_role = _tool_str_arg(plan, "role")
-    role = _normalize_role_value(planned_role) if planned_role else _extract_member_role(message)
-    role = role or ("Human Member" if kind == "human" else "AI Member")
+    role = _normalize_role_value(planned_role) if planned_role else _extract_employee_role(message)
+    role = role or ("Human Employee" if kind == "human" else "AI Employee")
     responsibility = _tool_str_arg(plan, "responsibility") or _extract_summary(message)
     summary = _tool_str_arg(plan, "summary") or _default_summary(display_name, role, responsibility)
     skills = _tool_list_arg(plan, "skills") or _extract_skills_value(message) or _default_skills_for_role(role)
-    profile = _build_member_profile(
-        member_id=member_id,
+    profile = _build_employee_profile(
+        employee_id=employee_id,
         display_name=display_name,
         kind=kind,
         role=role,
@@ -2289,84 +2329,84 @@ def _complete_create_member_tool(context: ChatRunContext, plan: ChatToolPlan | N
         skills=_dedupe(skills),
         responsibility=responsibility,
     )
-    profile_path = _member_profile_path(member_id)
+    profile_path = _employee_profile_path(employee_id)
     _write_yaml(profile_path, profile)
 
-    member = _member_summary(profile)
+    employee = _employee_summary(profile)
     result = {
         "status": "completed",
-        "detail": f"Created member profile: {member.id}",
-        "member": member.model_dump(),
+        "detail": f"Created employee profile: {employee.id}",
+        "employee": employee.model_dump(),
         "saved_path": str(profile_path.relative_to(_workspace_root())),
         "deep_links": {
-            "member": f"#/members/{member.id}",
-            "members": "#/members",
+            "employee": f"#/employees/{employee.id}",
+            "employees": "#/employees",
         },
         "plan": _plan_trace_data(plan),
     }
     reply = (
-        f"已创建成员 {member.display_name}。\n\n"
-        f"- ID: {member.id}\n"
-        f"- Type: {member.kind}\n"
-        f"- Role: {member.role}\n"
-        f"- Skills: {', '.join(member.skills) if member.skills else 'none'}\n"
+        f"已创建成员 {employee.display_name}。\n\n"
+        f"- ID: {employee.id}\n"
+        f"- Type: {employee.kind}\n"
+        f"- Role: {employee.role}\n"
+        f"- Skills: {', '.join(employee.skills) if employee.skills else 'none'}\n"
         f"- Profile: {result['saved_path']}\n"
-        f"- 查看：#/members/{member.id}\n\n"
+        f"- 查看：#/employees/{employee.id}\n\n"
         "下一步可以直接点名它协作，或让我继续编辑它的 profile。"
     )
     return _persist_local_tool_response(
         context,
-        tool_name="create_member",
+        tool_name="create_employee",
         reply=reply,
         result=result,
         completed=True,
     )
 
 
-def _complete_edit_member_profile_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
+def _complete_edit_employee_profile_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
     message = context.request.message
     target_id = (
-        _tool_str_arg(plan, "target_member_id", "member_id", "id")
-        or _tool_str_arg(plan, "target_member_name", "display_name", "name")
-        or _extract_edit_member_target(message, context)
+        _tool_str_arg(plan, "target_employee_id", "employee_id", "id")
+        or _tool_str_arg(plan, "target_employee_name", "display_name", "name")
+        or _extract_edit_employee_target(message, context)
     )
     if not target_id:
         result = {
             "status": "blocked",
-            "reason": "missing_target_member",
-            "detail": "Target member was not found in the request.",
+            "reason": "missing_target_employee",
+            "detail": "Target employee was not found in the request.",
             "plan": _plan_trace_data(plan),
         }
         reply = _build_blocked_tool_reply(
-            "edit_member_profile",
+            "edit_employee_profile",
             "没有识别到要编辑哪个成员。",
-            "Clara，请把 Alex 的 summary 改成 Implementation owner for backend API work。",
+            "Clara，请把 Alex 的 summary 改成 Implementation owner for backend API Tickets。",
         )
         return _persist_local_tool_response(
             context,
-            tool_name="edit_member_profile",
+            tool_name="edit_employee_profile",
             reply=reply,
             result=result,
             completed=False,
         )
 
-    found = _find_member_profile(target_id)
+    found = _find_employee_profile(target_id)
     if not found:
         result = {
             "status": "blocked",
-            "reason": "member_not_found",
-            "detail": f"Member not found: {target_id}",
-            "deep_links": {"members": "#/members"},
+            "reason": "employee_not_found",
+            "detail": f"Employee not found: {target_id}",
+            "deep_links": {"employees": "#/employees"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有找到成员 {target_id}，所以没有修改 profile。\n\n"
             "你可以先让我列出所有成员，或先创建这个成员。\n"
-            "- Members: #/members"
+            "- Employees: #/employees"
         )
         return _persist_local_tool_response(
             context,
-            tool_name="edit_member_profile",
+            tool_name="edit_employee_profile",
             reply=reply,
             result=result,
             completed=False,
@@ -2376,11 +2416,40 @@ def _complete_edit_member_profile_tool(context: ChatRunContext, plan: ChatToolPl
     updates: dict[str, Any] = {}
     new_display_name = _tool_str_arg(plan, "new_display_name", "display_name", "name") or _extract_new_display_name(message)
     planned_role = _tool_str_arg(plan, "role")
-    new_role = _normalize_role_value(planned_role) if planned_role else _extract_member_role(message, require_role_marker=True)
+    new_role = _normalize_role_value(planned_role) if planned_role else _extract_employee_role(message, require_role_marker=True)
     new_summary = _tool_str_arg(plan, "summary") or _extract_summary(message)
     replace_skills = _tool_list_arg(plan, "skills") or _extract_skills_value(message)
     add_skills = _tool_list_arg(plan, "add_skills") or _extract_add_skills_value(message)
     runtime_mode = _tool_str_arg(plan, "runtime_mode", "runtime.mode") or _extract_runtime_mode(message)
+
+    if _is_clara_system_employee_id(str(profile.get("id") or profile_path.stem)):
+        protected_updates: dict[str, str] = {}
+        if new_display_name and new_display_name != CLARA_SYSTEM_DISPLAY_NAME:
+            protected_updates["display_name"] = CLARA_SYSTEM_DISPLAY_NAME
+        if new_role and new_role != CLARA_SYSTEM_ROLE:
+            protected_updates["role"] = CLARA_SYSTEM_ROLE
+        if protected_updates:
+            result = {
+                "status": "blocked",
+                "reason": "protected_system_employee_fields",
+                "detail": "Clara's system identity fields cannot be changed.",
+                "protected_fields": protected_updates,
+                "deep_links": {"employee": "#/employees/clara", "employees": "#/employees"},
+                "plan": _plan_trace_data(plan),
+            }
+            reply = (
+                "没有修改 Clara 的系统身份字段。\n\n"
+                "原因：Clara 是 AITeamOS 的系统默认 Employee，display name 和 role 固定为 "
+                f"{CLARA_SYSTEM_DISPLAY_NAME} / {CLARA_SYSTEM_ROLE}。\n"
+                "- 查看：#/employees/clara"
+            )
+            return _persist_local_tool_response(
+                context,
+                tool_name="edit_employee_profile",
+                reply=reply,
+                result=result,
+                completed=False,
+            )
 
     if new_display_name:
         profile["display_name"] = new_display_name
@@ -2408,18 +2477,18 @@ def _complete_edit_member_profile_tool(context: ChatRunContext, plan: ChatToolPl
         result = {
             "status": "blocked",
             "reason": "no_supported_updates",
-            "detail": "No supported member profile fields were found in the request.",
+            "detail": "No supported employee profile fields were found in the request.",
             "supported_fields": ["display_name", "role", "summary", "skills", "runtime.mode"],
             "plan": _plan_trace_data(plan),
         }
         reply = _build_blocked_tool_reply(
-            "edit_member_profile",
+            "edit_employee_profile",
             "没有识别到可更新字段。",
             "Clara，请把 Alex 的 role 改成 AI RD / Implementer，并添加技能 test-engineering。",
         )
         return _persist_local_tool_response(
             context,
-            tool_name="edit_member_profile",
+            tool_name="edit_employee_profile",
             reply=reply,
             result=result,
             completed=False,
@@ -2427,103 +2496,103 @@ def _complete_edit_member_profile_tool(context: ChatRunContext, plan: ChatToolPl
 
     profile["updated_at"] = _now()
     _write_yaml(profile_path, profile)
-    member = _member_summary(profile)
+    employee = _employee_summary(profile)
     result = {
         "status": "completed",
-        "detail": f"Updated member profile: {member.id}",
-        "member": member.model_dump(),
+        "detail": f"Updated employee profile: {employee.id}",
+        "employee": employee.model_dump(),
         "updates": updates,
         "saved_path": str(profile_path.relative_to(_workspace_root())),
         "deep_links": {
-            "member": f"#/members/{member.id}",
-            "members": "#/members",
+            "employee": f"#/employees/{employee.id}",
+            "employees": "#/employees",
         },
         "plan": _plan_trace_data(plan),
     }
     changed = "\n".join(f"- {key}: {value}" for key, value in updates.items())
     reply = (
-        f"已更新成员 {member.display_name} 的 profile。\n\n"
+        f"已更新成员 {employee.display_name} 的 profile。\n\n"
         f"{changed}\n\n"
         f"- Profile: {result['saved_path']}\n"
-        f"- 查看：#/members/{member.id}"
+        f"- 查看：#/employees/{employee.id}"
     )
     return _persist_local_tool_response(
         context,
-        tool_name="edit_member_profile",
+        tool_name="edit_employee_profile",
         reply=reply,
         result=result,
         completed=True,
     )
 
 
-def _complete_delete_member_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
+def _complete_delete_employee_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
     message = context.request.message
     target_id = (
-        _tool_str_arg(plan, "target_member_id", "member_id", "id")
-        or _tool_str_arg(plan, "target_member_name", "display_name", "name")
-        or _extract_edit_member_target(message, context)
+        _tool_str_arg(plan, "target_employee_id", "employee_id", "id")
+        or _tool_str_arg(plan, "target_employee_name", "display_name", "name")
+        or _extract_edit_employee_target(message, context)
     )
     if not target_id:
         result = {
             "status": "blocked",
-            "reason": "missing_target_member",
-            "detail": "Target member was not found in the request.",
+            "reason": "missing_target_employee",
+            "detail": "Target employee was not found in the request.",
             "plan": _plan_trace_data(plan),
         }
         reply = _build_blocked_tool_reply(
-            "delete_member",
+            "delete_employee",
             "没有识别到要删除哪个成员。",
             "Clara，请删除成员 Victor。",
         )
         return _persist_local_tool_response(
             context,
-            tool_name="delete_member",
+            tool_name="delete_employee",
             reply=reply,
             result=result,
             completed=False,
         )
 
-    found = _find_member_profile(target_id)
+    found = _find_employee_profile(target_id)
     if not found:
         result = {
             "status": "blocked",
-            "reason": "member_not_found",
-            "detail": f"Member not found: {target_id}",
-            "deep_links": {"members": "#/members"},
+            "reason": "employee_not_found",
+            "detail": f"Employee not found: {target_id}",
+            "deep_links": {"employees": "#/employees"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有找到成员 {target_id}，所以没有删除任何 profile。\n\n"
             "你可以先让我列出所有成员。\n"
-            "- Members: #/members"
+            "- Employees: #/employees"
         )
         return _persist_local_tool_response(
             context,
-            tool_name="delete_member",
+            tool_name="delete_employee",
             reply=reply,
             result=result,
             completed=False,
         )
 
     profile_path, profile = found
-    member = _member_summary(profile)
-    if member.id == "clara":
+    employee = _employee_summary(profile)
+    if employee.id == CLARA_SYSTEM_EMPLOYEE_ID:
         result = {
             "status": "blocked",
-            "reason": "protected_member",
-            "detail": "Clara is the default coordinator and cannot be deleted.",
-            "member": member.model_dump(),
-            "deep_links": {"member": "#/members/clara", "members": "#/members"},
+            "reason": "protected_employee",
+            "detail": "Clara is the protected default system employee and cannot be deleted.",
+            "employee": employee.model_dump(),
+            "deep_links": {"employee": "#/employees/clara", "employees": "#/employees"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             "没有删除 Clara。\n\n"
-            "原因：Clara 是默认协调者和系统兜底入口，P0 不允许删除。\n"
-            "- 查看：#/members/clara"
+            "原因：Clara 是 AITeamOS 的系统默认 Employee，负责团队运营与系统资产管理，永远不允许删除。\n"
+            "- 查看：#/employees/clara"
         )
         return _persist_local_tool_response(
             context,
-            tool_name="delete_member",
+            tool_name="delete_employee",
             reply=reply,
             result=result,
             completed=False,
@@ -2533,33 +2602,33 @@ def _complete_delete_member_tool(context: ChatRunContext, plan: ChatToolPlan | N
     try:
         profile_path.unlink()
     except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Cannot delete member profile: {member.id}") from exc
-    removed_provider_thread_keys = _delete_provider_thread_states(member.id)
-    archived_thread_ids = _archive_member_thread_metadata(member.id)
+        raise HTTPException(status_code=500, detail=f"Cannot delete employee profile: {employee.id}") from exc
+    removed_provider_thread_keys = _delete_provider_thread_states(employee.id)
+    archived_thread_ids = _archive_employee_thread_metadata(employee.id)
 
     result = {
         "status": "completed",
-        "detail": f"Deleted member profile: {member.id}",
-        "member": member.model_dump(),
+        "detail": f"Deleted employee profile: {employee.id}",
+        "employee": employee.model_dump(),
         "deleted_path": relative_profile_path,
         "provider_thread_keys_removed": removed_provider_thread_keys,
         "archived_thread_ids": archived_thread_ids,
         "retained_evidence": ["conversations", "traces"],
-        "deep_links": {"members": "#/members"},
+        "deep_links": {"employees": "#/employees"},
         "plan": _plan_trace_data(plan),
     }
     reply = (
-        f"已删除成员 {member.display_name}。\n\n"
-        f"- ID: {member.id}\n"
+        f"已删除成员 {employee.display_name}。\n\n"
+        f"- ID: {employee.id}\n"
         f"- Profile: {relative_profile_path}\n"
         f"- 清理 provider thread 映射：{len(removed_provider_thread_keys)} 条\n"
         f"- 归档 chat threads：{len(archived_thread_ids)} 条\n"
         "- 历史 conversation 和 trace 已保留，用于审计。\n"
-        "- Members: #/members"
+        "- Employees: #/employees"
     )
     return _persist_local_tool_response(
         context,
-        tool_name="delete_member",
+        tool_name="delete_employee",
         reply=reply,
         result=result,
         completed=True,
@@ -2614,13 +2683,13 @@ def _complete_create_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
             "reason": "skill_already_exists",
             "detail": f"Skill already exists: {existing.id}",
             "skill": existing.model_dump(),
-            "deep_links": {"skill": f"#/skills/{existing.id}", "skills": "#/skills"},
+            "deep_links": {"skill": f"#/library/skills/{existing.id}", "skills": "#/library/skills"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有创建新 Skill，因为 {existing.title} 已经存在。\n\n"
             f"- Skill: {existing.title} ({existing.id})\n"
-            f"- 查看：#/skills/{existing.id}\n\n"
+            f"- 查看：#/library/skills/{existing.id}\n\n"
             "如果要分配它，可以说：Clara，请把 "
             f"{existing.id} 分配给 Alex。"
         )
@@ -2648,7 +2717,7 @@ def _complete_create_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         "detail": f"Created skill: {skill.id}",
         "skill": skill.model_dump(),
         "saved_path": str(skill_path.relative_to(_workspace_root())),
-        "deep_links": {"skill": f"#/skills/{skill.id}", "skills": "#/skills"},
+        "deep_links": {"skill": f"#/library/skills/{skill.id}", "skills": "#/library/skills"},
         "plan": _plan_trace_data(plan),
     }
     reply = (
@@ -2656,8 +2725,8 @@ def _complete_create_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         f"- ID: {skill.id}\n"
         f"- Description: {skill.description or 'none'}\n"
         f"- Profile: {result['saved_path']}\n"
-        f"- 查看：#/skills/{skill.id}\n\n"
-        "下一步可以把它分配给一个或多个 Members。"
+        f"- 查看：#/library/skills/{skill.id}\n\n"
+        "下一步可以把它分配给一个或多个 Employees。"
     )
     return _persist_local_tool_response(
         context,
@@ -2668,7 +2737,7 @@ def _complete_create_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
     )
 
 
-def _complete_assign_skill_to_member_tool(
+def _complete_assign_skill_to_employee_tool(
     context: ChatRunContext,
     plan: ChatToolPlan | None = None,
 ) -> ChatMessageResponse:
@@ -2679,9 +2748,9 @@ def _complete_assign_skill_to_member_tool(
         or _extract_existing_skill_id(message)
     )
     target_id = (
-        _tool_str_arg(plan, "target_member_id", "member_id")
-        or _tool_str_arg(plan, "target_member_name", "display_name", "member_name")
-        or _extract_edit_member_target(message, context)
+        _tool_str_arg(plan, "target_employee_id", "employee_id")
+        or _tool_str_arg(plan, "target_employee_name", "display_name", "employee_name")
+        or _extract_edit_employee_target(message, context)
     )
     if not skill_lookup:
         result = {
@@ -2691,13 +2760,13 @@ def _complete_assign_skill_to_member_tool(
             "plan": _plan_trace_data(plan),
         }
         reply = _build_blocked_tool_reply(
-            "assign_skill_to_member",
+            "assign_skill_to_employee",
             "没有识别到要分配哪个 Skill。",
             "Clara，请把 test-engineering 分配给 Alex。",
         )
         return _persist_local_tool_response(
             context,
-            tool_name="assign_skill_to_member",
+            tool_name="assign_skill_to_employee",
             reply=reply,
             result=result,
             completed=False,
@@ -2705,18 +2774,18 @@ def _complete_assign_skill_to_member_tool(
     if not target_id:
         result = {
             "status": "blocked",
-            "reason": "missing_target_member",
-            "detail": "Target member was not found in the request.",
+            "reason": "missing_target_employee",
+            "detail": "Target employee was not found in the request.",
             "plan": _plan_trace_data(plan),
         }
         reply = _build_blocked_tool_reply(
-            "assign_skill_to_member",
+            "assign_skill_to_employee",
             "没有识别到要分配给哪个成员。",
             "Clara，请把 test-engineering 分配给 Alex。",
         )
         return _persist_local_tool_response(
             context,
-            tool_name="assign_skill_to_member",
+            tool_name="assign_skill_to_employee",
             reply=reply,
             result=result,
             completed=False,
@@ -2728,39 +2797,39 @@ def _complete_assign_skill_to_member_tool(
             "status": "blocked",
             "reason": "skill_not_found",
             "detail": f"Skill not found: {skill_lookup}",
-            "deep_links": {"skills": "#/skills"},
+            "deep_links": {"skills": "#/library/skills"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有找到 Skill {skill_lookup}，所以没有分配。\n\n"
             "你可以先让我列出所有 Skills，或先创建这个 Skill。\n"
-            "- Skills: #/skills"
+            "- Skills: #/library/skills"
         )
         return _persist_local_tool_response(
             context,
-            tool_name="assign_skill_to_member",
+            tool_name="assign_skill_to_employee",
             reply=reply,
             result=result,
             completed=False,
         )
 
-    found = _find_member_profile(target_id)
+    found = _find_employee_profile(target_id)
     if not found:
         result = {
             "status": "blocked",
-            "reason": "member_not_found",
-            "detail": f"Member not found: {target_id}",
-            "deep_links": {"members": "#/members"},
+            "reason": "employee_not_found",
+            "detail": f"Employee not found: {target_id}",
+            "deep_links": {"employees": "#/employees"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有找到成员 {target_id}，所以没有分配 Skill。\n\n"
             "你可以先让我列出所有成员。\n"
-            "- Members: #/members"
+            "- Employees: #/employees"
         )
         return _persist_local_tool_response(
             context,
-            tool_name="assign_skill_to_member",
+            tool_name="assign_skill_to_employee",
             reply=reply,
             result=result,
             completed=False,
@@ -2771,34 +2840,34 @@ def _complete_assign_skill_to_member_tool(
     profile["skills"] = _dedupe([*current_skills, skill.id])
     profile["updated_at"] = _now()
     _write_yaml(profile_path, profile)
-    member = _member_summary(profile)
+    employee = _employee_summary(profile)
 
     result = {
         "status": "completed",
-        "detail": f"Assigned skill {skill.id} to member {member.id}",
+        "detail": f"Assigned skill {skill.id} to employee {employee.id}",
         "skill": skill.model_dump(),
-        "member": member.model_dump(),
+        "employee": employee.model_dump(),
         "saved_path": str(profile_path.relative_to(_workspace_root())),
         "deep_links": {
-            "skill": f"#/skills/{skill.id}",
-            "member": f"#/members/{member.id}",
-            "skills": "#/skills",
-            "members": "#/members",
+            "skill": f"#/library/skills/{skill.id}",
+            "employee": f"#/employees/{employee.id}",
+            "skills": "#/library/skills",
+            "employees": "#/employees",
         },
         "plan": _plan_trace_data(plan),
     }
     reply = (
-        f"已把 Skill {skill.title} 分配给 {member.display_name}。\n\n"
+        f"已把 Skill {skill.title} 分配给 {employee.display_name}。\n\n"
         f"- Skill: {skill.id}\n"
-        f"- Member: {member.display_name} ({member.id})\n"
-        f"- Member skills: {', '.join(member.skills) if member.skills else 'none'}\n"
+        f"- Employee: {employee.display_name} ({employee.id})\n"
+        f"- Employee skills: {', '.join(employee.skills) if employee.skills else 'none'}\n"
         f"- Profile: {result['saved_path']}\n"
-        f"- 查看 Skill：#/skills/{skill.id}\n"
-        f"- 查看 Member：#/members/{member.id}"
+        f"- 查看 Skill：#/library/skills/{skill.id}\n"
+        f"- 查看 Employee：#/employees/{employee.id}"
     )
     return _persist_local_tool_response(
         context,
-        tool_name="assign_skill_to_member",
+        tool_name="assign_skill_to_employee",
         reply=reply,
         result=result,
         completed=True,
@@ -2839,13 +2908,13 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
             "status": "blocked",
             "reason": "skill_not_found",
             "detail": f"Skill not found: {skill_lookup}",
-            "deep_links": {"skills": "#/skills"},
+            "deep_links": {"skills": "#/library/skills"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有找到 Skill {skill_lookup}，所以没有删除任何文件。\n\n"
             "你可以先让我列出所有 Skills。\n"
-            "- Skills: #/skills"
+            "- Skills: #/library/skills"
         )
         return _persist_local_tool_response(
             context,
@@ -2857,10 +2926,10 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
 
     skill_dir = _skill_dir(skill.id)
     relative_skill_dir = str(skill_dir.relative_to(_workspace_root()))
-    unassigned_members: list[str] = []
-    members_dir = _members_dir()
-    if members_dir.exists():
-        for profile_path in sorted(members_dir.glob("*.yaml")):
+    unassigned_employees: list[str] = []
+    employees_dir = _employees_dir()
+    if employees_dir.exists():
+        for profile_path in sorted(employees_dir.glob("*.yaml")):
             profile = _read_yaml(profile_path)
             current_skills = [str(item) for item in profile.get("skills", [])]
             next_skills = [item for item in current_skills if item != skill.id]
@@ -2869,7 +2938,7 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
             profile["skills"] = next_skills
             profile["updated_at"] = _now()
             _write_yaml(profile_path, profile)
-            unassigned_members.append(str(profile.get("id") or profile_path.stem))
+            unassigned_employees.append(str(profile.get("id") or profile_path.stem))
 
     try:
         if skill_dir.exists():
@@ -2882,19 +2951,19 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         "detail": f"Deleted skill: {skill.id}",
         "skill": skill.model_dump(),
         "deleted_path": relative_skill_dir,
-        "unassigned_members": unassigned_members,
+        "unassigned_employees": unassigned_employees,
         "retained_evidence": ["conversations", "traces"],
-        "deep_links": {"skills": "#/skills", "members": "#/members"},
+        "deep_links": {"skills": "#/library/skills", "employees": "#/employees"},
         "plan": _plan_trace_data(plan),
     }
-    unassigned_text = ", ".join(unassigned_members) if unassigned_members else "none"
+    unassigned_text = ", ".join(unassigned_employees) if unassigned_employees else "none"
     reply = (
         f"已删除 Skill {skill.title}。\n\n"
         f"- ID: {skill.id}\n"
         f"- Deleted: {relative_skill_dir}\n"
         f"- 已从成员移除：{unassigned_text}\n"
         "- 历史 conversation 和 trace 已保留，用于审计。\n"
-        "- Skills: #/skills"
+        "- Skills: #/library/skills"
     )
     return _persist_local_tool_response(
         context,
@@ -2905,10 +2974,10 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
     )
 
 
-def _select_member(
+def _select_employee(
     profiles: list[dict[str, Any]],
     *,
-    requested_member_id: str | None,
+    requested_employee_id: str | None,
     message: str,
 ) -> dict[str, Any]:
     by_id = {str(profile.get("id", "")).lower(): profile for profile in profiles}
@@ -2931,20 +3000,20 @@ def _select_member(
         if trimmed.startswith(f"{key},") or trimmed.startswith(f"{key}:") or trimmed.startswith(f"{key}，"):
             return profile
 
-    if requested_member_id:
-        key = requested_member_id.lower()
+    if requested_employee_id:
+        key = requested_employee_id.lower()
         if key in by_id:
             return by_id[key]
-        raise HTTPException(status_code=404, detail=f"Member not found: {requested_member_id}")
+        raise HTTPException(status_code=404, detail=f"Employee not found: {requested_employee_id}")
 
     return by_id.get("clara") or profiles[0]
 
 
-def _extract_jira_keys(message: str, explicit: str | None) -> list[str]:
+def _extract_ticket_keys(message: str, explicit: str | None) -> list[str]:
     keys: list[str] = []
     if explicit:
         keys.append(explicit.strip().upper())
-    keys.extend(match.upper() for match in _JIRA_KEY_RE.findall(message))
+    keys.extend(match.upper() for match in _TICKET_KEY_RE.findall(message))
     return sorted(set(filter(None, keys)))
 
 
@@ -2994,16 +3063,16 @@ def _load_thread_index() -> dict[str, Any]:
         payload = {}
 
     threads = payload.get("threads") if isinstance(payload.get("threads"), dict) else {}
-    active_by_member = (
-        payload.get("active_by_member")
-        if isinstance(payload.get("active_by_member"), dict)
+    active_by_employee = (
+        payload.get("active_by_employee")
+        if isinstance(payload.get("active_by_employee"), dict)
         else {}
     )
     return {
         "threads": {str(key): value for key, value in threads.items() if isinstance(value, dict)},
-        "active_by_member": {
+        "active_by_employee": {
             str(key): str(value)
-            for key, value in active_by_member.items()
+            for key, value in active_by_employee.items()
             if isinstance(value, str)
         },
     }
@@ -3012,9 +3081,9 @@ def _load_thread_index() -> dict[str, Any]:
 def _write_thread_index(index: dict[str, Any]) -> None:
     payload = {
         "threads": index.get("threads") if isinstance(index.get("threads"), dict) else {},
-        "active_by_member": (
-            index.get("active_by_member")
-            if isinstance(index.get("active_by_member"), dict)
+        "active_by_employee": (
+            index.get("active_by_employee")
+            if isinstance(index.get("active_by_employee"), dict)
             else {}
         ),
         "updated_at": _now(),
@@ -3037,41 +3106,41 @@ def _thread_title_from_message(content: str) -> str:
     return text[:56] + ("..." if len(text) > 56 else "")
 
 
-def _default_thread_title(member: ChatMemberSummary, thread_id: str) -> str:
-    if thread_id == _member_default_thread_id(member.id):
-        return f"{member.display_name} default"
-    return f"{member.display_name} thread"
+def _default_thread_title(employee: ChatEmployeeSummary, thread_id: str) -> str:
+    if thread_id == _employee_default_thread_id(employee.id):
+        return f"{employee.display_name} default"
+    return f"{employee.display_name} thread"
 
 
-def _member_by_id(member_id: str) -> ChatMemberSummary | None:
-    lookup = member_id.strip().lower()
-    for profile in _load_members():
-        member = _member_summary(profile)
-        if member.id.lower() == lookup:
-            return member
+def _employee_by_id(employee_id: str) -> ChatEmployeeSummary | None:
+    lookup = employee_id.strip().lower()
+    for profile in _load_employees():
+        employee = _employee_summary(profile)
+        if employee.id.lower() == lookup:
+            return employee
     return None
 
 
-def _require_member_summary(member_id: str) -> ChatMemberSummary:
-    member_id = _require_safe_id(member_id, field="member_id")
-    member = _member_by_id(member_id)
-    if member is None:
-        raise HTTPException(status_code=404, detail=f"Member not found: {member_id}")
-    return member
+def _require_employee_summary(employee_id: str) -> ChatEmployeeSummary:
+    employee_id = _require_safe_id(employee_id, field="employee_id")
+    employee = _employee_by_id(employee_id)
+    if employee is None:
+        raise HTTPException(status_code=404, detail=f"Employee not found: {employee_id}")
+    return employee
 
 
-def _infer_thread_member_id(thread_id: str, members: list[ChatMemberSummary]) -> str | None:
-    for member in sorted(members, key=lambda item: len(item.id), reverse=True):
-        safe_member = _safe_thread_component(member.id)
-        if thread_id == _member_default_thread_id(member.id) or thread_id.startswith(f"member-{safe_member}-"):
-            return member.id
+def _infer_thread_employee_id(thread_id: str, employees: list[ChatEmployeeSummary]) -> str | None:
+    for employee in sorted(employees, key=lambda item: len(item.id), reverse=True):
+        safe_employee = _safe_thread_component(employee.id)
+        if thread_id == _employee_default_thread_id(employee.id) or thread_id.startswith(f"employee-{safe_employee}-"):
+            return employee.id
     return None
 
 
 def _thread_summary_from_record(thread_id: str, record: dict[str, Any]) -> ChatThreadSummary:
     return ChatThreadSummary(
         id=thread_id,
-        member_id=str(record.get("member_id") or ""),
+        employee_id=str(record.get("employee_id") or ""),
         title=str(record.get("title") or "New thread"),
         created_at=str(record.get("created_at") or _now()),
         updated_at=str(record.get("updated_at") or record.get("last_message_at") or _now()),
@@ -3082,16 +3151,16 @@ def _thread_summary_from_record(thread_id: str, record: dict[str, Any]) -> ChatT
     )
 
 
-def _conversation_metadata(thread_id: str, members: list[ChatMemberSummary]) -> dict[str, Any]:
+def _conversation_metadata(thread_id: str, employees: list[ChatEmployeeSummary]) -> dict[str, Any]:
     messages = _load_conversation_messages(thread_id)
     first_user = next((message for message in messages if message.role == "user" and message.content.strip()), None)
-    first_assistant = next((message for message in messages if message.member_id), None)
+    first_assistant = next((message for message in messages if message.employee_id), None)
     created_at = messages[0].timestamp if messages else _now()
     updated_at = messages[-1].timestamp if messages else created_at
-    member_id = first_assistant.member_id if first_assistant and first_assistant.member_id else None
-    member_id = member_id or _infer_thread_member_id(thread_id, members)
+    employee_id = first_assistant.employee_id if first_assistant and first_assistant.employee_id else None
+    employee_id = employee_id or _infer_thread_employee_id(thread_id, employees)
     return {
-        "member_id": member_id,
+        "employee_id": employee_id,
         "title": _thread_title_from_message(first_user.content) if first_user else None,
         "created_at": created_at,
         "updated_at": updated_at,
@@ -3103,19 +3172,19 @@ def _conversation_metadata(thread_id: str, members: list[ChatMemberSummary]) -> 
 def _hydrate_thread_index() -> dict[str, Any]:
     index = _load_thread_index()
     threads = index["threads"]
-    active_by_member = index["active_by_member"]
-    members = sorted((_member_summary(profile) for profile in _load_members()), key=_member_sort_key)
-    member_by_id = {member.id: member for member in members}
+    active_by_employee = index["active_by_employee"]
+    employees = sorted((_employee_summary(profile) for profile in _load_employees()), key=_employee_sort_key)
+    employee_by_id = {employee.id: employee for employee in employees}
     changed = False
     now = _now()
 
-    for member in members:
-        default_thread_id = _member_default_thread_id(member.id)
+    for employee in employees:
+        default_thread_id = _employee_default_thread_id(employee.id)
         if default_thread_id not in threads:
             threads[default_thread_id] = {
                 "id": default_thread_id,
-                "member_id": member.id,
-                "title": _default_thread_title(member, default_thread_id),
+                "employee_id": employee.id,
+                "title": _default_thread_title(employee, default_thread_id),
                 "created_at": now,
                 "updated_at": now,
                 "last_message_at": None,
@@ -3130,14 +3199,14 @@ def _hydrate_thread_index() -> dict[str, Any]:
             thread_id = path.stem
             if not _SAFE_ID_RE.fullmatch(thread_id):
                 continue
-            metadata = _conversation_metadata(thread_id, members)
-            member_id = metadata["member_id"]
-            if not member_id:
+            metadata = _conversation_metadata(thread_id, employees)
+            employee_id = metadata["employee_id"]
+            if not employee_id:
                 continue
             existing = threads.get(thread_id) or {}
             record = {
                 "id": thread_id,
-                "member_id": str(existing.get("member_id") or member_id),
+                "employee_id": str(existing.get("employee_id") or employee_id),
                 "title": str(existing.get("title") or metadata.get("title") or "New thread"),
                 "created_at": str(existing.get("created_at") or metadata["created_at"]),
                 "updated_at": str(metadata["updated_at"] or existing.get("updated_at") or now),
@@ -3149,24 +3218,24 @@ def _hydrate_thread_index() -> dict[str, Any]:
                 threads[thread_id] = record
                 changed = True
 
-    for member in members:
-        member_threads = [
+    for employee in employees:
+        employee_threads = [
             _thread_summary_from_record(thread_id, record)
             for thread_id, record in threads.items()
-            if record.get("member_id") == member.id and not bool(record.get("archived", False))
+            if record.get("employee_id") == employee.id and not bool(record.get("archived", False))
         ]
-        if not member_threads:
+        if not employee_threads:
             continue
-        active_thread_id = active_by_member.get(member.id)
-        if active_thread_id not in {thread.id for thread in member_threads}:
-            latest = max(member_threads, key=lambda thread: (thread.last_message_at or thread.updated_at, thread.id))
-            active_by_member[member.id] = latest.id
+        active_thread_id = active_by_employee.get(employee.id)
+        if active_thread_id not in {thread.id for thread in employee_threads}:
+            latest = max(employee_threads, key=lambda thread: (thread.last_message_at or thread.updated_at, thread.id))
+            active_by_employee[employee.id] = latest.id
             changed = True
 
-    for member_id, active_thread_id in list(active_by_member.items()):
+    for employee_id, active_thread_id in list(active_by_employee.items()):
         record = threads.get(active_thread_id)
-        if member_id not in member_by_id or not record or record.get("member_id") != member_id:
-            active_by_member.pop(member_id, None)
+        if employee_id not in employee_by_id or not record or record.get("employee_id") != employee_id:
+            active_by_employee.pop(employee_id, None)
             changed = True
 
     if changed:
@@ -3176,7 +3245,7 @@ def _hydrate_thread_index() -> dict[str, Any]:
 
 def _upsert_thread_metadata(
     *,
-    member: ChatMemberSummary,
+    employee: ChatEmployeeSummary,
     thread_id: str,
     title: str | None = None,
     set_active: bool = False,
@@ -3187,7 +3256,7 @@ def _upsert_thread_metadata(
     record = dict(threads.get(thread_id) or {})
     now = _now()
     record.setdefault("id", thread_id)
-    record["member_id"] = str(record.get("member_id") or member.id)
+    record["employee_id"] = str(record.get("employee_id") or employee.id)
     record.setdefault("created_at", now)
     record["updated_at"] = now
     record.setdefault("last_message_at", None)
@@ -3198,11 +3267,11 @@ def _upsert_thread_metadata(
     if next_title:
         record["title"] = _thread_title_from_message(next_title)
     else:
-        record.setdefault("title", _default_thread_title(member, thread_id))
+        record.setdefault("title", _default_thread_title(employee, thread_id))
 
     threads[thread_id] = record
     if set_active:
-        index["active_by_member"][member.id] = thread_id
+        index["active_by_employee"][employee.id] = thread_id
     _write_thread_index(index)
     return _thread_summary_from_record(thread_id, record)
 
@@ -3214,14 +3283,14 @@ def _record_chat_thread_turn(context: ChatRunContext, *, last_message_at: str) -
     now = _now()
     existing_title = str(record.get("title") or "").strip()
     title = existing_title
-    if not title or title == _default_thread_title(context.member, context.thread_id):
+    if not title or title == _default_thread_title(context.employee, context.thread_id):
         title = _thread_title_from_message(context.request.message)
 
     messages = _load_conversation_messages(context.thread_id)
     created_at = str(record.get("created_at") or (messages[0].timestamp if messages else now))
     record.update({
         "id": context.thread_id,
-        "member_id": context.member.id,
+        "employee_id": context.employee.id,
         "title": title,
         "created_at": created_at,
         "updated_at": last_message_at,
@@ -3230,7 +3299,7 @@ def _record_chat_thread_turn(context: ChatRunContext, *, last_message_at: str) -
         "archived": False,
     })
     threads[context.thread_id] = record
-    index["active_by_member"][context.member.id] = context.thread_id
+    index["active_by_employee"][context.employee.id] = context.thread_id
     _write_thread_index(index)
     return _thread_summary_from_record(context.thread_id, record)
 
@@ -3242,53 +3311,53 @@ def _thread_summary(thread_id: str) -> ChatThreadSummary | None:
     return _thread_summary_from_record(thread_id, record) if isinstance(record, dict) else None
 
 
-def _list_member_threads(member_id: str) -> ChatThreadListResponse:
-    member = _require_member_summary(member_id)
+def _list_employee_threads(employee_id: str) -> ChatThreadListResponse:
+    employee = _require_employee_summary(employee_id)
     index = _hydrate_thread_index()
     threads = [
         _thread_summary_from_record(thread_id, record)
         for thread_id, record in index["threads"].items()
-        if record.get("member_id") == member.id and not bool(record.get("archived", False))
+        if record.get("employee_id") == employee.id and not bool(record.get("archived", False))
     ]
     threads.sort(key=lambda thread: (thread.last_message_at or thread.updated_at, thread.id), reverse=True)
-    active_thread_id = index["active_by_member"].get(member.id) or _member_default_thread_id(member.id)
+    active_thread_id = index["active_by_employee"].get(employee.id) or _employee_default_thread_id(employee.id)
     if active_thread_id not in {thread.id for thread in threads} and threads:
         active_thread_id = threads[0].id
-    return ChatThreadListResponse(member_id=member.id, active_thread_id=active_thread_id, threads=threads)
+    return ChatThreadListResponse(employee_id=employee.id, active_thread_id=active_thread_id, threads=threads)
 
 
-def _activate_thread_metadata(thread_id: str, member_id: str | None = None) -> ChatThreadSummary:
+def _activate_thread_metadata(thread_id: str, employee_id: str | None = None) -> ChatThreadSummary:
     thread_id = _require_safe_id(thread_id, field="thread_id")
     summary = _thread_summary(thread_id)
     if summary is None:
-        if not member_id:
+        if not employee_id:
             raise HTTPException(status_code=404, detail=f"Thread not found: {thread_id}")
-        member = _require_member_summary(member_id)
-        return _upsert_thread_metadata(member=member, thread_id=thread_id, set_active=True)
+        employee = _require_employee_summary(employee_id)
+        return _upsert_thread_metadata(employee=employee, thread_id=thread_id, set_active=True)
 
-    member = _require_member_summary(member_id or summary.member_id)
-    if summary.member_id != member.id:
-        raise HTTPException(status_code=400, detail="Thread does not belong to the requested member")
-    return _upsert_thread_metadata(member=member, thread_id=thread_id, title=summary.title, set_active=True)
+    employee = _require_employee_summary(employee_id or summary.employee_id)
+    if summary.employee_id != employee.id:
+        raise HTTPException(status_code=400, detail="Thread does not belong to the requested employee")
+    return _upsert_thread_metadata(employee=employee, thread_id=thread_id, title=summary.title, set_active=True)
 
 
-def _archive_member_thread_metadata(member_id: str) -> list[str]:
+def _archive_employee_thread_metadata(employee_id: str) -> list[str]:
     index = _hydrate_thread_index()
     removed: list[str] = []
     now = _now()
     for thread_id, record in index["threads"].items():
-        if record.get("member_id") != member_id:
+        if record.get("employee_id") != employee_id:
             continue
         record["archived"] = True
         record["updated_at"] = now
         removed.append(thread_id)
-    index["active_by_member"].pop(member_id, None)
+    index["active_by_employee"].pop(employee_id, None)
     if removed:
         _write_thread_index(index)
     return removed
 
 
-def _provider_thread_id(member_id: str, thread_id: str) -> str:
+def _provider_thread_id(employee_id: str, thread_id: str) -> str:
     path = _workspace_dir() / "provider_threads.json"
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -3297,9 +3366,9 @@ def _provider_thread_id(member_id: str, thread_id: str) -> str:
     except (OSError, json.JSONDecodeError):
         mapping = {}
 
-    key = f"{member_id}::{thread_id}"
+    key = f"{employee_id}::{thread_id}"
     if key not in mapping:
-        mapping[key] = f"provider-{member_id}-{thread_id[:8]}"
+        mapping[key] = f"provider-{employee_id}-{thread_id[:8]}"
         path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
     return str(mapping[key])
 
@@ -3314,9 +3383,9 @@ def _load_provider_threads() -> tuple[Path, dict[str, Any]]:
     return path, mapping if isinstance(mapping, dict) else {}
 
 
-def _provider_thread_state(member_id: str, thread_id: str) -> dict[str, Any]:
+def _provider_thread_state(employee_id: str, thread_id: str) -> dict[str, Any]:
     path, mapping = _load_provider_threads()
-    key = f"{member_id}::{thread_id}"
+    key = f"{employee_id}::{thread_id}"
     existing = mapping.get(key)
     if isinstance(existing, dict):
         return existing
@@ -3325,22 +3394,22 @@ def _provider_thread_state(member_id: str, thread_id: str) -> dict[str, Any]:
 
     state = {
         "provider": "file_stub",
-        "provider_thread_id": f"provider-{member_id}-{thread_id[:8]}",
+        "provider_thread_id": f"provider-{employee_id}-{thread_id[:8]}",
     }
     mapping[key] = state["provider_thread_id"]
     path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
     return state
 
 
-def _save_provider_thread_state(member_id: str, thread_id: str, state: dict[str, Any]) -> None:
+def _save_provider_thread_state(employee_id: str, thread_id: str, state: dict[str, Any]) -> None:
     path, mapping = _load_provider_threads()
-    mapping[f"{member_id}::{thread_id}"] = state
+    mapping[f"{employee_id}::{thread_id}"] = state
     path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _delete_provider_thread_states(member_id: str) -> list[str]:
+def _delete_provider_thread_states(employee_id: str) -> list[str]:
     path, mapping = _load_provider_threads()
-    removed_keys = [key for key in mapping if key.startswith(f"{member_id}::")]
+    removed_keys = [key for key in mapping if key.startswith(f"{employee_id}::")]
     if removed_keys:
         for key in removed_keys:
             mapping.pop(key, None)
@@ -3406,12 +3475,12 @@ def _skill_title_and_description(skill_id: str, text: str) -> tuple[str, str]:
     return title, description
 
 
-def _assigned_members_for_skill(skill_id: str) -> list[str]:
+def _assigned_employees_for_skill(skill_id: str) -> list[str]:
     assigned: list[str] = []
-    for profile in _load_members():
-        member = _member_summary(profile)
-        if skill_id in member.skills:
-            assigned.append(member.id)
+    for profile in _load_employees():
+        employee = _employee_summary(profile)
+        if skill_id in employee.skills:
+            assigned.append(employee.id)
     return sorted(assigned)
 
 
@@ -3428,7 +3497,7 @@ def _skill_summary(skill_path: Path) -> ChatSkillSummary:
         id=skill_id,
         title=title,
         description=description,
-        assigned_members=_assigned_members_for_skill(skill_id),
+        assigned_employees=_assigned_employees_for_skill(skill_id),
         resources=resources,
         saved_path=str(skill_path.relative_to(_workspace_root())),
     )
@@ -3506,38 +3575,38 @@ def _runtime_fallback_on_error() -> bool:
 
 def _runtime_context_gate(
     *,
-    member_profile: dict[str, Any],
-    member: ChatMemberSummary,
-    jira_keys: list[str],
+    employee_profile: dict[str, Any],
+    employee: ChatEmployeeSummary,
+    ticket_keys: list[str],
     skills: list[str],
     memory_snippets: list[str],
 ) -> str:
-    responsibilities = member_profile.get("responsibilities", [])
-    handoff_rules = member_profile.get("handoff_rules", [])
-    personality = str(member_profile.get("personality", ""))
-    jira_text = ", ".join(jira_keys) if jira_keys else "none"
+    responsibilities = employee_profile.get("responsibilities", [])
+    handoff_rules = employee_profile.get("handoff_rules", [])
+    personality = str(employee_profile.get("personality", ""))
+    ticket_text = ", ".join(ticket_keys) if ticket_keys else "none"
     memory_text = "\n".join(f"- {item}" for item in memory_snippets) or "- none"
     skill_text = ", ".join(skills) if skills else "none"
     responsibilities_text = "\n".join(f"- {item}" for item in responsibilities) or "- none"
     handoff_text = "\n".join(f"- {item}" for item in handoff_rules) or "- none"
 
     return (
-        "You are an AI Member inside AITeamOS. Answer as the addressed member, "
+        "You are an AI Employee inside AITeamOS. Answer as the addressed employee, "
         "not as a generic assistant. Be concise, truthful, and explicit about what "
         "you can and cannot do in this P0 runtime.\n\n"
-        f"Member id: {member.id}\n"
-        f"Display name: {member.display_name}\n"
-        f"Role: {member.role}\n"
-        f"Summary: {member.summary}\n"
+        f"Employee id: {employee.id}\n"
+        f"Display name: {employee.display_name}\n"
+        f"Role: {employee.role}\n"
+        f"Summary: {employee.summary}\n"
         f"Personality: {personality}\n"
         f"Responsibilities:\n{responsibilities_text}\n\n"
         f"Skills available through AITeamOS context gate: {skill_text}\n"
-        f"Jira keys bound to this turn: {jira_text}\n"
+        f"Ticket keys bound to this turn: {ticket_text}\n"
         f"Local memory snippets:\n{memory_text}\n\n"
         f"Handoff rules:\n{handoff_text}\n\n"
-        "AITeamOS currently gates your profile, skills, memory, Jira context, "
+        "AITeamOS currently gates your profile, skills, memory, Ticket context, "
         "permissions, and trace capture before sending this turn to the provider. "
-        "Do not claim that Jira, Harness, repository edits, or external tools were "
+        "Do not claim that Ticket, Harness, repository edits, or external tools were "
         "actually invoked unless the user provided evidence in this conversation."
     )
 
@@ -3574,10 +3643,10 @@ def _chat_completion_history(messages: list[ConversationMessage]) -> list[dict[s
 
 async def _call_openai_agent(
     *,
-    member_profile: dict[str, Any],
-    member: ChatMemberSummary,
+    employee_profile: dict[str, Any],
+    employee: ChatEmployeeSummary,
     message: str,
-    jira_keys: list[str],
+    ticket_keys: list[str],
     skills: list[str],
     memory_snippets: list[str],
     provider_state: dict[str, Any],
@@ -3589,9 +3658,9 @@ async def _call_openai_agent(
     request_body: dict[str, Any] = {
         "model": _openai_model(),
         "instructions": _runtime_context_gate(
-            member_profile=member_profile,
-            member=member,
-            jira_keys=jira_keys,
+            employee_profile=employee_profile,
+            employee=employee,
+            ticket_keys=ticket_keys,
             skills=skills,
             memory_snippets=memory_snippets,
         ),
@@ -3631,7 +3700,7 @@ async def _call_openai_agent(
         **provider_state,
         "provider": "openai_responses",
         "provider_thread_id": provider_state.get("provider_thread_id")
-        or f"openai-{member.id}-{uuid4().hex[:8]}",
+        or f"openai-{employee.id}-{uuid4().hex[:8]}",
         "openai_previous_response_id": response_id,
         "model": payload.get("model") or _openai_model(),
         "last_response_id": response_id,
@@ -3649,10 +3718,10 @@ async def _call_openai_agent(
 
 async def _call_deepseek_agent(
     *,
-    member_profile: dict[str, Any],
-    member: ChatMemberSummary,
+    employee_profile: dict[str, Any],
+    employee: ChatEmployeeSummary,
     message: str,
-    jira_keys: list[str],
+    ticket_keys: list[str],
     skills: list[str],
     memory_snippets: list[str],
     recent_messages: list[ConversationMessage],
@@ -3668,9 +3737,9 @@ async def _call_deepseek_agent(
             {
                 "role": "system",
                 "content": _runtime_context_gate(
-                    member_profile=member_profile,
-                    member=member,
-                    jira_keys=jira_keys,
+                    employee_profile=employee_profile,
+                    employee=employee,
+                    ticket_keys=ticket_keys,
                     skills=skills,
                     memory_snippets=memory_snippets,
                 ),
@@ -3715,7 +3784,7 @@ async def _call_deepseek_agent(
         **provider_state,
         "provider": "deepseek_chat_completions",
         "provider_thread_id": provider_state.get("provider_thread_id")
-        or f"deepseek-{member.id}-{uuid4().hex[:8]}",
+        or f"deepseek-{employee.id}-{uuid4().hex[:8]}",
         "assumed_agent_session": True,
         "deepseek_last_response_id": response_id,
         "model": payload.get("model") or _deepseek_model(),
@@ -3745,9 +3814,9 @@ async def _stream_deepseek_agent(
             {
                 "role": "system",
                 "content": _runtime_context_gate(
-                    member_profile=context.selected_profile,
-                    member=context.member,
-                    jira_keys=context.jira_keys,
+                    employee_profile=context.selected_profile,
+                    employee=context.employee,
+                    ticket_keys=context.ticket_keys,
                     skills=context.skills,
                     memory_snippets=context.memories,
                 ),
@@ -3818,7 +3887,7 @@ async def _stream_deepseek_agent(
         **context.provider_state,
         "provider": "deepseek_chat_completions",
         "provider_thread_id": context.provider_state.get("provider_thread_id")
-        or f"deepseek-{context.member.id}-{uuid4().hex[:8]}",
+        or f"deepseek-{context.employee.id}-{uuid4().hex[:8]}",
         "assumed_agent_session": True,
         "deepseek_last_response_id": response_id,
         "model": model,
@@ -3854,57 +3923,150 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
         handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
 
 
+def _tool_calls_from_trace_events(trace_events: list[ChatTraceEvent]) -> list[dict[str, Any]]:
+    calls: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    terminal_phases = {"completed", "blocked", "failed"}
+    for event in trace_events:
+        parts = event.event.split(".")
+        if len(parts) < 3 or parts[0] != "tool":
+            continue
+        tool_name = parts[1]
+        phase = ".".join(parts[2:])
+        if tool_name == "intent_planner":
+            continue
+        if phase not in {"called", *terminal_phases}:
+            continue
+
+        if tool_name not in calls:
+            order.append(tool_name)
+            calls[tool_name] = {
+                "tool": tool_name,
+                "status": "planned",
+                "events": [],
+            }
+        call = calls[tool_name]
+        call["events"].append(event.model_dump(mode="json"))
+        if phase == "called" and call.get("status") == "planned":
+            call["status"] = "called"
+        if phase in terminal_phases:
+            call["status"] = phase
+            call["result"] = event.data
+    return [calls[tool_name] for tool_name in order]
+
+
+def _runtime_event_metadata(trace_events: list[ChatTraceEvent]) -> dict[str, Any]:
+    for event in reversed(trace_events):
+        if event.event.startswith("runtime."):
+            data = dict(event.data)
+            data["event"] = event.event
+            data["detail"] = event.detail
+            return data
+    return {}
+
+
+def _selected_runtime_model(provider: str) -> str | None:
+    config = _runtime_config()
+    if provider == "deepseek":
+        return str(config["deepseek_model"])
+    if provider == "openai":
+        return str(config["openai_model"])
+    return None
+
+
+def _build_run_metadata(
+    context: ChatRunContext,
+    *,
+    final_provider_thread_id: str,
+    trace_events: list[ChatTraceEvent],
+    trace_path: Path,
+) -> dict[str, Any]:
+    tool_calls = _tool_calls_from_trace_events(trace_events)
+    runtime_event = _runtime_event_metadata(trace_events)
+    selected_provider = _model_provider()
+    if tool_calls:
+        actual_provider = "local_tool"
+    elif runtime_event.get("event") == "runtime.stub.completed":
+        actual_provider = "stub"
+    else:
+        actual_provider = str(runtime_event.get("provider") or context.provider_state.get("provider") or selected_provider)
+
+    return {
+        "run_id": context.run_id,
+        "thread_id": context.thread_id,
+        "employee": {
+            "id": context.employee.id,
+            "display_name": context.employee.display_name,
+            "role": context.employee.role,
+        },
+        "ticket_keys": context.ticket_keys,
+        "runtime": {
+            "selected_provider": selected_provider,
+            "actual_provider": actual_provider,
+            "model": runtime_event.get("model") or _selected_runtime_model(selected_provider),
+            "provider_thread_id": final_provider_thread_id,
+            "event": runtime_event.get("event"),
+        },
+        "tools": tool_calls,
+        "trace": {
+            "path": str(trace_path.relative_to(_workspace_root())),
+            "event_count": len(trace_events),
+        },
+        "created_at": _now(),
+    }
+
+
 def _build_reply(
     *,
-    member: ChatMemberSummary,
+    employee: ChatEmployeeSummary,
     message: str,
-    jira_keys: list[str],
+    ticket_keys: list[str],
     provider_thread_id: str,
     skills: list[str],
     memory_snippets: list[str],
 ) -> str:
-    jira_text = ", ".join(jira_keys) if jira_keys else "not bound"
+    ticket_text = ", ".join(ticket_keys) if ticket_keys else "not bound"
     skill_text = ", ".join(skills[:4]) if skills else "no local skills loaded"
     memory_text = f"{len(memory_snippets)} local memory snippet(s)" if memory_snippets else "no local memory snippets"
 
     return (
-        f"{member.display_name} received the request.\n\n"
-        f"Role: {member.role}\n"
-        f"Jira: {jira_text}\n"
-        f"Runtime: {member.runtime_mode}; provider thread: {provider_thread_id}\n"
+        f"{employee.display_name} received the request.\n\n"
+        f"Role: {employee.role}\n"
+        f"Ticket: {ticket_text}\n"
+        f"Runtime: {employee.runtime_mode}; provider thread: {provider_thread_id}\n"
         f"Context gate: {skill_text}; {memory_text}\n\n"
-        "P0 file-backed run completed: I loaded the addressed member profile, "
+        "P0 file-backed run completed: I loaded the addressed employee profile, "
         "resolved the reusable provider thread mapping, captured the conversation, "
-        "and wrote a local trace. External Jira, harness, and provider execution are "
+        "and wrote a local trace. External Ticket, harness, and provider execution are "
         "not invoked in this first slice.\n\n"
-        "Next action preview: read the Jira context, pick the relevant skills and "
+        "Next action preview: read the Ticket context, pick the relevant skills and "
         "memory, execute through the configured external or local agent runtime, "
         "and report progress back into this thread with trace evidence."
     )
 
 
 def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
-    profiles = _load_members()
-    selected = _select_member(
+    profiles = _load_employees()
+    selected = _select_employee(
         profiles,
-        requested_member_id=request.target_member_id,
+        requested_employee_id=request.target_employee_id,
         message=request.message,
     )
-    member = _member_summary(selected)
+    employee = _employee_summary(selected)
 
-    thread_id = request.thread_id or _member_default_thread_id(member.id)
+    thread_id = request.thread_id or _employee_default_thread_id(employee.id)
     thread_id = _require_safe_id(thread_id, field="thread_id")
     run_id = f"run-{uuid4().hex[:12]}"
-    jira_keys = _extract_jira_keys(request.message, request.jira_key)
+    ticket_keys = _extract_ticket_keys(request.message, request.ticket_key)
     runtime_dirs = _ensure_runtime_dirs()
     recent_messages = _load_conversation_messages(thread_id, limit=12)
-    provider_state = _provider_thread_state(member.id, thread_id)
-    provider_thread_id = str(provider_state.get("provider_thread_id") or _provider_thread_id(member.id, thread_id))
-    skills = _skill_titles(member.skills)
+    provider_state = _provider_thread_state(employee.id, thread_id)
+    provider_thread_id = str(provider_state.get("provider_thread_id") or _provider_thread_id(employee.id, thread_id))
+    skills = _skill_titles(employee.skills)
     memories = recall_memory_snippets(
-        member_id=member.id,
+        employee_id=employee.id,
         query=request.message,
-        jira_keys=jira_keys,
+        ticket_keys=ticket_keys,
     )
     for snippet in knowledge_snippets(request.message, limit=3):
         if snippet.startswith("[memory:"):
@@ -3913,15 +4075,19 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
             memories.append(snippet)
 
     trace_events = [
-        ChatTraceEvent(event="message.received", detail="User message accepted."),
         ChatTraceEvent(
-            event="member.selected",
-            detail=f"Routed to {member.display_name}.",
-            data={"member_id": member.id, "role": member.role},
+            event="message.received",
+            detail="User message accepted.",
+            data={"thread_id": thread_id, "run_id": run_id, "ticket_keys": ticket_keys},
+        ),
+        ChatTraceEvent(
+            event="employee.selected",
+            detail=f"Routed to {employee.display_name}.",
+            data={"employee_id": employee.id, "role": employee.role},
         ),
         ChatTraceEvent(
             event="context.loaded",
-            detail="Loaded file-backed member, skill, and approved memory context.",
+            detail="Loaded file-backed employee, skill, and approved memory context.",
             data={"skills": skills, "memory_count": len(memories), "recent_message_count": len(recent_messages)},
         ),
         ChatTraceEvent(
@@ -3933,22 +4099,22 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
             },
         ),
     ]
-    if jira_keys:
+    if ticket_keys:
         trace_events.append(
             ChatTraceEvent(
-                event="jira.detected",
-                detail="Detected Jira key(s) in the request.",
-                data={"jira_keys": jira_keys},
+                event="ticket.detected",
+                detail="Detected Ticket key(s) in the request.",
+                data={"ticket_keys": ticket_keys},
             )
         )
 
     return ChatRunContext(
         request=request,
         selected_profile=selected,
-        member=member,
+        employee=employee,
         thread_id=thread_id,
         run_id=run_id,
-        jira_keys=jira_keys,
+        ticket_keys=ticket_keys,
         runtime_dirs=runtime_dirs,
         provider_state=provider_state,
         provider_thread_id=provider_thread_id,
@@ -3968,7 +4134,7 @@ def _persist_chat_response(
     extra_trace_events: list[ChatTraceEvent] | None = None,
 ) -> ChatMessageResponse:
     if provider_state is not None:
-        _save_provider_thread_state(context.member.id, context.thread_id, provider_state)
+        _save_provider_thread_state(context.employee.id, context.thread_id, provider_state)
     final_provider_thread_id = provider_thread_id or context.provider_thread_id
 
     trace_events = [
@@ -3979,6 +4145,19 @@ def _persist_chat_response(
 
     conversation_path = context.runtime_dirs["conversations"] / f"{context.thread_id}.jsonl"
     trace_path = context.runtime_dirs["traces"] / f"{context.run_id}.jsonl"
+    run_metadata = _build_run_metadata(
+        context,
+        final_provider_thread_id=final_provider_thread_id,
+        trace_events=trace_events,
+        trace_path=trace_path,
+    )
+    trace_events.append(
+        ChatTraceEvent(
+            event="run.metadata.recorded",
+            detail="Captured runtime, ticket, and tool metadata for this run.",
+            data=run_metadata,
+        )
+    )
 
     user_timestamp = _now()
     assistant_timestamp = _now()
@@ -3986,15 +4165,33 @@ def _persist_chat_response(
         "timestamp": user_timestamp,
         "role": "user",
         "content": context.request.message,
-        "member_id": None,
+        "employee_id": None,
         "run_id": context.run_id,
+        "metadata": {
+            "aiteamos": {
+                "message_kind": "user_request",
+                "run_id": context.run_id,
+                "thread_id": context.thread_id,
+                "target_employee_id": context.employee.id,
+                "ticket_keys": context.ticket_keys,
+                "runtime": {
+                    "selected_provider": _model_provider(),
+                },
+            }
+        },
     })
     _append_jsonl(conversation_path, {
         "timestamp": assistant_timestamp,
         "role": "assistant",
         "content": reply,
-        "member_id": context.member.id,
+        "employee_id": context.employee.id,
         "run_id": context.run_id,
+        "metadata": {
+            "aiteamos": {
+                "message_kind": "assistant_response",
+                **run_metadata,
+            }
+        },
     })
     thread_summary = _record_chat_thread_turn(context, last_message_at=assistant_timestamp)
 
@@ -4003,11 +4200,11 @@ def _persist_chat_response(
         memory_candidate = propose_memory_from_chat_turn(
             run_id=context.run_id,
             thread_id=context.thread_id,
-            member_id=context.member.id,
-            member_display_name=context.member.display_name,
+            employee_id=context.employee.id,
+            employee_display_name=context.employee.display_name,
             user_message=context.request.message,
             assistant_reply=reply,
-            jira_keys=context.jira_keys,
+            ticket_keys=context.ticket_keys,
             trace_path=str(trace_path.relative_to(_workspace_root())),
         )
         if memory_candidate is not None:
@@ -4043,11 +4240,12 @@ def _persist_chat_response(
     return ChatMessageResponse(
         thread_id=context.thread_id,
         run_id=context.run_id,
-        target_member=context.member,
+        target_employee=context.employee,
         provider_thread_id=final_provider_thread_id,
-        jira_keys=context.jira_keys,
+        ticket_keys=context.ticket_keys,
         reply=reply,
         trace_events=trace_events,
+        run_metadata=run_metadata,
         saved_paths={
             "conversation": str(conversation_path.relative_to(_workspace_root())),
             "trace": str(trace_path.relative_to(_workspace_root())),
@@ -4065,9 +4263,9 @@ def _persist_chat_response(
 
 def _stub_reply(context: ChatRunContext) -> str:
     return _build_reply(
-        member=context.member,
+        employee=context.employee,
         message=context.request.message,
-        jira_keys=context.jira_keys,
+        ticket_keys=context.ticket_keys,
         provider_thread_id=context.provider_thread_id,
         skills=context.skills,
         memory_snippets=context.memories,
@@ -4078,26 +4276,26 @@ async def _maybe_complete_local_tool(context: ChatRunContext) -> ChatMessageResp
     plan = await _plan_local_tool_intent(context)
     if plan.tool == "search_knowledge":
         return _complete_search_knowledge_tool(context, plan)
-    if plan.tool == "create_work_item":
-        return _complete_create_work_item_tool(context, plan)
-    if plan.tool == "record_work_item_report":
-        return _complete_record_work_item_report_tool(context, plan)
-    if plan.tool == "list_work_items":
-        return _complete_list_work_items_tool(context, plan)
+    if plan.tool == "create_ticket":
+        return _complete_create_ticket_tool(context, plan)
+    if plan.tool == "record_ticket_report":
+        return _complete_record_ticket_report_tool(context, plan)
+    if plan.tool == "list_tickets":
+        return _complete_list_tickets_tool(context, plan)
     if plan.tool == "list_code_repositories":
         return _complete_list_code_repositories_tool(context, plan)
     if plan.tool == "inspect_code_repository":
         return _complete_inspect_code_repository_tool(context, plan)
-    if plan.tool == "create_member":
-        return _complete_create_member_tool(context, plan)
-    if plan.tool == "edit_member_profile":
-        return _complete_edit_member_profile_tool(context, plan)
-    if plan.tool == "delete_member":
-        return _complete_delete_member_tool(context, plan)
+    if plan.tool == "create_employee":
+        return _complete_create_employee_tool(context, plan)
+    if plan.tool == "edit_employee_profile":
+        return _complete_edit_employee_profile_tool(context, plan)
+    if plan.tool == "delete_employee":
+        return _complete_delete_employee_tool(context, plan)
     if plan.tool == "create_skill":
         return _complete_create_skill_tool(context, plan)
-    if plan.tool == "assign_skill_to_member":
-        return _complete_assign_skill_to_member_tool(context, plan)
+    if plan.tool == "assign_skill_to_employee":
+        return _complete_assign_skill_to_employee_tool(context, plan)
     if plan.tool == "delete_skill":
         return _complete_delete_skill_tool(context, plan)
     if plan.tool == "list_skills":
@@ -4112,7 +4310,7 @@ async def _maybe_complete_local_tool(context: ChatRunContext) -> ChatMessageResp
                     event="tool.list_skills.called",
                     detail="Resolved list_skills as a local file-backed tool.",
                     data={
-                        "requested_by": context.member.id,
+                        "requested_by": context.employee.id,
                         "tool": "list_skills",
                     },
                 ),
@@ -4123,36 +4321,36 @@ async def _maybe_complete_local_tool(context: ChatRunContext) -> ChatMessageResp
                 ),
             ],
         )
-    if plan.tool != "list_members":
+    if plan.tool != "list_employees":
         return None
 
-    tool_result = _list_members_tool_result()
+    tool_result = _list_employees_tool_result()
     tool_result["plan"] = _plan_trace_data(plan)
-    reply = _build_list_members_reply(tool_result)
+    reply = _build_list_employees_reply(tool_result)
     return _persist_chat_response(
         context,
         reply=reply,
         extra_trace_events=[
             ChatTraceEvent(
-                event="tool.list_members.called",
-                detail="Resolved list_members as a local file-backed tool.",
+                event="tool.list_employees.called",
+                detail="Resolved list_employees as a local file-backed tool.",
                 data={
-                    "requested_by": context.member.id,
-                    "tool": "list_members",
+                    "requested_by": context.employee.id,
+                    "tool": "list_employees",
                 },
             ),
             ChatTraceEvent(
-                event="tool.list_members.completed",
-                detail="Loaded local member profiles.",
+                event="tool.list_employees.completed",
+                detail="Loaded local employee profiles.",
                 data=tool_result,
             ),
         ],
     )
 
 
-@router.get("/members", response_model=list[ChatMemberSummary])
-async def list_chat_members() -> list[ChatMemberSummary]:
-    return [_member_summary(profile) for profile in _load_members()]
+@router.get("/employees", response_model=list[ChatEmployeeSummary])
+async def list_chat_employees() -> list[ChatEmployeeSummary]:
+    return [_employee_summary(profile) for profile in _load_employees()]
 
 
 @router.get("/skills", response_model=list[ChatSkillSummary])
@@ -4221,28 +4419,74 @@ async def update_chat_runtime_provider(
 
 
 @router.get("/threads", response_model=ChatThreadListResponse)
-async def list_chat_threads(member_id: str) -> ChatThreadListResponse:
-    return _list_member_threads(member_id)
+async def list_chat_threads(employee_id: str) -> ChatThreadListResponse:
+    return _list_employee_threads(employee_id)
 
 
 @router.post("/threads", response_model=ChatThreadSummary)
 async def create_chat_thread(request: ChatThreadCreateRequest) -> ChatThreadSummary:
-    member = _require_member_summary(request.member_id)
+    employee = _require_employee_summary(request.employee_id)
     thread_id = _require_safe_id(
-        f"member-{_safe_thread_component(member.id)}-{uuid4().hex[:12]}",
+        f"employee-{_safe_thread_component(employee.id)}-{uuid4().hex[:12]}",
         field="thread_id",
     )
     return _upsert_thread_metadata(
-        member=member,
+        employee=employee,
         thread_id=thread_id,
-        title=request.title or f"New chat with {member.display_name}",
+        title=request.title or f"New chat with {employee.display_name}",
         set_active=True,
     )
 
 
 @router.post("/threads/{thread_id}/activate", response_model=ChatThreadSummary)
 async def activate_chat_thread(thread_id: str, request: ChatThreadActivateRequest) -> ChatThreadSummary:
-    return _activate_thread_metadata(thread_id, request.member_id)
+    return _activate_thread_metadata(thread_id, request.employee_id)
+
+
+@router.delete("/threads/{thread_id}")
+async def delete_chat_thread(thread_id: str) -> dict[str, Any]:
+    thread_id = _require_safe_id(thread_id, field="thread_id")
+    summary = _thread_summary(thread_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail=f"Thread not found: {thread_id}")
+
+    employee_id = summary.employee_id
+    index = _hydrate_thread_index()
+    removed = False
+    if thread_id in index["threads"]:
+        del index["threads"][thread_id]
+        removed = True
+    # Clear active mapping if this was the active thread
+    if index["active_by_employee"].get(employee_id) == thread_id:
+        index["active_by_employee"].pop(employee_id, None)
+    if removed:
+        _write_thread_index(index)
+
+    # Delete conversation file
+    conv_path = _conversation_path(thread_id)
+    try:
+        conv_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+    # Clean up provider thread mapping
+    provider_path = _workspace_dir() / "provider_threads.json"
+    if provider_path.exists():
+        try:
+            mapping = json.loads(provider_path.read_text(encoding="utf-8"))
+            keys_to_remove = [k for k, v in mapping.items() if k.endswith(f"-{thread_id[:8]}") or k == f"{employee_id}:{thread_id}"]
+            for key in keys_to_remove:
+                del mapping[key]
+            if keys_to_remove:
+                provider_path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    return {
+        "status": "deleted",
+        "thread_id": thread_id,
+        "employee_id": employee_id,
+    }
 
 
 @router.get("/threads/{thread_id}", response_model=ConversationResponse)
@@ -4298,9 +4542,9 @@ async def _run_aiteamos_chat_graph_node(
     response = await send_chat_message(
         ChatMessageRequest(
             message=text,
-            target_member_id=state.get("target_member_id"),
+            target_employee_id=state.get("target_employee_id"),
             thread_id=thread_id,
-            jira_key=state.get("jira_key"),
+            ticket_key=state.get("ticket_key"),
         )
     )
     payload = response.model_dump(mode="json")
@@ -4376,21 +4620,21 @@ def _enrich_agui_input(input_data: RunAgentInput, request: Request) -> RunAgentI
     next_state: dict[str, Any] = dict(state)
     forwarded_props = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
 
-    target_member_id = (
-        request.query_params.get("target_member_id")
-        or request.headers.get("X-AITeamOS-Target-Member-Id")
-        or forwarded_props.get("target_member_id")
+    target_employee_id = (
+        request.query_params.get("target_employee_id")
+        or request.headers.get("X-AITeamOS-Target-Employee-Id")
+        or forwarded_props.get("target_employee_id")
     )
-    jira_key = (
-        request.query_params.get("jira_key")
-        or request.headers.get("X-AITeamOS-Jira-Key")
-        or forwarded_props.get("jira_key")
+    ticket_key = (
+        request.query_params.get("ticket_key")
+        or request.headers.get("X-AITeamOS-Ticket-Key")
+        or forwarded_props.get("ticket_key")
     )
 
-    if target_member_id:
-        next_state["target_member_id"] = str(target_member_id)
-    if jira_key:
-        next_state["jira_key"] = str(jira_key)
+    if target_employee_id:
+        next_state["target_employee_id"] = str(target_employee_id)
+    if ticket_key:
+        next_state["ticket_key"] = str(ticket_key)
 
     return input_data.model_copy(update={"state": next_state})
 
@@ -4428,10 +4672,10 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
     try:
         if runtime_provider == "deepseek":
             reply, provider_state, runtime_metadata = await _call_deepseek_agent(
-                member_profile=context.selected_profile,
-                member=context.member,
+                employee_profile=context.selected_profile,
+                employee=context.employee,
                 message=context.request.message,
-                jira_keys=context.jira_keys,
+                ticket_keys=context.ticket_keys,
                 skills=context.skills,
                 memory_snippets=context.memories,
                 recent_messages=context.recent_messages,
@@ -4444,10 +4688,10 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
             )
         elif runtime_provider == "openai" or _openai_enabled():
             reply, provider_state, runtime_metadata = await _call_openai_agent(
-                member_profile=context.selected_profile,
-                member=context.member,
+                employee_profile=context.selected_profile,
+                employee=context.employee,
                 message=context.request.message,
-                jira_keys=context.jira_keys,
+                ticket_keys=context.ticket_keys,
                 skills=context.skills,
                 memory_snippets=context.memories,
                 provider_state=context.provider_state,
@@ -4570,8 +4814,8 @@ async def _persist_agui_chat_checkpoint(
                 response_metadata={"aiteamos": final_response.model_dump(mode="json")},
             ),
         ],
-        "target_member_id": final_response.target_member.id,
-        "jira_key": str(state.get("jira_key")) if state.get("jira_key") else None,
+        "target_employee_id": final_response.target_employee.id,
+        "ticket_key": str(state.get("ticket_key")) if state.get("ticket_key") else None,
         "aiteamos_chat_response": final_response.model_dump(mode="json"),
     }
     config: RunnableConfig = {"configurable": {"thread_id": input_data.thread_id}}
@@ -4642,9 +4886,9 @@ async def _stream_agui_chat_events(input_data: RunAgentInput) -> AsyncIterator[A
             state = _agui_state(input_data)
             request = ChatMessageRequest(
                 message=user_text,
-                target_member_id=state.get("target_member_id"),
+                target_employee_id=state.get("target_employee_id"),
                 thread_id=thread_id,
-                jira_key=state.get("jira_key"),
+                ticket_key=state.get("ticket_key"),
             )
             async for event, payload in _stream_chat_turn(request):
                 if event == "delta":
@@ -4703,9 +4947,9 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                             {
                                 "thread_id": context.thread_id,
                                 "run_id": context.run_id,
-                                "target_member": context.member.model_dump(),
+                                "target_employee": context.employee.model_dump(),
                                 "provider_thread_id": context.provider_thread_id,
-                                "jira_keys": context.jira_keys,
+                                "ticket_keys": context.ticket_keys,
                             },
                         )
                         async for event, payload in _stream_deepseek_agent(context):
@@ -4720,9 +4964,9 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                         {
                             "thread_id": response.thread_id,
                             "run_id": response.run_id,
-                            "target_member": response.target_member.model_dump(),
+                            "target_employee": response.target_employee.model_dump(),
                             "provider_thread_id": response.provider_thread_id,
-                            "jira_keys": response.jira_keys,
+                            "ticket_keys": response.ticket_keys,
                         },
                     )
                     for chunk in _reply_chunks(response.reply):
@@ -4738,9 +4982,9 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                     {
                         "thread_id": context.thread_id,
                         "run_id": context.run_id,
-                        "target_member": context.member.model_dump(),
+                        "target_employee": context.employee.model_dump(),
                         "provider_thread_id": context.provider_thread_id,
-                        "jira_keys": context.jira_keys,
+                        "ticket_keys": context.ticket_keys,
                     },
                 )
                 async for event, payload in _stream_deepseek_agent(context):
@@ -4756,9 +5000,9 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                 {
                     "thread_id": response.thread_id,
                     "run_id": response.run_id,
-                    "target_member": response.target_member.model_dump(),
+                    "target_employee": response.target_employee.model_dump(),
                     "provider_thread_id": response.provider_thread_id,
-                    "jira_keys": response.jira_keys,
+                    "ticket_keys": response.ticket_keys,
                 },
             )
             for chunk in _reply_chunks(response.reply):

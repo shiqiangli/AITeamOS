@@ -17,7 +17,7 @@ AITeamOS 是一个**以经验（Memory）和通用能力（Skill）为双核资�
 
 **愿景**：成为企业级的经验操作系统，覆盖公司治理框架中所有涉及人员切换、经验流转和管理的场景 — 无论团队类型（研发、法务、人事、运营、行政），无论成员类型（Human 或 AI）。
 
-**实现路径**：当前从研发团队切入（因为研发场景最容易量化、验证和自动化），逐步扩展到其他团队类型。核心概念模型（Memory + Skill + Harness + Member）设计为团队类型无关的通用框架。
+**实现路径**：当前从研发团队切入（因为研发场景最容易量化、验证和自动化），逐步扩展到其他团队类型。核心概念模型（Memory + Skill + Harness + Employee）设计为团队类型无关的通用框架。
 
 ### 1.3 要解决的问题
 
@@ -73,23 +73,23 @@ AITeamOS **补充**的是：经验和能力的沉淀、管理、流转和复用 
 
 **场景 1：新 AI 成员快速上岗**
 
-PM 为新加入的 AI Member 分配能力（如“特定语言开发”、“代码质量审查”）和经验（项目 A 的架构历史、模块依赖关系、历史踩坑记录）。AI Member 即刻具备相当于“在项目组工作半年的成员”的上下文理解，首次 Task 即可高效执行。
+PM 为新加入的 AI Employee 分配能力（如“特定语言开发”、“代码质量审查”）和经验（项目 A 的架构历史、模块依赖关系、历史踩坑记录）。AI Employee 即刻具备相当于“在项目组工作半年的成员”的上下文理解，首次 Task 即可高效执行。
 
 **场景 2：关键成员离职，经验零流失**
 
-资深架构师离职。其 10 年积累的经验已通过日常 Task 执行和 Review 过程持续提炼为 Memory，固化在系统中。新接手的 AI/Human Member 通过 Memory 分配，直接继承这些经验 — “为什么选择认证方案 A 而非方案 B”、“数据存储分区扩容在哪个量级触发”、“那个模块改动必须连带更新配置”。
+资深架构师离职。其 10 年积累的经验已通过日常 Task 执行和 Review 过程持续提炼为 Memory，固化在系统中。新接手的 AI/Human Employee 通过 Memory 分配，直接继承这些经验 — “为什么选择认证方案 A 而非方案 B”、“数据存储分区扩容在哪个量级触发”、“那个模块改动必须连带更新配置”。
 
 **场景 3：Harness 失败驱动经验积累**
 
-AI Member 执行任务，修改了认证模块。系统级验证报错：集成测试“跨时区认证场景”失败。AI Member 反思、调试、修复，经历 3 轮迭代后通过。系统自动提炼高价值 Memory：“修改认证模块凭证逻辑时，必须同步验证跨时区场景，否则日期边界时刻会触发异常登出”。此 Memory 入库后，未来任何 Member 接触认证模块时都会自动召回。
+AI Employee 执行任务，修改了认证模块。系统级验证报错：集成测试“跨时区认证场景”失败。AI Employee 反思、调试、修复，经历 3 轮迭代后通过。系统自动提炼高价值 Memory：“修改认证模块凭证逻辑时，必须同步验证跨时区场景，否则日期边界时刻会触发异常登出”。此 Memory 入库后，未来任何 Employee 接触认证模块时都会自动召回。
 
 **场景 4：跨项目知识复用**
 
-项目 A 积累了“高并发场景下系统容量保护方案”的 Memory。项目 B 遇到类似场景时，系统智能推荐该 Memory。PM 批准后分配给项目 B 的 Member，避免重复踩坑。
+项目 A 积累了“高并发场景下系统容量保护方案”的 Memory。项目 B 遇到类似场景时，系统智能推荐该 Memory。PM 批准后分配给项目 B 的 Employee，避免重复踩坑。
 
 **场景 5：新团队冷启动（Day 0 价值）**
 
-一个全新项目接入 AITeamOS。系统提供开箱即用的“通用研发最佳实践”Principles 库（预置 + 社区贡献），PM 挑选与本项目相关的部分批量分配给 AI Member。同时支持从现有文档（项目说明、知识库、架构决策记录）批量导入为 Memory，让系统第一天就有内容可用。配置验证系统对接层来关联项目已有的自动化质量流水线。首个 Task 执行后，系统自动从执行过程中提炼项目特有的 Facts Memory，冷启动完成 — 后续每次 Task 都会进一步丰富项目的 Memory 库。
+一个全新项目接入 AITeamOS。系统提供开箱即用的“通用研发最佳实践”Principles 库（预置 + 社区贡献），PM 挑选与本项目相关的部分批量分配给 AI Employee。同时支持从现有文档（项目说明、知识库、架构决策记录）批量导入为 Memory，让系统第一天就有内容可用。配置验证系统对接层来关联项目已有的自动化质量流水线。首个 Task 执行后，系统自动从执行过程中提炼项目特有的 Facts Memory，冷启动完成 — 后续每次 Task 都会进一步丰富项目的 Memory 库。
 
 > Day 0 价值承诺：即使没有任何积累，系统通过预置库 + 文档导入 + 首次执行自动提炼，让用户在第一天就能感受到系统价值。
 
@@ -119,9 +119,9 @@ AI Member 执行任务，修改了认证模块。系统级验证报错：集成�
 
 | 概念 | 定位 | 性质 | 类比 |
 |------|------|------|------|
-| **Member** | 算力节点 | 执行载体，动态绑定 Skill + Memory | CPU（AI 或人） |
+| **Employee** | 算力节点 | 执行载体，动态绑定 Skill + Memory | CPU（AI 或人） |
 | **Project** | 经验生产场 | Task 的执行上下文，Memory 的自然聚集地 | 项目/产品线 |
-| **Department** | 组织归属 | Member 和 Task 的管理单元 | 部门 |
+| **Department** | 组织归属 | Employee 和 Task 的管理单元 | 部门 |
 
 ### 2.2 Memory（经验）
 
@@ -129,9 +129,9 @@ Memory 是系统的核心资产。代表从工作过程中提炼出的有状态�
 
 **本质特征**：
 - **上下文相关** — 针对特定项目、特定场景的经验
-- **归属中立** — 不绑定特定 Member，是独立的知识单元，可自由分配
+- **归属中立** — 不绑定特定 Employee，是独立的知识单元，可自由分配
 - **可演进** — 有版本历史，可以修正、补充、合并、废弃
-- **可追溯** — 知道来源（哪个 department、project、task、member 产生的）
+- **可追溯** — 知道来源（哪个 department、project、task、employee 产生的）
 - **可评估** — 知道价值（使用频率、效果反馈）
 - **可治理** — 有容量管理和有效性衰减机制，防止信息过载
 
@@ -182,13 +182,13 @@ Memory 有有效期和衰减曲线，防止信息过载：
 
 | 优先级 | 来源 | 说明 | 触发方式 |
 |--------|------|------|----------|
-| **1（主要）** | AI Member 执行 Task 过程 | 从执行步骤、决策推理中自动捕获 | 自动（需 review） |
+| **1（主要）** | AI Employee 执行 Task 过程 | 从执行步骤、决策推理中自动捕获 | 自动（需 review） |
 | **1（主要）** | 执行节点决策轨迹 | 从执行节点的决策推理和中间推导步骤中提取业务逻辑（如可获取） | 自动（需 review） |
 | **2（高价值）** | Harness Fail → Debug → Pass | 犯错-纠错过程中的反思经验 | 自动（需 review） |
 | **3（辅助）** | Review 过程 | 结构化发现（reason + correction） | 半自动 |
 | **4（补充）** | 手动输入 | PM/TL 直接录入经验 | 手动 |
 
->> 注：AI Member 的决策轨迹和中间推导步骤（如选型对比、舍弃方案的理由）是高价值 Memory 来源。系统须具备从执行节点的决策过程中自动提取业务推理逻辑的能力。若执行节点不开放决策过程则忽略，不影响核心流程。
+>> 注：AI Employee 的决策轨迹和中间推导步骤（如选型对比、舍弃方案的理由）是高价值 Memory 来源。系统须具备从执行节点的决策过程中自动提取业务推理逻辑的能力。若执行节点不开放决策过程则忽略，不影响核心流程。
 
 **Memory 提炼**：
 - AI 辅助草拟 Memory 候选 + 人工审核确认
@@ -196,18 +196,18 @@ Memory 有有效期和衰减曲线，防止信息过载：
 - 提炼失败时原始数据保留，可重新发起
 
 **呈现方式**：
-- 对 AI Member：以执行节点可理解的形式加载为前置运行条件
-- 对 Human Member：导出为文档、思维导图、Checklist 等
-- 底层数据相同，呈现层适配不同 Member 类型
+- 对 AI Employee：以执行节点可理解的形式加载为前置运行条件
+- 对 Human Employee：导出为文档、思维导图、Checklist 等
+- 底层数据相同，呈现层适配不同 Employee 类型
 
 ### 2.3 Skill（能力）
 
-Skill 是系统的通用能力组件。代表标准化的、可复用的执行能力。当前阶段重点关注 AI Member 的可执行 Skill。
+Skill 是系统的通用能力组件。代表标准化的、可复用的执行能力。当前阶段重点关注 AI Employee 的可执行 Skill。
 
 **本质特征**：
 - **执行无状态** — 调用时不依赖历史上下文或特定项目状态（“运行规范检查”、“搭建特定领域平台”、“执行数据查询”）
 - **定义可演进** — Skill 的定义/能力本身有版本，可以升级，但每次调用仍是无状态的
-- **归属中立** — 不绑定特定 Member，可自由分配
+- **归属中立** — 不绑定特定 Employee，可自由分配
 - **可插拔** — Skill 可随时加入系统并立即可用
 - **标准接口** — 有统一的输入/输出规范
 - **可组合** — 多个 Skill 可以组合使用（组合方式由 Task 声明或系统根据 Task 需求自动推断）；组合时若 Skill 间产生行为冲突，系统提示并要求人工决策
@@ -223,41 +223,41 @@ Skill 是系统的通用能力组件。代表标准化的、可复用的执行�
 | 举例 | “会特定语言开发”、“会运行代码规范检查” | “项目 A 的认证模块必须使用特定凭证策略” |
 
 **动态加载与生命周期**：
-- Task 分配时，OS 根据需求自动将对应 Skill + 相关 Memory 加载给 Member
-- Member 区分“基础 Skill 集”（定义其角色身份，持久保留）与“Task 临时 Skill”（仅在 Task 执行期间生效，Task 结束后不再保留）
-- 基础 Skill 集定义了 Member 的角色边界（如“特定语言开发工程师”“体验设计师”），确保 Member 不会因临时加载而模糊其角色定位
+- Task 分配时，OS 根据需求自动将对应 Skill + 相关 Memory 加载给 Employee
+- Employee 区分“基础 Skill 集”（定义其角色身份，持久保留）与“Task 临时 Skill”（仅在 Task 执行期间生效，Task 结束后不再保留）
+- 基础 Skill 集定义了 Employee 的角色边界（如“特定语言开发工程师”“体验设计师”），确保 Employee 不会因临时加载而模糊其角色定位
 
-**当前阶段聚焦**：AI Member 的可执行 Skill。Human Member 的 Skill 在系统模型层面统一抽象，实现层暂不深入。
+**当前阶段聚焦**：AI Employee 的可执行 Skill。Human Employee 的 Skill 在系统模型层面统一抽象，实现层暂不深入。
 
 **呈现方式**：
-- 对 AI Member：以 AI 可直接调用的形式加载
-- 对 Human Member：能力标签、推荐资源
+- 对 AI Employee：以 AI 可直接调用的形式加载
+- 对 Human Employee：能力标签、推荐资源
 - 底层定义相同，呈现层适配
 
-### 2.4 Member（团队成员）
+### 2.4 Employee（团队成员）
 
-Member 是 Skill 和 Memory 的执行载体。系统不严格区分 AI 和 Human — 二者在系统模型层面完全一致（人机同构），仅在实现层有差异。
+Employee 是 Skill 和 Memory 的执行载体。系统不严格区分 AI 和 Human — 二者在系统模型层面完全一致（人机同构），仅在实现层有差异。
 
 **本质特征**：
 - **执行载体** — 动态绑定 Skill + Memory 来具现化为特定岗位角色
-- **人机同构** — AI Member 和 Human Member 在系统模型中是同一类实体，只是在呈现层和执行层有适配差异
+- **人机同构** — AI Employee 和 Human Employee 在系统模型中是同一类实体，只是在呈现层和执行层有适配差异
 - **可成长** — 通过执行任务积累更多 Memory，通过学习获得更多 Skill
-- **归属部门** — 每个 Member 隶属于某个 Department
+- **归属部门** — 每个 Employee 隶属于某个 Department
 
 **AI 与 Human 的差异（仅实现/呈现层面）**：
 
-| 维度 | AI Member | Human Member |
+| 维度 | AI Employee | Human Employee |
 |------|-----------|--------------|
 | 消耗 | 按执行量计费的资源消耗 | 工资/时间 |
 | 响应速度 | 秒级 | 小时/天级 |
 | Skill/Memory 呈现 | 以系统可调度的形式装载为执行前置条件 | 文档 + 思维导图 + Checklist |
 | Task 执行 | 自动（系统驱动） | 手动（完成后登记） |
 
-**当前阶段**：以 AI Member 为重点实现对象，Human Member 保持系统模型层面的统一抽象，实现层弱化。
+**当前阶段**：以 AI Employee 为重点实现对象，Human Employee 保持系统模型层面的统一抽象，实现层弱化。
 
 ### 2.4.1 Agent / LLM（执行配置）
 
-Agent / LLM 是 Task 执行时的中性运行时配置维度，不等同于 Member，也不归属于某个 Member。
+Agent / LLM 是 Task 执行时的中性运行时配置维度，不等同于 Employee，也不归属于某个 Employee。
 
 | 概念 | 定位 | 性质 | 说明 |
 |------|------|------|------|
@@ -265,10 +265,10 @@ Agent / LLM 是 Task 执行时的中性运行时配置维度，不等同于 Memb
 | **Agent** | 执行风格与策略 | 中性、可复用 | 定义系统提示、工具集合、memory policy、safety policy 和默认 LLM |
 
 **关键关系**：
-- Member 是“谁来执行”，Agent / LLM 是“用什么运行时配置执行”
+- Employee 是“谁来执行”，Agent / LLM 是“用什么运行时配置执行”
 - 一个 Task 可以选择一个 Agent，并可选择一个 LLM 覆盖 Agent 的默认 LLM
 - Agent / LLM 可被多个 Task 复用，不在创建时绑定 owner
-- AI Member 拿到 Task 后，可根据 Task 上绑定的 Agent / LLM 直接组装执行环境
+- AI Employee 拿到 Task 后，可根据 Task 上绑定的 Agent / LLM 直接组装执行环境
 
 ## 2.5 Harness（验证系统）
 
@@ -296,7 +296,7 @@ Harness 是确保非确定性 AI 输出确定性结果的唯一闸门，也是 M
 
 **核心闭环**：
 ```
-Member(Skill + Memory) → 执行 Task → 产出
+Employee(Skill + Memory) → 执行 Task → 产出
                                         ↓
                                    Harness 验证
                                    /          \
@@ -322,7 +322,7 @@ Task 是系统的最小执行单元，是 Memory 的主要生产线。
 |------|------|----------|
 | **Draft** | 草稿，信息未完整 | Ready, Cancelled |
 | **Ready** | 就绪，待分配 | Assigned, Cancelled |
-| **Assigned** | 已分配给 Member | Running, Cancelled |
+| **Assigned** | 已分配给 Employee | Running, Cancelled |
 | **Running** | 执行中 | Verifying, Suspended, Failed, Cancelled |
 | **Suspended** | 挂起（等待异步验证结果） | Running, Failed, Cancelled |
 | **Verifying** | 验证中 | InReview, Running(验证失败回退修复), Suspended |
@@ -332,25 +332,25 @@ Task 是系统的最小执行单元，是 Memory 的主要生产线。
 | **Cancelled** | 取消 | —（终态） |
 
 **状态转换规则**：
-- 执行中 → 验证中：Member 提交交付物后触发重量级验证（轻量级验证在执行过程中内部完成，不触发状态转换）
+- 执行中 → 验证中：Employee 提交交付物后触发重量级验证（轻量级验证在执行过程中内部完成，不触发状态转换）
   - 交付物提交的具体行为由交付物类型决定（如代码变更为发起 PR、文档为提交审核请求）
 - 验证中 → 执行中：验证失败，回退修复（有最大重试次数限制，超出转失败）
-  - Member 在同一交付物上迭代修复（如在同一 PR 上推送新提交），不关闭交付物
-- 验证中 → 挂起：重量级验证耗时较长时，Member 释放去执行其他 Task
+  - Employee 在同一交付物上迭代修复（如在同一 PR 上推送新提交），不关闭交付物
+- 验证中 → 挂起：重量级验证耗时较长时，Employee 释放去执行其他 Task
 - 挂起 → 执行中/验证中：异步验证结果返回后自动恢复
-- 审核中 → 执行中：审核拒绝，附带修改原因；Member 修改后需重新通过验证，状态流转为：执行中 → 验证中 → 审核中
+- 审核中 → 执行中：审核拒绝，附带修改原因；Employee 修改后需重新通过验证，状态流转为：执行中 → 验证中 → 审核中
 - 审核中 → 失败：审核拒绝且无法修复（如架构设计根本性错误），Task 转失败
-- 执行中 Member 被终止：Task 回退到就绪，中间产出和上下文保存供接手者使用
-- Member 被删除时已分配 Task 的处理：Task 自动回退到就绪状态，中间产出保存
+- 执行中 Employee 被终止：Task 回退到就绪，中间产出和上下文保存供接手者使用
+- Employee 被删除时已分配 Task 的处理：Task 自动回退到就绪状态，中间产出保存
 
 **业务规则**：
 - 修复循环有最大重试次数（可配置，默认 5 次），超出后 Task 转失败并通知管理者
 - Task 执行过程有成本边界（资源消耗预算）和时间边界作为硬性熔断条件，触发后 Task 转失败
 - 挂起有最大等待时间（可配置），超时后自动标记为需人工介入
-- 跳过验证的 Task（如内部事务性任务或 Human Member 选择跳过），Memory 提炼会标记为“未验证”
+- 跳过验证的 Task（如内部事务性任务或 Human Employee 选择跳过），Memory 提炼会标记为“未验证”
 - 未验证 Memory 使用规则：
-  - AI Member 默认不召回未验证 Memory（除非显式分配且管理者授权）
-  - Human Member 可召回未验证 Memory，系统提示“此经验未经系统验证”
+  - AI Employee 默认不召回未验证 Memory（除非显式分配且管理者授权）
+  - Human Employee 可召回未验证 Memory，系统提示“此经验未经系统验证”
   - 未验证 Memory 不可参与层级晋升（Facts → Patterns → Principles）
   - 未验证 Memory 超过 N 天未被使用则自动废弃
   - 未验证 Memory 被使用后 Task 成功，可触发“补验证”流程（通过审核后转为已验证）
@@ -370,7 +370,7 @@ Project 是 Task 的执行上下文，是 Memory 的自然聚集地。
 Department 是组织架构的基本单元，类同现实公司治理中的部门概念。
 
 **本质特征**：
-- **组织归属** — 所有 Member 和 Task 都归属于某个 Department
+- **组织归属** — 所有 Employee 和 Task 都归属于某个 Department
 - **来源追溯** — Department 是 Memory 的来源追溯维度之一（记录"这条 Memory 产生于哪个部门"），而非权限边界
 - **管理层级** — Department 有负责人（可以是 AI 或 Human）
 
@@ -378,18 +378,18 @@ Department 是组织架构的基本单元，类同现实公司治理中的部门
 
 系统采用极简权限模型，不替代 OA/代码仓库的权限控制：
 
-- **Admin** — 系统最高权限，可操作所有实体（创建/编辑/删除 Member、Memory、Skill、Task、Department、Project）
-- **Member** — 无独立的权限概念；AI Member 通过被关联 Memory/Skill/Task 来获得执行能力，不需要额外授权
-- Memory 默认对所有 Member 可见可召回（归属中立原则），Admin 可按需限制特定 Memory 的可见范围
+- **Admin** — 系统最高权限，可操作所有实体（创建/编辑/删除 Employee、Memory、Skill、Task、Department、Project）
+- **Employee** — 无独立的权限概念；AI Employee 通过被关联 Memory/Skill/Task 来获得执行能力，不需要额外授权
+- Memory 默认对所有 Employee 可见可召回（归属中立原则），Admin 可按需限制特定 Memory 的可见范围
 - 不引入复杂的多层级分级授权体系
 
 **可选管理角色（由 Admin 按需创建）**：
 
-Admin 可根据团队规模和管理需要，创建承担特定职能的 AI Member 角色。这些角色不是系统内置的权限等级，而是通过分配特定 Skill + Memory 来实现管理职能的普通 AI Member：
+Admin 可根据团队规模和管理需要，创建承担特定职能的 AI Employee 角色。这些角色不是系统内置的权限等级，而是通过分配特定 Skill + Memory 来实现管理职能的普通 AI Employee：
 
 | 可选角色 | 职能 | 何时需要 |
 |----------|------|----------|
-| **Tech Lead / Architect** | 根据项目需求自动拆分 Task、根据 Memory 属性筛选并分配给合适的 Member、决策 Memory 的扩散范围 | 团队 > 5 人或项目复杂度高时 |
+| **Tech Lead / Architect** | 根据项目需求自动拆分 Task、根据 Memory 属性筛选并分配给合适的 Employee、决策 Memory 的扩散范围 | 团队 > 5 人或项目复杂度高时 |
 | **Memory Reviewer** | 审核 Memory 候选质量、发起 Memory Review、处理冲突 Memory | Memory 产出量大、Admin 无暇逐条审核时 |
 | **Memory Steward（知识管理者）** | 监控 Memory 库整体健康度、发起批量治理（过时清理、标准统一）、跨 Department 经验扩散 | Memory 库超过一定规模或多 Department 协作时 |
 
@@ -402,11 +402,11 @@ Admin 可根据团队规模和管理需要，创建承担特定职能的 AI Memb
 
 ```
 Department (部门)
-  ├── 包含 Members
+  ├── 包含 Employees
   ├── 拥有 Tasks（所有 Task 归属于某个 Department）
   └── 关联 Projects（Department 参与的项目）
 
-Member (执行载体)
+Employee (执行载体)
   ├── 隶属 Department
   ├── 装载 Skill（通用能力，无状态）
   ├── 装载 Memory（项目经验，有状态）
@@ -420,7 +420,7 @@ Member (执行载体)
 Project (经验生产场)
   ├── 关联 Tasks（一个 Task 可关联 0-N 个 Project）
   ├── 关联 Repositories
-  ├── 关联 Members
+  ├── 关联 Employees
   ├── 关联 Harness（项目原生的验证系统）
   └── 产出 Memories
 
@@ -439,8 +439,8 @@ Task (执行单元)
 
 #### 3.1.1 Memory 产生与提炼
 
-- [ ] AI Member 执行 Task 过程中，系统自动捕获决策推理并草拟 Memory 候选（主要来源）
-- [ ] AI Member 提交重要产出时，必须同时输出结构化决策日志（选型理由、舍弃方案），作为 Memory 提炼的主要输入
+- [ ] AI Employee 执行 Task 过程中，系统自动捕获决策推理并草拟 Memory 候选（主要来源）
+- [ ] AI Employee 提交重要产出时，必须同时输出结构化决策日志（选型理由、舍弃方案），作为 Memory 提炼的主要输入
 - [ ] 系统须具备从执行节点的决策轨迹和中间推导步骤中，自动化提取业务推理逻辑（如选型对比、舍弃方案）的能力；若执行节点不开放决策过程则忽略
 - [ ] Harness 失败 → 反思 → 修复后，自动提取高价值 Memory（犯错-纠错经验）
 - [ ] Review 过程中发现的问题，生成 Memory 候选（必须包含 reason + correction）
@@ -470,7 +470,7 @@ Task (执行单元)
   - 系统推荐关联：系统自动发现潜在关系，生成候选关联待人工确认
   - 解除关联：可解除已有关系，需填写解除原因
 - **冲突可视化**：冲突关系的连线用警告色标识，点击可展开冲突详情及解决入口
-- **级联影响预览**：废弃或修改一条 Memory 时，系统可视化展示影响面（依赖它的 Memory 有哪些、关联的 Member/Task 有哪些）
+- **级联影响预览**：废弃或修改一条 Memory 时，系统可视化展示影响面（依赖它的 Memory 有哪些、关联的 Employee/Task 有哪些）
 - **独立的冲突管理面板**：集中展示所有未解决冲突，支持筛选（按冲突类型、按 Project、按严重程度）和批量处理
 
 ### 3.1.3 Memory 审核与可信度
@@ -489,7 +489,7 @@ Task (执行单元)
 **Patterns / Principles — 置信度动态模型**：
 - 候选产生时，基于来源自动赋予初始置信度等级：
   - **高**：经 Harness 多轮 Debug 验证通过后提炼的经验
-  - **中**：AI Member 执行 Task 过程中自动提炼
+  - **中**：AI Employee 执行 Task 过程中自动提炼
   - **低**：手动输入或文档批量导入
 - 置信度根据使用反馈动态调节（正向：使用后 Task Pass → 提升；负向：使用后 Task Fail → 降低）
 - 高置信度的 Memory 可自动入库，无需等待人工审核
@@ -497,7 +497,7 @@ Task (执行单元)
 
 **审核流程**：
 - [ ] 自动入库的 Memory 和待审核的 Memory 均可被 Review（入库前/后均可发起）
-- [ ] Admin 可创建专职的"Memory Reviewer" AI Member 负责审核工作
+- [ ] Admin 可创建专职的"Memory Reviewer" AI Employee 负责审核工作
 - [ ] 系统具备防循环沉淀机制：审核经验、系统治理等内部管理行为本身，不作为原始素材生成新的经验候选；审核痕迹仅记录在活动流中
 - [ ] 审核者（Human 或 AI）可以：批准、修改后批准、拒绝、合并到已有 Memory
 - [ ] 支持自动去重（与已有 Memory 相似度过高时提醒）
@@ -527,30 +527,30 @@ Task (执行单元)
 
 #### 3.1.4 Memory 分配与流动
 
-- [ ] 支持将 Memory 赋予给任意 Member（手动 / 批量）
+- [ ] 支持将 Memory 赋予给任意 Employee（手动 / 批量）
 - [ ] 支持智能推荐（基于 Task 需求，推荐应分配哪些 Memory）
 - [ ] 分配关系可随时调整
 - [ ] 分配秒级生效
 - [ ] Memory 可携带属性标签（如：领域、技术栈、适用角色、适用项目类型），用于筛选和自动匹配
-- [ ] 若 Admin 创建了 Tech Lead/Architect 角色，该角色可根据 Memory 属性自动筛选并分配给合适的 Member
+- [ ] 若 Admin 创建了 Tech Lead/Architect 角色，该角色可根据 Memory 属性自动筛选并分配给合适的 Employee
 - [ ] 若 Admin 创建了 Memory Steward 角色，该角色可根据 Memory 使用效果自动决策跨 Project/Department 扩散
-- [ ] Memory 高价值自动扩散规则：当一条 Memory 在某 Project 中连续 N 次帮助 Task 首次 Pass，系统可自动推荐给相似 Project 的 Member（由管理角色或 Admin 确认）
+- [ ] Memory 高价值自动扩散规则：当一条 Memory 在某 Project 中连续 N 次帮助 Task 首次 Pass，系统可自动推荐给相似 Project 的 Employee（由管理角色或 Admin 确认）
 
 #### 3.1.5 Memory 召回
 
-- [ ] Member 执行 Task 时，自动检索相关 Memory 注入上下文
-- [ ] 召回策略综合考虑：Task 内容、Project 历史、Member 已分配 Memory、实体关系（依赖/因果/派生）、置信度/有效性
+- [ ] Employee 执行 Task 时，自动检索相关 Memory 注入上下文
+- [ ] 召回策略综合考虑：Task 内容、Project 历史、Employee 已分配 Memory、实体关系（依赖/因果/派生）、置信度/有效性
 - [ ] 召回结果有优先级排序（置信度高的 Memory 优先）
 - [ ] 召回数量有上限，防止上下文过载
-- [ ] 上下文注入量有成本/容量上限，可由 Admin 按 Member 或 Task 配置
+- [ ] 上下文注入量有成本/容量上限，可由 Admin 按 Employee 或 Task 配置
 - [ ] 支持 Memory 压缩/摘要（将多条离散 Memory 融合为精炼的“项目状态快照”，仅作为运行时呈现优化，不作为独立 Memory 入库）
-- [ ] 对 AI Member：以执行节点可理解的形式加载为前置运行条件
-- [ ] 对 Human Member：呈现为文档/Checklist/思维导图
-- [ ] 当召回结果中出现两条互相矛盾的 Memory 时，系统标记冲突并在上下文中同时呈现两条及冲突说明，由 Member/管理者 决策
+- [ ] 对 AI Employee：以执行节点可理解的形式加载为前置运行条件
+- [ ] 对 Human Employee：呈现为文档/Checklist/思维导图
+- [ ] 当召回结果中出现两条互相矛盾的 Memory 时，系统标记冲突并在上下文中同时呈现两条及冲突说明，由 Employee/管理者 决策
 
 **“分配”与“自动召回”的关系**：
 - **分配 = 软性偏好**，不是硬性约束。被分配的 Memory 在召回时享有更高优先级，但未分配的 Memory 仍可通过相关性被召回
-- **分配的业务目的**：PM/TL 显式地“教”一个 Member 某些关键经验，确保不被相关性排序淹没
+- **分配的业务目的**：PM/TL 显式地“教”一个 Employee 某些关键经验，确保不被相关性排序淹没
 - **自动召回**：系统根据 Task 上下文自动发现相关 Memory，不受分配关系限制
 - 二者互补：分配保证“不遗漏”，召回保证“够全面”
 - **分配追踪**：系统记录每条被分配 Memory 的使用情况（是否被召回、是否在 Task 执行中被引用）；若某条 Memory 被分配但连续 N 次 Task 执行都未被召回，系统提示 PM/TL 检查是否分配不当或 Memory 已失效
@@ -564,7 +564,7 @@ Task (执行单元)
   - 合并操作需审核（防止误合并）
 - [ ] 支持废弃（过时经验标记为废弃，不再被召回）
   - 废弃的 Memory 保留历史记录，可被查询但不被自动召回
-  - 已被分配的废弃 Memory，系统通知相关 Member 并建议替换
+  - 已被分配的废弃 Memory，系统通知相关 Employee 并建议替换
   - 废弃操作需审核（防止误废弃）
 - [ ] 支持关联（标注 Memory 之间的关系）
 - [ ] 支持层级晋升（Facts→Patterns→Principles）
@@ -609,7 +609,7 @@ Task (执行单元)
   - 优先级规则：局部 > 全局、高频 > 低频、新 > 旧
   - 自动合并建议：系统识别冲突后，生成合并候选供人工审核
   - 冲突隔离：在冲突解决前，两条 Memory 都不被自动召回，需显式分配
-  - 冲突解决后，系统通知曾被分配该 Memory 的 Member
+  - 冲突解决后，系统通知曾被分配该 Memory 的 Employee
 
 ---
 
@@ -618,13 +618,13 @@ Task (执行单元)
 #### 3.2.1 Skill 注册与发现
 
 - [ ] 支持标准接口规范注册 Skill（输入/输出/前置条件/副作用）
-- [ ] 任何 Member 都可以开发并注册 Skill
+- [ ] 任何 Employee 都可以开发并注册 Skill
 - [ ] 支持 Skill 的搜索和发现（按标签、能力分类）
 - [ ] 当前阶段聚焦 AI 可执行 Skill（有明确调用接口的能力单元）
 
 #### 3.2.2 Skill 分配与加载
 
-- [ ] Skill 可自由分配给任意 Member
+- [ ] Skill 可自由分配给任意 Employee
 - [ ] 支持动态加载（任务分配时根据需求自动加载对应 Skill）
 - [ ] 支持 Skill 组合（组合由 Task 声明或系统根据 Task 需求推断）
 - [ ] Skill 组合冲突处理：
@@ -634,8 +634,8 @@ Task (执行单元)
   - 决策超时：若分配者在设定时间内未决策，系统采用保守策略（仅加载无冲突的 Skill，暂停有冲突的 Skill），并标记 Task 需要人工介入
   - 决策记录：所有冲突决策记录在活动流中，供后续参考
 - [ ] 分配关系可随时调整
-- [ ] 对 AI Member：Skill 以 AI 可直接调用的形式加载
-- [ ] 对 Human Member：Skill 呈现为能力标签和推荐资源
+- [ ] 对 AI Employee：Skill 以 AI 可直接调用的形式加载
+- [ ] 对 Human Employee：Skill 呈现为能力标签和推荐资源
 
 #### 3.2.3 Skill 版本与维护
 
@@ -660,7 +660,7 @@ Task (执行单元)
 | 基本信息 | 名称、描述、版本号、创建者、能力分类标签 |
 | 接口约束 | 输入要求、输出承诺、前置条件、副作用声明 |
 | 健康度指标 | 执行成功率、近 N 次执行趋势、当前状态标签 |
-| 使用统计 | 当前装载该 Skill 的 Member 数量、关联 Task 总数 |
+| 使用统计 | 当前装载该 Skill 的 Employee 数量、关联 Task 总数 |
 | 版本历史 | 历次版本变更记录及变更原因 |
 
 **Skill 发现界面**：
@@ -668,7 +668,7 @@ Task (执行单元)
 - 分类体系：按能力域分类（开发、设计、测试、运维、分析等）
 - 筛选维度：按状态、按健康度、按使用频率、按创建者
 - 推荐机制：系统可推荐“与你已有 Skill 互补的能力”
-- 废弃影响面提示：废弃一个 Skill 时，系统展示“当前有 N 个 Member 正在使用此 Skill，M 个进行中 Task 依赖此 Skill”
+- 废弃影响面提示：废弃一个 Skill 时，系统展示“当前有 N 个 Employee 正在使用此 Skill，M 个进行中 Task 依赖此 Skill”
 
 #### 3.2.4 Skill 健康度与熔断
 
@@ -679,75 +679,75 @@ Task (执行单元)
 
 ---
 
-### 3.3 Member 管理（P1 - 重要）
+### 3.3 Employee 管理（P1 - 重要）
 
-#### 3.3.1 Member 创建与配置
+#### 3.3.1 Employee 创建与配置
 
-- [ ] 创建 Member（name、type hint、初始 Skills、所属 Department）
-- [ ] AI Member 配置执行参数（执行节点类型、风格等）— 重点实现
-- [ ] Human Member 基本信息配置 — 实现层弱化
-- [ ] 为 Member 分配初始 Skill 和 Memory 集合
+- [ ] 创建 Employee（name、type hint、初始 Skills、所属 Department）
+- [ ] AI Employee 配置执行参数（执行节点类型、风格等）— 重点实现
+- [ ] Human Employee 基本信息配置 — 实现层弱化
+- [ ] 为 Employee 分配初始 Skill 和 Memory 集合
 
-**Member 参与模型**（统一适用于 Human 和 AI）：
+**Employee 参与模型**（统一适用于 Human 和 AI）：
 
-系统在概念模型层面不区分 Human 和 AI Member，二者遵循相同的 Task 接收、执行和提交规则。差异仅在于执行节点的能力（AI 自动执行、Human 手动执行）。
+系统在概念模型层面不区分 Human 和 AI Employee，二者遵循相同的 Task 接收、执行和提交规则。差异仅在于执行节点的能力（AI 自动执行、Human 手动执行）。
 
 - **Task 接收规则**：
-  - Task 通知可通过多种通道触达 Member（Dashboard、邮件、即时通讯等），通道由 Member 类型和配置决定
-  - AI Member 可由管理角色（如 AI Architect）分派 Task，并通过邮件等通道抄送相关管理者
+  - Task 通知可通过多种通道触达 Employee（Dashboard、邮件、即时通讯等），通道由 Employee 类型和配置决定
+  - AI Employee 可由管理角色（如 AI Architect）分派 Task，并通过邮件等通道抄送相关管理者
   - 通知包含 Task 描述、期望产出、关联的 Memory 和 Skill
 
 - **Task 执行规则**：
-  - Member 在执行过程中自动或手动记录执行轨迹和决策节点
-  - AI Member 自动记录决策推理和中间推导步骤
-  - Human Member 可选择手动补充决策理由和踩坑经验
+  - Employee 在执行过程中自动或手动记录执行轨迹和决策节点
+  - AI Employee 自动记录决策推理和中间推导步骤
+  - Human Employee 可选择手动补充决策理由和踩坑经验
 
 - **Task 提交规则**：
-  - Task 执行完成的标识是：Member 提交可验证的交付物（如发起代码审查请求、提交设计稿审核等）
+  - Task 执行完成的标识是：Employee 提交可验证的交付物（如发起代码审查请求、提交设计稿审核等）
   - 若交付物是代码变更，则以“发起 PR/MR”为完成标识
   - 若交付物是文档/设计，则以“提交审核请求”为完成标识
-  - Task 失败的标识是：Member 提交失败报告（说明失败原因、已尝试的修复方案、阻塞点）
+  - Task 失败的标识是：Employee 提交失败报告（说明失败原因、已尝试的修复方案、阻塞点）
   - 执行过程中的日志、决策轨迹、中间产出，由执行节点自动记录或手动补充
 
 - **Memory 接收规则**：
-  - 分配的 Memory 以 Member 可理解的形式呈现
-  - 对 AI Member：以执行节点可理解的形式加载为前置运行条件
-  - 对 Human Member：可导出为文档、Checklist 或思维导图，可在系统中浏览和搜索
+  - 分配的 Memory 以 Employee 可理解的形式呈现
+  - 对 AI Employee：以执行节点可理解的形式加载为前置运行条件
+  - 对 Human Employee：可导出为文档、Checklist 或思维导图，可在系统中浏览和搜索
 
 - **Memory 贡献规则**：
-  - Member 完成 Task 后，系统从执行轨迹中自动草拟 Memory 候选，进入审核队列
-  - Human Member 可手动填写复盘表单（记录决策理由、踩坑经验），系统从中草拟 Memory 候选
-  - 所有 Member 均可手动创建 Memory（直接输入经验）
+  - Employee 完成 Task 后，系统从执行轨迹中自动草拟 Memory 候选，进入审核队列
+  - Human Employee 可手动填写复盘表单（记录决策理由、踩坑经验），系统从中草拟 Memory 候选
+  - 所有 Employee 均可手动创建 Memory（直接输入经验）
 
 - **审核参与规则**：
-  - 所有 Member 均可 Review 其他 Member 的产出
+  - 所有 Employee 均可 Review 其他 Employee 的产出
   - Review 有结构化输出：decision + reason + correction
   - Review 中发现的问题自动生成 Memory 候选
 
-#### 3.3.2 Member 与 Department / Project 映射
+#### 3.3.2 Employee 与 Department / Project 映射
 
-- [ ] 每个 Member 隶属于一个 Department
-- [ ] 将 Member 分配到 Project（类同真实团队的项目分配）
-- [ ] 一个 Member 可以参与多个 Project
-- [ ] 一个 Project 可以有多个 Member
+- [ ] 每个 Employee 隶属于一个 Department
+- [ ] 将 Employee 分配到 Project（类同真实团队的项目分配）
+- [ ] 一个 Employee 可以参与多个 Project
+- [ ] 一个 Project 可以有多个 Employee
 - [ ] 映射关系可随时调整
 
-#### 3.3.3 Member 活动记录与成长追踪
+#### 3.3.3 Employee 活动记录与成长追踪
 
-- [ ] 每个 Member 有活动流（Activities，类似主流协作平台的活动记录）
+- [ ] 每个 Employee 有活动流（Activities，类似主流协作平台的活动记录）
 - [ ] 活动事件包括：Task 完成、Memory 贡献、Review 参与、验证通过/失败、Skill 获得
 - [ ] 支持可视化展示活跃度趋势（按天/周）
-- [ ] 追踪 Member 积累的 Memory（数量、质量、领域）
-- [ ] 追踪 Member 掌握的 Skill（获得、使用频率）
-- [ ] 追踪 Member 完成的 Task（数量、质量、验证通过率）
-- [ ] 追踪 Member 的 Review 贡献
+- [ ] 追踪 Employee 积累的 Memory（数量、质量、领域）
+- [ ] 追踪 Employee 掌握的 Skill（获得、使用频率）
+- [ ] 追踪 Employee 完成的 Task（数量、质量、验证通过率）
+- [ ] 追踪 Employee 的 Review 贡献
 - [ ] 可视化成长历程
 
-**Member Profile 信息架构（产品形态）**：
+**Employee Profile 信息架构（产品形态）**：
 
 | 信息层级 | 内容 |
 |----------|------|
-| 顶部摘要卡片 | 角色名称、所属 Department、参与的 Project 数量、综合活跃度评分、Member 类型标签（AI/Human） |
+| 顶部摘要卡片 | 角色名称、所属 Department、参与的 Project 数量、综合活跃度评分、Employee 类型标签（AI/Human） |
 | Skill 列表 | 已装载的 Skill 列表，每个 Skill 带健康度标签（正常/衰减预警/已失效）和使用频率指示 |
 | Memory 贡献概览 | 总贡献 Memory 数、各层级分布（Facts/Patterns/Principles）、近期贡献趋势 |
 | Task 完成统计 | 总完成数、首次通过率、平均修复轮次、近期完成趋势 |
@@ -757,17 +757,17 @@ Task (执行单元)
 
 - 时间维度切换：周 / 月 / 季度 / 自定义时间区间
 - 能力雷达图：按 Skill 域展示能力覆盖度（可与团队平均值对比）
-- 对比视图：支持两个 Member 之间的能力对比（用于 Task 分配决策参考）
-- 衰减预警展示：在 Member Profile 内嵌警告卡片（“该 Skill 近 N 次 Task 成功率低于阈值，建议检查”）
-- 管理者视角：分配 Task 时可在候选 Member 列表中查看能力画像摘要
+- 对比视图：支持两个 Employee 之间的能力对比（用于 Task 分配决策参考）
+- 衰减预警展示：在 Employee Profile 内嵌警告卡片（“该 Skill 近 N 次 Task 成功率低于阈值，建议检查”）
+- 管理者视角：分配 Task 时可在候选 Employee 列表中查看能力画像摘要
 
-**Member 能力衰减与重新认证**：
+**Employee 能力衰减与重新认证**：
 
 - **Skill 有效期**：某些 Skill 有有效期（如“某框架 v2 开发技能”在 v3 发布后失效）
-- **能力健康度**：系统追踪 Member 的 Task 成功率、验证通过率、Memory 使用效果
-- **衰减预警**：当 Member 的某项 Skill 连续 N 次 Task 失败或成功率低于阈值，系统提示“该 Skill 可能需要更新”
-- **重新认证**：Member 可通过完成“认证 Task”来证明能力仍然有效
-- **Memory 失效通知**：当 Member 被分配的 Memory 被标记为废弃或待验证，系统通知 Member 并建议重新评估
+- **能力健康度**：系统追踪 Employee 的 Task 成功率、验证通过率、Memory 使用效果
+- **衰减预警**：当 Employee 的某项 Skill 连续 N 次 Task 失败或成功率低于阈值，系统提示“该 Skill 可能需要更新”
+- **重新认证**：Employee 可通过完成“认证 Task”来证明能力仍然有效
+- **Memory 失效通知**：当 Employee 被分配的 Memory 被标记为废弃或待验证，系统通知 Employee 并建议重新评估
 
 ---
 
@@ -788,17 +788,17 @@ Task (执行单元)
 
 #### 3.4.2 Task 创建与分配
 
-- [ ] PM/TL 可以创建 Task 并分配给任意 Member
+- [ ] PM/TL 可以创建 Task 并分配给任意 Employee
 - [ ] PM/TL 可以在创建 Task 时选择 Agent / LLM；若只选择 Agent，则默认使用 Agent 的 default LLM
 - [ ] Task 详情中可随时调整 Agent / LLM 运行时绑定
-- [ ] 系统可推荐最适合的 Member（基于 Skill + Memory 匹配）
-- [ ] Member 并发上限：
-  - 每个 Member 同时执行的 Task 数量有上限（AI Member 受执行节点并发能力约束，Human Member 受时间约束）
-  - 并发上限可由 Admin 按 Member 类型和角色配置
-  - 当 Member 达到并发上限时，新 Task 进入等待队列，直到有 Task 完成
+- [ ] 系统可推荐最适合的 Employee（基于 Skill + Memory 匹配）
+- [ ] Employee 并发上限：
+  - 每个 Employee 同时执行的 Task 数量有上限（AI Employee 受执行节点并发能力约束，Human Employee 受时间约束）
+  - 并发上限可由 Admin 按 Employee 类型和角色配置
+  - 当 Employee 达到并发上限时，新 Task 进入等待队列，直到有 Task 完成
 - [ ] Task 优先级调度：
   - Task 支持优先级设置（P0 紧急 / P1 高 / P2 中 / P3 低）
-  - 当多个 Task 竞争同一 Member 时，系统按优先级调度
+  - 当多个 Task 竞争同一 Employee 时，系统按优先级调度
   - 优先级相同的 Task 按创建时间先后调度
   - 高优先级 Task 可抢占低优先级 Task（被抢占的 Task 暂停，保存上下文）
 
@@ -818,11 +818,11 @@ Task (执行单元)
 | 预期完成时间 | 选填 | 用于超时预警 |
 | 前置 Task 依赖 | 选填 | 选择已有 Task 作为前置条件 |
 | 验证层级要求 | 选填 | 规范级 / 功能级 / 系统级，默认由项目配置决定 |
-| 分配给 Member | 选填 | 可手动指定或采纳系统推荐 |
+| 分配给 Employee | 选填 | 可手动指定或采纳系统推荐 |
 
 **创建时的智能辅助**：
 
-- 填写 Task 描述后，系统自动推荐：适合的 Member（基于 Skill + Memory 匹配度）、需要的 Skill、相关的 Memory
+- 填写 Task 描述后，系统自动推荐：适合的 Employee（基于 Skill + Memory 匹配度）、需要的 Skill、相关的 Memory
 - 推荐结果可一键采纳或忽略
 - 必填字段缺失时，提交按钮置灰并显示“请完善必填信息”提示
 - 创建中途离开自动保存为草稿，可在草稿列表中继续编辑
@@ -830,18 +830,18 @@ Task (执行单元)
 **创建后的系统响应**：
 
 - 创建成功后显示确认卡片（Task 摘要 + 分配状态 + 下一步操作引导）
-- 若已分配 Member，自动通知被分配者（通知包含 Task 描述、期望产出、关联的 Memory 和 Skill）
-- 若未分配 Member，系统提示“Task 已创建，待分配执行者”
+- 若已分配 Employee，自动通知被分配者（通知包含 Task 描述、期望产出、关联的 Memory 和 Skill）
+- 若未分配 Employee，系统提示“Task 已创建，待分配执行者”
 
 #### 3.4.3 Task 执行
 
-- [ ] 支持自动执行（AI Member 自主完成，记录执行历程）
-- [ ] 支持手动执行（Human Member 完成后登记结果）
+- [ ] 支持自动执行（AI Employee 自主完成，记录执行历程）
+- [ ] 支持手动执行（Human Employee 完成后登记结果）
 - [ ] 执行时自动装载对应的 Skill 和相关 Memory
 - [ ] 执行过程有完整历史记录
 - [ ] Task 状态支持 Suspended（挂起）：异步验证结果返回后自动恢复
 - [ ] 修复循环有最大重试次数（可配置），超出后 Task 转失败
-- [ ] Member 执行中被终止时，中间产出和上下文保存，Task 回退到就绪供重新分配
+- [ ] Employee 执行中被终止时，中间产出和上下文保存，Task 回退到就绪供重新分配
 
 **交付物标准化提交协议**：
 
@@ -851,20 +851,20 @@ Task (执行单元)
 - **提交元数据**：每次提交必须包含：
   - 交付物标识（如 PR 链接、文件路径）
   - 执行摘要（做了什么、为什么这么做、参考了哪些 Memory）
-  - 自检结果（Member 自行验证的结论）
+  - 自检结果（Employee 自行验证的结论）
 - **提交迭代性**：同一 Task 可多次提交（迭代修复），系统保留所有提交历史
 - **提交触发验证**：交付物提交后，系统自动触发对应的验证流程
 
 #### 3.4.4 Task 验证（Harness 集成）
 
 - [ ] Task 产出自动触发 Harness 验证
-- [ ] Harness 失败时，反馈回 Member 进行修复
+- [ ] Harness 失败时，反馈回 Employee 进行修复
 - [ ] 支持多轮 Debug 循环（直到 Harness Pass）
 - [ ] 记录完整的 Debug 过程（用于 Memory 提炼）
 
 #### 3.4.5 Task Review
 
-- [ ] 支持 Member 之间互相 Review（AI ↔ AI、AI ↔ Human、Human ↔ Human）
+- [ ] 支持 Employee 之间互相 Review（AI ↔ AI、AI ↔ Human、Human ↔ Human）
 - [ ] Review 有结构化输出（decision + reason + correction）
 - [ ] Review 中发现的问题自动生成 Memory 候选
 - [ ] Review 记录有迹可循
@@ -882,7 +882,7 @@ Task (执行单元)
 #### 3.5.2 Harness 反馈闭环
 
 - [ ] Harness 结果（通过/失败 + 详情）反馈到系统
-- [ ] 失败时自动将错误信息推送给 Member
+- [ ] 失败时自动将错误信息推送给 Employee
 - [ ] 记录失败 → 调试 → 通过的完整修复过程差异记录
 - [ ] 多次调试后通过的过程触发高价值 Memory 提炼
 
@@ -900,20 +900,20 @@ Task (执行单元)
 
 - [ ] 创建/编辑 Department
 - [ ] 设置 Department 负责人
-- [ ] 查看 Department 下的 Members、Tasks、Memory 资产
+- [ ] 查看 Department 下的 Employees、Tasks、Memory 资产
 
 #### 3.6.2 Project 基本管理
 
 - [ ] 创建/编辑/归档 Project
 - [ ] 关联代码资产仓库
-- [ ] 管理 Project 的 Member 列表
+- [ ] 管理 Project 的 Employee 列表
 - [ ] 关联 Project 的验证系统
 
 #### 3.6.3 Project 知识健康度
 
 - [ ] 评估 Project 的 Memory 覆盖度
-- [ ] 识别知识单点（某些 Memory 只有一个 Member 了解）
-- [ ] 建议知识扩散（将关键 Memory 分配给更多 Member）
+- [ ] 识别知识单点（某些 Memory 只有一个 Employee 了解）
+- [ ] 建议知识扩散（将关键 Memory 分配给更多 Employee）
 
 ---
 
@@ -927,13 +927,13 @@ Task (执行单元)
 
 - 验证（Harness）是审核（Review）的前置条件：只有通过验证的产出才能进入审核
 - 例外：不关联验证的 Task（如内部事务性任务）可直接进入审核
-- 审核拒绝后，Member 修改产出，需重新通过验证（状态流转：审核中 → 执行中 → 验证中 → 审核中）
-- 验证失败后，Member 修复产出，在同一交付物上迭代（如在同一 PR 上推送新提交），不关闭交付物
+- 审核拒绝后，Employee 修改产出，需重新通过验证（状态流转：审核中 → 执行中 → 验证中 → 审核中）
+- 验证失败后，Employee 修复产出，在同一交付物上迭代（如在同一 PR 上推送新提交），不关闭交付物
 - 循环防止：审核拒绝 → 修改 → 重新验证 → 重新审核，这个循环有最大轮次限制（默认 3 次），超出后 Task 转失败并升级给管理者仲裁
 
 #### 3.7.1 Task 产出 Review
 
-- [ ] 任意 Member（AI/Human）可以 review 其他 Member 的产出
+- [ ] 任意 Employee（AI/Human）可以 review 其他 Employee 的产出
 - [ ] Review 有结构化输出：decision + reason + correction
 - [ ] Review 中的发现自动生成 Memory 候选
 - [ ] Review 触发条件可配置（如：所有 Task 必须 Review / 仅特定级别 Task 需 Review / Harness 全部通过后才允许 Review）
@@ -942,7 +942,7 @@ Task (执行单元)
 
 ### 3.7.2 Memory Review
 
-- [ ] Admin 可创建专职的"Memory Reviewer" AI Member 负责 Memory 审核
+- [ ] Admin 可创建专职的"Memory Reviewer" AI Employee 负责 Memory 审核
 - [ ] Memory 无论是否已自动入库，均可被发起 Review
 - [ ] Memory 修改需要审核
 - [ ] 审核结果有记录
@@ -964,7 +964,7 @@ Task (执行单元)
 
 | 信息层级 | 内容 | 交互 |
 |----------|------|------|
-| **第一层：全局摘要卡片** | 本月 Memory 累计为 N 个 Task 避免重复失败 / 新 Member 上手效率提升 X% / Memory 库活跃率 Y% / 未解决冲突数 | 点击卡片进入下钻 |
+| **第一层：全局摘要卡片** | 本月 Memory 累计为 N 个 Task 避免重复失败 / 新 Employee 上手效率提升 X% / Memory 库活跃率 Y% / 未解决冲突数 | 点击卡片进入下钻 |
 | **第二层：分维度下钻** | 按 Department / 按 Project 切换查看各维度的 Memory 贡献、使用效果、健康度 | 点击具体 Department/Project 进入第三层 |
 | **第三层：单条 Memory 贡献明细** | 该 Memory 帮助了哪些 Task、被召回次数、创建者/审核者信息、使用效果反馈 | 可跳转到 Memory 详情页 |
 
@@ -997,7 +997,7 @@ Task (执行单元)
 - **Skill 健康度**：
   - 执行成功率：跨 Task 统计每个 Skill 的成功率
   - 失败趋势：某 Skill 最近 N 次执行的失败率变化
-  - 关联影响面：某 Skill 故障影响的 Task 数量和 Member 数量
+  - 关联影响面：某 Skill 故障影响的 Task 数量和 Employee 数量
 
 - **系统自诊断**：
   - 当 Task 失败率突然上升时，系统自动分析根因（Memory 质量问题、Skill 兼容性问题、还是验证配置问题）
@@ -1008,7 +1008,7 @@ Task (执行单元)
 
 ### 3.9 数据导出与可移植性（P2 - 辅助）
 
-- [ ] 支持完整导出所有 Memory、Skill、Member 配置
+- [ ] 支持完整导出所有 Memory、Skill、Employee 配置
 - [ ] 导出格式为开放标准格式，不绑定特定系统
 - [ ] 支持导入（从其他来源批量导入 Memory）
 - [ ] 确保用户不受供应商锁定，随时可迁移数据资产
@@ -1025,7 +1025,7 @@ Task (执行单元)
 ### 4.2 性能
 - Memory 召回延迟 < 2 秒
 - 支持 10,000+ Memory 条目
-- 支持 100+ Member、100+ Skill
+- 支持 100+ Employee、100+ Skill
 
 ### 4.3 可扩展性
 - Memory 召回支持多种策略，可逐步提升精准度
@@ -1040,8 +1040,8 @@ Task (执行单元)
 
 ### 4.5 产品约束
 - Memory 之间的关系必须支持查询和追溯（支撑关联失效检测和关系召回）
-- AI Member 执行 Task 时的上下文组装必须受成本/容量预算约束，不得无限制注入
-- 系统必须支持完整的数据导出（Memory、Skill、Member 配置等），确保用户不受供应商锁定
+- AI Employee 执行 Task 时的上下文组装必须受成本/容量预算约束，不得无限制注入
+- 系统必须支持完整的数据导出（Memory、Skill、Employee 配置等），确保用户不受供应商锁定
 
 ### 4.6 异常与降级策略
 
@@ -1049,27 +1049,27 @@ Task (执行单元)
 |----------|----------|
 | **验证系统不可用** | Task 进入挂起，等待验证恢复；超时后允许管理者手动跳过验证（Memory 提炼标记为“未验证”） |
 | **两条 Memory 指令矛盾** | 冲突在入库时检测并标记；召回时若同时命中矛盾 Memory，系统标记冲突并要求人工决策，不自动选择 |
-| **Task 执行中 Member 被终止** | Task 回退就绪，中间产出保存；半成品 Memory 候选标记为“不完整”进入审核队列 |
-| **自动入库的错误 Memory 被发现** | 支持 Memory 紧急废弃 + 影响面评估（追溯哪些 Task 使用过该 Memory）；通知曾被分配该 Memory 的 Member |
+| **Task 执行中 Employee 被终止** | Task 回退就绪，中间产出保存；半成品 Memory 候选标记为“不完整”进入审核队列 |
+| **自动入库的错误 Memory 被发现** | 支持 Memory 紧急废弃 + 影响面评估（追溯哪些 Task 使用过该 Memory）；通知曾被分配该 Memory 的 Employee |
 | **单 Task 产出 Memory 爆炸**（50+条） | 系统自动合并相似候选，并对单次 Task 产出的候选数量设上限（可配置） |
-| **Department 撤销/合并** | 下属 Member 和 Task 自动迁移到目标 Department；Memory 归属不受影响（中立性） |
+| **Department 撤销/合并** | 下属 Employee 和 Task 自动迁移到目标 Department；Memory 归属不受影响（中立性） |
 | **修复无限循环** | 最大重试次数限制（默认 5 次），超出后 Task 转失败 |
 | **验证误报** | 验证失败但多次修复无果时，允许管理者将其标记为“环境异常”；因此次修复衍生的所有中间态 Memory 候选自动回滚废弃，不得入库 |
 | **单次 Task 成本/时间暴雷** | Task 状态机的终态约束不仅靠重试次数，还须引入成本边界（资源消耗预算）和时间边界作为硬性熔断条件；触发后 Task 转失败并通知管理者 |
 | **原则冲突导致任务死锁** | 状态机增加阻塞子状态（等待人工决策）；设定超时降级策略—超时未处理则遵循“局部优先于全局”或“高频优先于低频”的妥协运行规则，事后将隐患上报管理者 |
 | **伴随存储与独立存储同时存在** | 禁止同一项目同时使用两种模式 |
-| **Memory 污染传播** | 一条错误的 Principle 被自动入库后，被分配给多个 Member 导致多个 Task 失败。系统支持快速追溯影响面（哪些 Task 使用过、哪些 Member 被分配过）并批量回滚 |
+| **Memory 污染传播** | 一条错误的 Principle 被自动入库后，被分配给多个 Employee 导致多个 Task 失败。系统支持快速追溯影响面（哪些 Task 使用过、哪些 Employee 被分配过）并批量回滚 |
 | **验证对接层故障** | 项目升级了验证系统，对接层不兼容，所有 Task 验证失败。系统区分“真正的验证失败”和“对接层故障”（如连续 N 个 Task 都因相同原因失败，标记为对接层异常并通知管理者） |
-| **Member 并发执行冲突** | 两个 Member 同时被分配执行修改同一资源的 Task，产出相互覆盖。系统在 Task 创建时检测资源冲突，提示分配者调整或设置执行顺序 |
-| **Skill 版本不兼容** | Member 执行 Task 过程中，Skill 被升级。正在运行的 Task 继续使用旧版本 Skill，新 Task 使用新版本。Task 完成后通知 Member 有新版本可用 |
-| **Memory 容量爆炸** | 一个 Project 积累了大量 Memory，新 Member 入职时，系统提供“智能摘要”（将多条离散 Memory 融合为精炼的“项目状态快照”），避免一次性分配过多 Memory 导致上下文过载 |
+| **Employee 并发执行冲突** | 两个 Employee 同时被分配执行修改同一资源的 Task，产出相互覆盖。系统在 Task 创建时检测资源冲突，提示分配者调整或设置执行顺序 |
+| **Skill 版本不兼容** | Employee 执行 Task 过程中，Skill 被升级。正在运行的 Task 继续使用旧版本 Skill，新 Task 使用新版本。Task 完成后通知 Employee 有新版本可用 |
+| **Memory 容量爆炸** | 一个 Project 积累了大量 Memory，新 Employee 入职时，系统提供“智能摘要”（将多条离散 Memory 融合为精炼的“项目状态快照”），避免一次性分配过多 Memory 导致上下文过载 |
 | **Department 负责人不可用** | Department 负责人（AI 或 Human）被删除或不可用，其审批中的 Task、Memory 审核自动转交给 Admin 或指定的代理负责人 |
-| **跨 Project Memory 冲突** | 某 Member 同时参与两个 Project，两个 Project 的 Memory 对同一事实有不同定义。召回时系统标记冲突，并优先召回与当前 Task 关联 Project 的 Memory |
-| **Task 执行中途验证规则变更** | Member 正在修复，项目方更新了验证用例，原来的通过变成失败。系统记录验证规则变更，Member 可基于新规则重新修复，不占用原有重试次数 |
+| **跨 Project Memory 冲突** | 某 Employee 同时参与两个 Project，两个 Project 的 Memory 对同一事实有不同定义。召回时系统标记冲突，并优先召回与当前 Task 关联 Project 的 Memory |
+| **Task 执行中途验证规则变更** | Employee 正在修复，项目方更新了验证用例，原来的通过变成失败。系统记录验证规则变更，Employee 可基于新规则重新修复，不占用原有重试次数 |
 | **零 Memory 场景** | 新 Project 没有任何 Memory，第一次 Task 执行时召回系统返回空。系统提供“冷启动推荐”（从通用 Principles 库中推荐与 Project 相关的部分） |
 | **Memory 过度泛化** | 一条从特定场景提炼的 Pattern 被错误晋升为 Principle 后应用到其他场景导致错误。晋升审核需验证“跨场景适用性”，审核者需确认该经验是否具有普适性 |
 | **Task 无限挂起** | 挂起状态有最大等待时间，但如果验证是外部系统（如需要人工审批的合规测试），等待时间可能超过配置上限。超时后允许管理者申请延期，而非自动失败 |
-| **审核循环** | 审核者拒绝产出，Member 修改后提交，审核者再次拒绝。设置审核轮次上限（默认 3 次），超过上限后自动升级给 Admin 或更高级别的审核者仲裁 |
+| **审核循环** | 审核者拒绝产出，Employee 修改后提交，审核者再次拒绝。设置审核轮次上限（默认 3 次），超过上限后自动升级给 Admin 或更高级别的审核者仲裁 |
 | **Memory 审核者不可用** | 唯一的 Memory 审核者因故障无法工作，审核队列堆积。系统支持临时降级为“Admin 审核”或“自动入库 + 事后抽检”模式 |
 
 **异常场景的用户侧体验规则（产品形态补充）**：
@@ -1081,10 +1081,10 @@ Task (执行单元)
 | 验证系统不可用 | Task 详情页状态标签变为“挂起 - 验证服务暂时不可用”，附带预计恢复时间（若可估算） | 管理者可见“手动跳过验证”按钮，点击后弹窗确认“跳过后产出的 Memory 将标记为未验证” |
 | Memory 指令矛盾 | 执行上下文中两条冲突 Memory 并列展示，各带红色警告框和“冲突”标签 | 展示“请决策：以下两条经验存在矛盾，请选择采用哪一条或升级给管理者”，提供“采用 A / 采用 B / 升级决策”三个操作 |
 | Memory 容量爆炸 | “智能摘要”视图默认展示，右上角提供“查看原始列表”切换开关 | 摘要视图下方显示“当前已浓缩 N 条 Memory 为快照，可展开查看完整列表” |
-| 修复达到重试上限 | 第 4 次修复失败时 Task 详情页显示递进式警告：“这是第 4/5 次修复尝试，若再次失败将自动终止并升级给管理者” | 同时展示“请求人工介入”按钮，允许 Member 主动升级 |
+| 修复达到重试上限 | 第 4 次修复失败时 Task 详情页显示递进式警告：“这是第 4/5 次修复尝试，若再次失败将自动终止并升级给管理者” | 同时展示“请求人工介入”按钮，允许 Employee 主动升级 |
 | 召回结果为空 | Task 执行前提示：“未找到相关经验，建议联系管理者补充” | 提供“通知管理者”一键操作 + “从通用库推荐”入口 |
 | 审核队列堆积 | 审核队列顶部显示黄色警告条：“当前有 N 条候选超过 7 天未审核” | 提供“快速审核”入口（仅展示高置信度候选）+ “开启自动入库模式”开关 |
-| 管理者误删核心 Memory | 删除操作弹窗二次确认：“该 Memory 当前被 N 个 Member 引用，确认删除？” | 删除后进入“回收站”（30 天内可恢复），被分配方收到“您引用的经验 X 已被移除”通知 |
+| 管理者误删核心 Memory | 删除操作弹窗二次确认：“该 Memory 当前被 N 个 Employee 引用，确认删除？” | 删除后进入“回收站”（30 天内可恢复），被分配方收到“您引用的经验 X 已被移除”通知 |
 | 并发召回延迟超标 | 系统返回部分结果并标注“召回结果可能不完整（系统负载较高）” | 提供“重新加载”按钮，延迟持续时展示“建议稍后重试” |
 
 **补充边界场景（此前未覆盖）**：
@@ -1093,7 +1093,7 @@ Task (执行单元)
 |----------|----------|----------|
 | **新 Department 无 Memory 资产** | 支持从其他 Department 克隆 Memory 子集，提供引导流 | Department 创建完成后弹出“是否从已有部门导入经验？”引导，可选择源 Department 和 Memory 筛选条件 |
 | **Admin 账户不可用** | 系统支持“紧急恢复模式”：允许预设的备用管理者接管关键审批流程 | 关键审批流程不会全部阻塞，系统提示“Admin 不可用，已自动转交备用管理者” |
-| **Human Member 被分配 200+ 条 Memory** | Memory 呈现层提供“必读 Top 10”优先视图，其余按重要性分页分章展示 | 导出文档首页显示“核心经验概览（10 条）”，下方按领域分章展开完整列表 |
+| **Human Employee 被分配 200+ 条 Memory** | Memory 呈现层提供“必读 Top 10”优先视图，其余按重要性分页分章展示 | 导出文档首页显示“核心经验概览（10 条）”，下方按领域分章展开完整列表 |
 | **跨时区团队的挂起超时计算** | “最大等待时间”支持按 Department 配置，可选择“自然时间”或“工作时间”计算模式 | Department 设置页提供“超时计算方式”配置项，并在 Task 详情页展示剩余等待时间 |
 | **Harness 未对接完毕时 Task 执行** | 允许 Task 执行，但跳过验证环节；Memory 提炼标记为“未验证” | Task 创建时若关联 Project 无验证系统，系统提示“该项目尚未配置验证系统，产出将不经过自动验证” |
 | **批量导入量巨大（>10000 条）** | 导入过程异步执行，提供进度反馈；部分失败时系统展示失败明细并允许重试 | 导入页显示进度条 + “已导入 X/Y 条，Z 条失败”；完成后展示“查看失败明细”和“重试失败项”按钮 |
@@ -1122,8 +1122,8 @@ Task (执行单元)
 | Memory 质量 | 审核通过率 > 70% | 候选被批准的比例 | M2 后 |
 | Memory 复用率 | > 60% 的 Patterns/Principles Memory 被使用过 | 使用次数 > 0 的占比 | M2 后 |
 | Harness 首次通过率 | 提升 30%（对比无 Memory 注入时） | A/B 对照实验 | M3 后 |
-| 知识流失率 | 0% — 成员离开后经验不流失 | 归档 Member 的 Memory 保留率 | M2 后 |
-| 新成员上手效率 | 首个 Task 完成速度提升 50% | 对比无 Memory 注入的新 Member | M2 后 |
+| 知识流失率 | 0% — 成员离开后经验不流失 | 归档 Employee 的 Memory 保留率 | M2 后 |
+| 新成员上手效率 | 首个 Task 完成速度提升 50% | 对比无 Memory 注入的新 Employee | M2 后 |
 
 ---
 
@@ -1134,25 +1134,25 @@ Task (执行单元)
 **范围**：
 - Memory CRUD + 版本管理 + 分层存储（Facts/Patterns/Principles）+ 基础关联关系管理
 - Skill 注册 + 分配（聚焦 AI 可执行 Skill）
-- Member 创建 + Department 归属 + Project 映射
+- Employee 创建 + Department 归属 + Project 映射
 - 基础检索（关键词 + 标签）
 
 **验收标准**：
 - 可以创建/编辑/分配 Memory，Memory 有版本历史
-- 可以注册 Skill 并分配给 AI Member
-- 可以创建 Member、Department、Project 并建立映射关系
+- 可以注册 Skill 并分配给 AI Employee
+- 可以创建 Employee、Department、Project 并建立映射关系
 - 基础 UI 可以浏览和管理以上资源
 
 ### M2: Execution Loop（预计 4-6 周）
 
 **范围**：
 - Task 创建/分配/执行（含 Department 归属、Project 关联、parentTask）
-- Skill + Memory 动态装载（AI Member 执行时注入）
+- Skill + Memory 动态装载（AI Employee 执行时注入）
 - 执行后 Memory 自动提取（AI 草拟 + 人工审核）
 - 验证系统对接层基础集成（规范级）
 
 **验收标准**：
-- AI Member 可以接收 Task，自动加载 Skill + Memory 并执行
+- AI Employee 可以接收 Task，自动加载 Skill + Memory 并执行
 - 执行完成后系统生成 Memory 候选并进入审核队列
 - 规范级验证结果可以反馈到系统
 
@@ -1165,7 +1165,7 @@ Task (执行单元)
 - Review 结构化输出（decision + reason + correction → Memory 候选）
 
 **验收标准**：
-- Harness 失败后 AI Member 可自动 Debug 并重试
+- Harness 失败后 AI Employee 可自动 Debug 并重试
 - 多轮 Debug 后系统提炼高价值 Memory
 - Review 流程闭环，Review 发现可产生 Memory
 
@@ -1173,17 +1173,17 @@ Task (执行单元)
 
 **范围**：
 - 基于实体关系的经验关联召回 + 智能检索
-- 智能推荐（Memory/Skill 分配建议、Member 匹配推荐）
-- Member 活动流 + 成长追踪可视化
+- 智能推荐（Memory/Skill 分配建议、Employee 匹配推荐）
+- Employee 活动流 + 成长追踪可视化
 - Project 知识健康度评估
-- Memory 呈现层完善（对 Human Member 导出文档/思维导图）
+- Memory 呈现层完善（对 Human Employee 导出文档/思维导图）
 - ROI 价值 Dashboard
 - 数据导出/导入功能
 
 **验收标准**：
 - Memory 召回精准度显著提升（对比 M2 的基础检索）
-- 系统能推荐合适的 Memory/Skill/Member
-- 可视化展示 Member 活动流和成长曲线
+- 系统能推荐合适的 Memory/Skill/Employee
+- 可视化展示 Employee 活动流和成长曲线
 - Project 知识健康度可评估
 
 ---
@@ -1198,7 +1198,7 @@ Task (执行单元)
 4. **验证对接层标准** — 如何定义通用的对接接口？如何处理异步长时间运行的验证？
 5. **多租户与权限** — 跨部门的 Memory 共享权限如何控制？
 6. **决策轨迹捕获** — 如何标准化获取不同执行节点的推理过程？
-7. **Human Member 交互方式** — Human Member 如何登记产出、触发提炼、接收 Memory？（留待后续细化）
+7. **Human Employee 交互方式** — Human Employee 如何登记产出、触发提炼、接收 Memory？（留待后续细化）
 
 ---
 

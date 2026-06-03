@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 MemoryId = Annotated[UUID, "Memory node identifier"]
 SkillId = Annotated[UUID, "Skill identifier"]
-MemberId = Annotated[UUID, "Member (AI/Human) identifier"]
+EmployeeId = Annotated[UUID, "Employee (AI/Human) identifier"]
 RunId = Annotated[UUID, "Task execution run identifier"]
 DepartmentId = Annotated[UUID, "Department identifier"]
 ProjectId = Annotated[UUID, "Project identifier"]
@@ -102,8 +102,8 @@ class Priority(StrEnum):
         return int(self.value[1])
 
 
-class MemberKind(StrEnum):
-    """Member type discriminator."""
+class EmployeeKind(StrEnum):
+    """Employee type discriminator."""
 
     AI = "ai"
     HUMAN = "human"
@@ -112,7 +112,7 @@ class MemberKind(StrEnum):
 class ResourceKind(StrEnum):
     """Saga compensation resource categories."""
 
-    MEMBER_CONCURRENCY = "member_concurrency"
+    EMPLOYEE_CONCURRENCY = "employee_concurrency"
     SANDBOX = "sandbox"
     SKILL_BUNDLE = "skill_bundle"
     OUTBOX_EVENT = "outbox_event"

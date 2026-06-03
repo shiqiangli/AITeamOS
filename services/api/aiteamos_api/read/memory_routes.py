@@ -68,16 +68,16 @@ async def get_approved_memory() -> list[MemoryCandidate]:
 @router.get("/search", response_model=MemorySearchResponse)
 async def get_memory_search(
     q: str = Query("", alias="q"),
-    member_id: str | None = None,
-    jira_key: str | None = None,
+    employee_id: str | None = None,
+    ticket_key: str | None = None,
     project: str | None = None,
     limit: int = 10,
     include_graphiti: bool = True,
 ) -> MemorySearchResponse:
     return await search_memory(
         query=q,
-        member_id=member_id,
-        jira_key=jira_key,
+        employee_id=employee_id,
+        ticket_key=ticket_key,
         project=project,
         limit=limit,
         include_graphiti=include_graphiti,

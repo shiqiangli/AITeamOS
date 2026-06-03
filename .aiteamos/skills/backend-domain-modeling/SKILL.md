@@ -9,7 +9,7 @@
 |---------|--------|--------|-----------|
 | Knowledge | `packages/knowledge/` | `MemoryNode`, `MemoryEdge` | I-K-1~5: 置信度受控、Edge 独立聚合、quarantined 屏蔽召回 |
 | Capability | `packages/capability/` | `Skill` | 版本 SemVer、status 状态机（draft→published→deprecated） |
-| Workforce | `packages/workforce/` | `Member`, `Department` | base_skill_set 绑定、kind 人机同构 |
+| Workforce | `packages/workforce/` | `Employee`, `Department` | base_skill_set 绑定、kind 人机同构 |
 | Execution | `packages/execution/` | `Task` | 状态机（Draft→Ready→Assigned→Running→Verifying→InReview→Done/Failed） |
 | Validation | `packages/validation/` | `HarnessAdapter`, `HarnessInvocation` | 回调幂等、沙箱原子性 |
 | Governance | `packages/governance/` | `ReviewCase`, `ConflictCase` | verdict 迁移、冲突仲裁 |
@@ -31,7 +31,7 @@ packages/{context}/aiteamos_{context}/
 
 ### 聚合设计规则
 1. **一个事务只修改一个聚合** — 跨聚合一致性通过领域事件实现最终一致
-2. **聚合间通过 ID 引用** — 不持有对方的对象引用（如 `TaskRun.member_id` 而非 `Member` 对象）
+2. **聚合间通过 ID 引用** — 不持有对方的对象引用（如 `TaskRun.employee_id` 而非 `Employee` 对象）
 3. **值对象不可变** — 用 `@dataclass(frozen=True)` 声明
 4. **聚合根有明确的 Identity** — UUID，不使用自增 ID
 
@@ -101,7 +101,7 @@ class MutableValue:
 | 反模式 | 修正 |
 |--------|------|
 | 一个 Handler 里修改多个聚合 | 拆为多个 Command，每个只改一个聚合 |
-| 聚合根暴露 setter 方法 | 通过领域方法修改（如 `task.assign(member_id)`） |
+| 聚合根暴露 setter 方法 | 通过领域方法修改（如 `task.assign(employee_id)`） |
 | 跨 Context 直接 JOIN 查询 | 通过 ACL Bridge 或投影到读侧专用视图 |
 | 事件中包含聚合完整状态 | 事件只携带变更的 delta 和 ID |
 | Repository 返回 DTO 而非聚合 | Repository 只负责聚合的持久化和恢复 |

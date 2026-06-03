@@ -19,7 +19,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
-_LEGACY_UNCONFIGURED_CONNECTORS = {"redmine", "jira", "confluence"}
+_LEGACY_UNCONFIGURED_CONNECTORS = {"redmine", "ticket", "confluence"}
 
 
 class McpConnector(BaseModel):
@@ -139,21 +139,21 @@ def _default_connectors() -> list[McpConnector]:
             status="planned",
             transport="rest",
             description=(
-                "Selected default WorkItem/Docs backend for AITeamOS; "
-                "Plane work items map to WorkItems and Plane pages map to Docs."
+                "Selected default Ticket/Docs backend for AITeamOS; "
+                "Plane tickets map to Tickets and Plane pages map to Docs."
             ),
             capabilities=[
-                "work_items.search",
-                "work_items.create",
-                "work_items.update",
-                "work_items.transition",
-                "work_items.comment",
-                "work_items.relate",
+                "tickets.search",
+                "tickets.create",
+                "tickets.update",
+                "tickets.transition",
+                "tickets.comment",
+                "tickets.relate",
                 "knowledge.docs.search",
                 "knowledge.docs.read",
                 "knowledge.docs.write",
             ],
-            permissions=["work_items:read", "work_items:write", "docs:read", "docs:write"],
+            permissions=["tickets:read", "tickets:write", "docs:read", "docs:write"],
             required_settings=["base_url", "api_token", "workspace_slug"],
             updated_at=timestamp,
         ),

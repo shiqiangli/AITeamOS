@@ -4,7 +4,6 @@
 
 import { type ReactNode, useId } from "react";
 import {
-  Brain,
   BookOpen,
   ClipboardList,
   MessageSquare,
@@ -158,21 +157,27 @@ export function useConfirm() {
 export interface RouteState {
   page: string;
   id: string | null;
+  detail: string | null;
 }
 
 export function parseHash(): RouteState {
   const hash = window.location.hash.replace(/^#\/?/, "");
   const parts = hash.split("/").filter(Boolean);
-  if (parts.length === 0) return { page: "chat", id: null };
+  if (parts.length === 0) return { page: "chat", id: null, detail: null };
   return {
     page: parts[0],
     id: parts.length > 1 ? decodeURIComponent(parts[1]) : null,
+    detail: parts.length > 2 ? decodeURIComponent(parts[2]) : null,
   };
 }
 
-export function navigateTo(page: string, id?: string | null): void {
-  const path = id ? `#/${page}/${encodeURIComponent(id)}` : `#/${page}`;
-  window.location.hash = path;
+export function navigateTo(page: string, id?: string | null, detail?: string | null): void {
+  const path = [
+    page,
+    ...(id ? [id] : []),
+    ...(detail ? [detail] : []),
+  ].map((part) => encodeURIComponent(part)).join("/");
+  window.location.hash = `#/${path}`;
 }
 
 // ─── Status card ─────────────────────────────────────────────────────────────
@@ -248,8 +253,20 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { key: "chat", label: "Chat", icon: MessageSquare },
   {
-    key: "work",
-    label: "Work",
+    key: "library",
+    label: "Library",
+    icon: BookOpen,
+    children: [
+      { key: "knowledge", label: "Knowledge" },
+      { key: "skills", label: "Skills" },
+      { key: "tools", label: "Tools" },
+      { key: "connectors", label: "Connectors" },
+    ],
+  },
+  { key: "employees", label: "Employees", icon: Users },
+  {
+    key: "tickets",
+    label: "Tickets",
     icon: ClipboardList,
     children: [
       { key: "tickets", label: "Tickets" },
@@ -257,34 +274,14 @@ export const NAV_ITEMS: NavItem[] = [
       { key: "reports", label: "Reports" },
     ],
   },
-  { key: "members", label: "Members", icon: Users },
-  { key: "skills", label: "Skills", icon: BookOpen },
-  {
-    key: "knowledge",
-    label: "Knowledge",
-    icon: Brain,
-    children: [
-      { key: "docs", label: "Docs" },
-      { key: "memories", label: "Memories" },
-      { key: "decisions", label: "Decisions" },
-      { key: "review", label: "Review Queue" },
-    ],
-  },
   {
     key: "settings",
     label: "Settings",
     icon: Settings,
     children: [
-      { key: "runtimes", label: "Runtimes" },
-      { key: "providers", label: "Providers" },
-      { key: "agent-executors", label: "Agent Executors" },
-      { key: "capabilities", label: "Capabilities" },
-      { key: "code-repositories", label: "Code Repositories" },
-      { key: "mcp-connectors", label: "MCP Connectors" },
-      { key: "knowledge-backend", label: "Knowledge Backend" },
-      { key: "secrets", label: "Secrets" },
-      { key: "defaults", label: "Defaults" },
-      { key: "health", label: "Health" },
+      { key: "runtime", label: "Runtime" },
+      { key: "integrations", label: "Integrations" },
+      { key: "system", label: "System" },
     ],
   },
 ];

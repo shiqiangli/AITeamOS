@@ -24,9 +24,9 @@ The repository-level one-command dev launcher wraps this for you:
 ../scripts/dev-up.sh
 ```
 
-## Plane WorkItem / Docs Backend
+## Plane Ticket / Docs Backend
 
-Plane is the default external WorkItem/Docs backend for AITeamOS. It is managed
+Plane is the default external Ticket/Docs backend for AITeamOS. It is managed
 as a separate Docker service rather than vendored into this repository. The
 official Plane setup and compose files are downloaded into `.aiteamos/plane/`
 by the repository-level script.

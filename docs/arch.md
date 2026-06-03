@@ -18,7 +18,7 @@ AITeamOS 的本质是**一个经验驱动的认知操作系统**。其架构必�
 | 异质性 | 表现 | 架构应对 |
 |---|---|---|
 | 状态异质性 | Memory（有状态、上下文相关） vs Skill（无状态、通用可插拔） | 双引擎分离：Memory 走图+关系混合存储；Skill 走 SPI Registry。二者**绝不在同一聚合内耦合**。 |
-| 执行异质性 | AI Member（非确定性，需要验证闭环） vs Human Member（确定性，需要呈现适配） | 同构领域模型 `Member.kind ∈ {ai, human}`；执行差异下沉到 Adapter 层。 |
+| 执行异质性 | AI Employee（非确定性，需要验证闭环） vs Human Employee（确定性，需要呈现适配） | 同构领域模型 `Employee.kind ∈ {ai, human}`；执行差异下沉到 Adapter 层。 |
 | 时间异质性 | 同步执行（毫秒级 Skill 调用） vs 异步验证（小时级 Harness 回归） | 显式区分 `Verifying` 同步态与 `Suspended` 异步态；通过 Saga + Durable Timer 解耦执行线程与等待线程。 |
 
 ### 0.2 十三条不可妥协的设计纪律
@@ -33,7 +33,7 @@ AITeamOS 的本质是**一个经验驱动的认知操作系统**。其架构必�
 8. **失败优先 (Fail-Closed)**：任何安全/治理决策的不确定结果默认拒绝；非交互执行场景下 `ask` 一律降级为 `deny`。
 9. **补偿优先 (Compensation-First)**：任何可产生副作用的执行（文件系统写入、Git 操作、外部 API 调用）必须在隔离沙箱中进行；硬熔断触发时整体回滚沙箱，**禁止半完成状态进入 Verifying 路径**。
 10. **幂等投影 (Idempotent Projection)**：所有 CQRS 读侧投影消费者必须基于全局事件序列号实现条件写（CAS），保证 At-least-once 投递下绝对幂等、绝对不回滚——投影表持有 `source_event_seq` 水位，只进不退。
-11. **Saga 补偿链强制 (Mandatory Saga Compensation)**：任何分布式编排 Workflow 必须显式声明 Compensation Activity 栈；正向路径每注册一项资源占用（Member concurrency / Sandbox / Skill bundle / Outbox half-commit），异常或显式 Cancel 时必须由 `compensation_stack.unwind()` 反向释放（见 §3.5）。
+11. **Saga 补偿链强制 (Mandatory Saga Compensation)**：任何分布式编排 Workflow 必须显式声明 Compensation Activity 栈；正向路径每注册一项资源占用（Employee concurrency / Sandbox / Skill bundle / Outbox half-commit），异常或显式 Cancel 时必须由 `compensation_stack.unwind()` 反向释放（见 §3.5）。
 12. **基础设施 SPOF 零容忍 (Infra-SPOF Zero-Tolerance)**：Outbox Relay、Webhook Receiver、Sandbox Pool、GC Sweeper 等关键基础设施一律按"分片 + 多实例 + 高水位持久化 + 背压"设计；任何单实例故障不得阻塞业务路径超过 60s（见 §6）。
 13. **DB 与编排器状态零分裂 (DB-Saga State Coherence)**：所有具有时效性的 DB 记录（如 `harness_invocation`）的 GC/过期不得直接 DELETE/UPDATE，必须先发布领域事件并由 handler 显式驱动对应 Saga Workflow 转终态——禁止 DB 已"忘记"但 Saga 仍在等的状态分裂（见 §3.3.6）。
 
@@ -48,7 +48,7 @@ graph TB
     subgraph CL["Context/State Layer (上下文与状态层)"]
         MG[Memory Graph Store]
         SR[Skill Registry]
-        MP[Member Profile Store]
+        MP[Employee Profile Store]
         DR[Department/Project Registry]
         CA[Context Assembler]
         BC[Budget Controller]
@@ -58,7 +58,7 @@ graph TB
     subgraph DL["Driver/Execution Layer (驱动与执行层)"]
         TM[Task State Machine]
         SAGA[Saga Orchestrator]
-        MR[Member Runtime Pool]
+        MR[Employee Runtime Pool]
         CI[Cost Interceptor Chain]
         EB[Domain Event Bus / Kafka]
     end
@@ -101,8 +101,8 @@ graph TB
 
 | 层 | 关键组件 | 输入 | 输出 | 性能要求 |
 |---|---|---|---|---|
-| Context/State | Context Assembler, Memory Graph, Skill Registry, Snapshot Store | Task DTO + Member ID | Sealed Context Bundle (immutable) | P95 装配 < 800ms（含 Memory 召回） |
-| Driver/Execution | Task State Machine, Saga, Member Runtime, Cost Interceptor | Sealed Bundle + Skill 调用 | Deliverable + Run Trace | Cost Interceptor 拦截开销 < 5ms |
+| Context/State | Context Assembler, Memory Graph, Skill Registry, Snapshot Store | Task DTO + Employee ID | Sealed Context Bundle (immutable) | P95 装配 < 800ms（含 Memory 召回） |
+| Driver/Execution | Task State Machine, Saga, Employee Runtime, Cost Interceptor | Sealed Bundle + Skill 调用 | Deliverable + Run Trace | Cost Interceptor 拦截开销 < 5ms |
 | Assertion/Validation | Harness Gateway, Callback Receiver, Reflection Engine, Quarantine Buffer | Deliverable + Harness Result | ΔMemory 候选 + 反思事件 | 异步回调入站 P99 < 200ms |
 
 ### 1.3 端到端数据流：Task 完整生命周期
@@ -110,11 +110,11 @@ graph TB
 | 阶段 | 触发者 | 关键操作 | 持久化对象 | 状态迁移 |
 |---|---|---|---|---|
 | **T0 创建** | PM/TL | `CreateTaskCommand` 落库；发出 `TaskCreated` 事件 | `task` 主表 | → Draft |
-| **T1 就绪** | Admin/Member | 信息完备校验 | `task.state=ready` | Draft → Ready |
-| **T2 分配** | PM/Auto-Router | 基于 Skill+Memory 匹配度选取 Member；并发上限校验 | `task.assigned_member_id` | Ready → Assigned |
+| **T1 就绪** | Admin/Employee | 信息完备校验 | `task.state=ready` | Draft → Ready |
+| **T2 分配** | PM/Auto-Router | 基于 Skill+Memory 匹配度选取 Employee；并发上限校验 | `task.assigned_employee_id` | Ready → Assigned |
 | **T3 装配** | Saga | Context Assembler 调用 Memory 召回 + Skill 解析 + 预算评估，写入不可变 Context Snapshot | `task_context_snapshot` | Assigned → Running |
-| **T4 执行** | Member Runtime | 装载 Skill+Memory Bundle，调度执行节点；Cost Interceptor 全程计量 | `task_run`, `run_event` | Running |
-| **T5 提交** | Member | 提交 Deliverable（PR 链接 / 文档 URI / 设计稿 URI），触发 `DeliverableSubmitted` | `task_deliverable` | Running → Verifying |
+| **T4 执行** | Employee Runtime | 装载 Skill+Memory Bundle，调度执行节点；Cost Interceptor 全程计量 | `task_run`, `run_event` | Running |
+| **T5 提交** | Employee | 提交 Deliverable（PR 链接 / 文档 URI / 设计稿 URI），触发 `DeliverableSubmitted` | `task_deliverable` | Running → Verifying |
 | **T6a 同步验证** | Harness Gateway (规范级/功能级) | 路由到对应 Adapter；同步返回 Pass/Fail | `harness_invocation` | Verifying → InReview \| Running |
 | **T6b 异步验证** | Harness Gateway (系统级) | Adapter 返回 `ticket=pending`；Saga 注册 Callback 等待 | `harness_invocation.async=true` | Verifying → Suspended |
 | **T7 回调入站** | Callback Receiver | 接收 Webhook（HMAC 校验 + 幂等）；归一化为 `HarnessResult` 事件 | `harness_result` | Suspended → Verifying → InReview \| Running |
@@ -130,7 +130,7 @@ graph TB
 - **不变量 N4（反思隔离）**：`provenance.kind ∈ {memory_review, retention_sweep, governance_audit, system_check}` 的事件**永不进入** Reflection Engine 的输入流。存储层 DB Trigger 为最终兜底。
 - **不变量 N5（沙箱原子性）**：执行沙箱 `state` 只能从 `active` 单向转为 `merged` 或 `destroyed`。非 `merged` 状态的沙箱产出不得进入 `submit_deliverable` 路径。
 - **不变量 N6（投影只进不退）**：所有投影消费者的 `source_event_seq` 只允许递增，不允许回滚（CAS 写入）。
-- **不变量 N7（资源补偿闭环）**：每一次 Saga Workflow 占用的资源（Member concurrency、Sandbox、Skill bundle、Outbox half-commit）都必须被压入补偿栈；Workflow 终态（`Done`/`Failed`/`Cancelled`）可达时补偿栈必须为空，含残留项即判定资源泄漏（见 §3.5）。
+- **不变量 N7（资源补偿闭环）**：每一次 Saga Workflow 占用的资源（Employee concurrency、Sandbox、Skill bundle、Outbox half-commit）都必须被压入补偿栈；Workflow 终态（`Done`/`Failed`/`Cancelled`）可达时补偿栈必须为空，含残留项即判定资源泄漏（见 §3.5）。
 - **不变量 N8（DB 与 Saga 状态一致）**：任何可过期的 DB 记录与其关联的 Saga Workflow 必须同生同终；DB 过期不得先于 Saga 终态被达成（见 §3.3.6）。
 
 ### 1.5 物理部署拓扑（参考实现）
@@ -176,7 +176,7 @@ graph TB
 |---|---|---|---|
 | **Knowledge Context** | `MemoryNode` | `packages/knowledge/` | Memory 提炼、关系图、置信度演进、生命周期 |
 | **Capability Context** | `Skill` | `packages/capability/` | Skill 注册、版本、加载、健康度、熔断 |
-| **Workforce Context** | `Member`, `Department` | `packages/workforce/` | Member、组织归属、Profile、能力衰减 |
+| **Workforce Context** | `Employee`, `Department` | `packages/workforce/` | Employee、组织归属、Profile、能力衰减 |
 | **Execution Context** | `Task` | `packages/execution/` | Task 状态机、Run、Deliverable、依赖 |
 | **Validation Context** | `HarnessAdapter`, `HarnessInvocation` | `packages/validation/` | 验证适配、回调、结果归一、Flaky 检测 |
 | **Governance Context** | `ReviewCase`, `ConflictCase` | `packages/governance/` | 审核流程、冲突仲裁、归因度量、防循环 |
@@ -186,7 +186,7 @@ graph TB
 ```
 Execution → Knowledge: TaskCompleted(task_id, run_id, snapshot_id, outcome) [Domain Event]
 Validation → Execution: HarnessResultReceived(invocation_id, outcome, evidence_ref)
-Knowledge → Workforce: MemoryAssignedToMember(member_id, memory_id, scope)
+Knowledge → Workforce: MemoryAssignedToEmployee(employee_id, memory_id, scope)
 Governance → Knowledge: ConflictResolved(loser_id, winner_id, resolution_kind)
 ```
 
@@ -235,7 +235,7 @@ class MemoryNode:
     title: str
     content: MemoryContent                  # VO: { statement, applicable_when, counter_example }
     confidence: Confidence                  # VO: { value, state, last_updated }
-    provenance: Provenance                  # VO: { source_kind, task_id, run_id, member_id, system_meta }
+    provenance: Provenance                  # VO: { source_kind, task_id, run_id, employee_id, system_meta }
     lifecycle: LifecycleState               # VO: candidate | active | stale | needs_verify | deprecated | archived | quarantined
     versions: list[MemoryVersion]           # 实体（聚合内）
     created_at: datetime
@@ -252,7 +252,7 @@ class MemoryEdge:
     target_id: MemoryId                     # 引用 MemoryNode ID（跨聚合）
     relation_type: RelationType             # VO: Causal | Depends | Derived | Conflicts
     weight: Decimal
-    created_by: MemberId
+    created_by: EmployeeId
     created_at: datetime
 
 # === 实体（MemoryNode 聚合内） ===
@@ -260,7 +260,7 @@ class MemoryVersion:
     version_no: int
     diff: dict
     reason: str
-    author_member_id: MemberId
+    author_employee_id: EmployeeId
     created_at: datetime
 
 # === 值对象 ===
@@ -276,7 +276,7 @@ class Provenance:
     source_kind: SourceKind                 # task_execution | harness_debug | review | manual_input | bulk_import
     task_id: TaskId | None
     run_id: RunId | None
-    member_id: MemberId | None
+    employee_id: EmployeeId | None
     system_meta: bool                       # ★ True 即被 Reflection Engine 硬性排除
 ```
 
@@ -298,7 +298,7 @@ class Skill:
     manifest: SkillManifest                 # VO: { input_schema, output_schema, side_effects, required_permissions }
     status: SkillStatus                     # VO: draft | published | recalibrating | deprecated | cancelled
     health: SkillHealth                     # VO: { success_rate, recent_failures, circuit_state }
-    owner_member_id: MemberId
+    owner_employee_id: EmployeeId
     created_at: datetime
 
 @dataclass(frozen=True)
@@ -319,21 +319,21 @@ class SkillManifest:
 #### 2.2.3 Workforce Context
 
 ```python
-class Member:
-    id: MemberId
-    kind: MemberKind                        # ai | human
+class Employee:
+    id: EmployeeId
+    kind: EmployeeKind                        # ai | human
     department_id: DepartmentId             # 组织归属（必须）
-    profile: MemberProfile
+    profile: EmployeeProfile
     base_skill_set: list[SkillId]           # 角色身份 Skill（持久）
     assigned_memories: list[MemoryId]       # 软性偏好分配
-    health: MemberHealthMetrics
+    health: EmployeeHealthMetrics
     concurrency_limit: int                  # AI 受执行节点约束；Human 受时间约束
 
 class Department:
     id: DepartmentId
     name: str
-    leader_member_id: MemberId | None
-    backup_leader_member_id: MemberId | None  # 应对负责人不可用
+    leader_employee_id: EmployeeId | None
+    backup_leader_employee_id: EmployeeId | None  # 应对负责人不可用
 ```
 
 #### 2.2.4 Execution Context
@@ -358,7 +358,7 @@ class Task:
 class TaskRun:                              # 实体（属于 Task 聚合）
     run_id: RunId
     task_id: TaskId
-    member_id: MemberId
+    employee_id: EmployeeId
     snapshot_id: SnapshotId                 # ★ 不可变快照引用
     state: RunState
     started_at: datetime
@@ -397,7 +397,7 @@ class ReviewCase:
     id: ReviewId
     target_kind: ReviewTargetKind           # task_deliverable | memory_candidate | memory_modification
     target_id: UUID
-    reviewer_member_id: MemberId
+    reviewer_employee_id: EmployeeId
     verdict: Verdict | None                 # approve | reject | merge | revise
     reason: str | None
     correction: str | None
@@ -499,7 +499,7 @@ CREATE TABLE memory_node (
     confidence_state    VARCHAR(20) NOT NULL DEFAULT 'needs_verify',
     last_decay_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     lifecycle_state     VARCHAR(20) NOT NULL DEFAULT 'candidate',
-    provenance          JSONB NOT NULL,             -- {source_kind, task_id, run_id, member_id, system_meta}
+    provenance          JSONB NOT NULL,             -- {source_kind, task_id, run_id, employee_id, system_meta}
     current_version     INT NOT NULL DEFAULT 1,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_used_at        TIMESTAMPTZ,
@@ -517,7 +517,7 @@ CREATE TABLE memory_version (
     version_no          INT NOT NULL,
     diff                JSONB NOT NULL,
     reason              TEXT NOT NULL,
-    author_member_id    UUID NOT NULL,
+    author_employee_id    UUID NOT NULL,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (memory_id, version_no)
 );
@@ -555,7 +555,7 @@ CREATE TABLE memory_feedback (
     task_run_id         UUID NOT NULL,
     outcome             VARCHAR(16) NOT NULL CHECK (outcome IN ('positive','negative','neutral')),
     delta               NUMERIC(4,3) NOT NULL,
-    reviewer_member_id  UUID,                        -- 仅 human_approval 才计入正向
+    reviewer_employee_id  UUID,                        -- 仅 human_approval 才计入正向
     occurred_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     is_system_meta      BOOLEAN NOT NULL DEFAULT FALSE  -- 元递归隔离
 );
@@ -626,7 +626,7 @@ class MemoryRecallEngine:
     """
     def recall(self, ctx: TaskContext, budget: RecallBudget) -> RecallResult:
         # Stage 1: 候选生成（多通道并行）
-        c_assigned = self._fetch_assigned(ctx.member_id)         # 软性偏好
+        c_assigned = self._fetch_assigned(ctx.employee_id)         # 软性偏好
         c_scope    = self._fetch_by_scope(ctx.project_ids, ctx.dept_id)
         c_vector   = self._fetch_vector_topk(ctx.embedding, k=200)
         c_graph    = self._fetch_graph_neighbors(c_scope, depth=2)
@@ -674,7 +674,7 @@ class RecallChannelOrchestrator:
                 name=name
             )
             for name, coro in {
-                'assigned': self._fetch_assigned(ctx.member_id),
+                'assigned': self._fetch_assigned(ctx.employee_id),
                 'scope':    self._fetch_by_scope(ctx.project_ids, ctx.dept_id),
                 'vector':   self._fetch_vector_topk(ctx.embedding, k=200),
                 'graph':    self._fetch_graph_neighbors(ctx, depth=2),
@@ -915,12 +915,12 @@ stateDiagram-v2
     [*] --> Draft
     Draft --> Ready: complete_info
     Draft --> Cancelled: cancel
-    Ready --> Assigned: assign_member
+    Ready --> Assigned: assign_employee
     Ready --> Cancelled: cancel
     Assigned --> Running: start_run
     Assigned --> Cancelled: cancel
     Running --> Verifying: submit_deliverable
-    Running --> Suspended: budget_pause / member_terminated
+    Running --> Suspended: budget_pause / employee_terminated
     Running --> Failed: hard_circuit_breaker
     Running --> Cancelled: cancel
     Verifying --> Suspended: harness_async_pending
@@ -928,7 +928,7 @@ stateDiagram-v2
     Verifying --> Running: harness_fail [retry < max]
     Verifying --> Failed: harness_fail [retry >= max]
     Suspended --> Verifying: callback_received
-    Suspended --> Running: member_resumed
+    Suspended --> Running: employee_resumed
     Suspended --> Failed: timeout / hard_circuit
     Suspended --> Cancelled: cancel
     InReview --> Done: review_approve
@@ -948,7 +948,7 @@ stateDiagram-v2
 class TaskStateMachine:
     TRANSITIONS = {
         ('draft',     'ready'):     [Inv.has_required_fields, Inv.has_dept],
-        ('ready',     'assigned'):  [Inv.member_concurrency_ok, Inv.skill_match],
+        ('ready',     'assigned'):  [Inv.employee_concurrency_ok, Inv.skill_match],
         ('assigned',  'running'):   [Inv.snapshot_sealed, Inv.budget_allocated],
         ('running',   'verifying'): [Inv.deliverable_submitted],
         ('verifying', 'suspended'): [Inv.harness_returned_async],
@@ -981,36 +981,36 @@ class TaskStateMachine:
 
 > **强不变量**：状态机所有写入必须经由 `transition()`；任何代码绕过此入口直接 set `task.state` 视为系统级故障。
 
-#### 3.2.1 Member 并发分配守卓 (Advisory Lock)
+#### 3.2.1 Employee 并发分配守卓 (Advisory Lock)
 
-`Inv.member_concurrency_ok` 的实现必须解决竞争条件：仅对 Task 加行锁不足以保护 Member 级别的并发上限（两个不同 Task 同时 assign 同一 Member 时会突破限制）。
+`Inv.employee_concurrency_ok` 的实现必须解决竞争条件：仅对 Task 加行锁不足以保护 Employee 级别的并发上限（两个不同 Task 同时 assign 同一 Employee 时会突破限制）。
 
 ```python
-class MemberConcurrencyGuard:
-    """双重锁策略：Task 行锁 + Member Advisory Lock"""
+class EmployeeConcurrencyGuard:
+    """双重锁策略：Task 行锁 + Employee Advisory Lock"""
 
-    def check(self, member_id: MemberId, tx: Transaction) -> None:
-        # Step 1: PostgreSQL Advisory Lock (基于 member_id hash，事务级别)
+    def check(self, employee_id: EmployeeId, tx: Transaction) -> None:
+        # Step 1: PostgreSQL Advisory Lock (基于 employee_id hash，事务级别)
         lock_key = int.from_bytes(
-            hashlib.md5(str(member_id).encode()).digest()[:8], 'big'
+            hashlib.md5(str(employee_id).encode()).digest()[:8], 'big'
         )
         tx.execute("SELECT pg_advisory_xact_lock(%s)", [lock_key])
 
         # Step 2: 在锁保护下读取真实并发数
         current = tx.execute("""
             SELECT COUNT(*) FROM task_run
-            WHERE member_id = %s AND state IN ('running', 'suspended')
-        """, [member_id]).scalar()
+            WHERE employee_id = %s AND state IN ('running', 'suspended')
+        """, [employee_id]).scalar()
         limit = tx.execute("""
-            SELECT concurrency_limit FROM member WHERE id = %s
-        """, [member_id]).scalar()
+            SELECT concurrency_limit FROM employee WHERE id = %s
+        """, [employee_id]).scalar()
 
         if current >= limit:
-            raise ConcurrencyExhausted(member_id, current, limit)
+            raise ConcurrencyExhausted(employee_id, current, limit)
         # Advisory Lock 随事务提交/回滚自动释放
 ```
 
-> **为什么不用 `SELECT ... FOR UPDATE` 锁 member 行**：分配操作不修改 member 表，仅读取并发数。Advisory Lock 是纯协调锁，不会阻塞其他读取 member profile 的路径。
+> **为什么不用 `SELECT ... FOR UPDATE` 锁 employee 行**：分配操作不修改 employee 表，仅读取并发数。Advisory Lock 是纯协调锁，不会阻塞其他读取 employee profile 的路径。
 
 ### 3.3 异步挂起机制（Verifying → Suspended → Verifying）
 
@@ -1020,7 +1020,7 @@ class MemberConcurrencyGuard:
 
 | 选型理由 | 说明 |
 |---|---|
-| 状态持久化 | Workflow 状态由编排器持久化，Member Runtime 进程崩溃可恢复 |
+| 状态持久化 | Workflow 状态由编排器持久化，Employee Runtime 进程崩溃可恢复 |
 | 长时间等待原语 | 原生支持小时级到天级的 Durable Timer，无需自建轮询 |
 | Signal 机制 | Workflow 阻塞在 Signal 上，由 Webhook 解锁，零轮询 |
 | Activity 隔离 | Skill 调用、Harness 触发都封装为 Activity，单个失败不污染 Workflow |
@@ -1053,7 +1053,7 @@ class TaskExecutionWorkflow:
 
         # === 执行阶段（沙箱化，带 heartbeat） ===
         deliverable = await workflow.execute_activity(
-            execute_member_sandboxed,
+            execute_employee_sandboxed,
             ExecArgs(task_id=task_id, snapshot_id=snapshot.id),
             start_to_close_timeout=timedelta(hours=2),
             heartbeat_timeout=timedelta(seconds=30),    # ★ 30s 无心跳即判定 Worker 崩溃
@@ -1120,8 +1120,8 @@ class TaskExecutionWorkflow:
 **Activity 心跳机制**（Worker 崩溃快速感知）：
 
 ```python
-class MemberExecutionActivity:
-    """AI/Human Member 执行 Activity，每步发心跳。"""
+class EmployeeExecutionActivity:
+    """AI/Human Employee 执行 Activity，每步发心跳。"""
 
     async def execute(self, args: ExecArgs) -> Deliverable:
         sandbox = await self.sandbox_pool.acquire(args.run_id)
@@ -1524,7 +1524,7 @@ class PreActionBudgetCheck(Interceptor):
 class RecallTokenLimiter(Interceptor):
     """
     Context Assembler 的最后一道闸门。
-    PRD 4.5: AI Member 执行 Task 时的上下文组装必须受成本/容量预算约束。
+    PRD 4.5: AI Employee 执行 Task 时的上下文组装必须受成本/容量预算约束。
     """
     async def before(self, action: AssembleContextAction, ctx: RunContext) -> Decision:
         if action.estimated_recall_tokens > ctx.budget.max_recall_tokens:
@@ -1550,7 +1550,7 @@ class HardCircuitBreaker(Interceptor):
 
 #### 3.4.6 沙箱执行与补偿协议（纪律 #9）
 
-所有 AI Member 执行必须在隔离沙箱（git worktree / ephemeral container）中进行。熔断触发时整体回滚沙箱，禁止半完成状态污染主仓库。
+所有 AI Employee 执行必须在隔离沙箱（git worktree / ephemeral container）中进行。熔断触发时整体回滚沙箱，禁止半完成状态污染主仓库。
 
 ```python
 class ExecutionSandbox:
@@ -1581,7 +1581,7 @@ class ExecutionSandbox:
 class SandboxedExecutionProtocol:
     """
     纪律 #9 的实现：硬熔断整体回滚，不留脏状态。
-    由 MemberExecutionActivity 调用（见 §3.3.2）。
+    由 EmployeeExecutionActivity 调用（见 §3.3.2）。
     """
 
     async def execute(self, args: ExecArgs) -> Deliverable:
@@ -1610,7 +1610,7 @@ class SandboxedExecutionProtocol:
 
 ### 3.5 Saga 补偿链（不变量 N7 实现，纪律 #11）
 
-**设计背景**：forward-only Workflow 在任何异常退出时会造成资源泄漏——T2 已占用 Member concurrency、T3 已创建 Sandbox、T4 已锁定 Skill bundle、T6 已发出 Outbox 事件，一旦 Workflow 异常退出不会有人释放。必须采用典型 Saga 资源净闭环设计："每次占用伴随一个补偿项"，异常路径 unwind。
+**设计背景**：forward-only Workflow 在任何异常退出时会造成资源泄漏——T2 已占用 Employee concurrency、T3 已创建 Sandbox、T4 已锁定 Skill bundle、T6 已发出 Outbox 事件，一旦 Workflow 异常退出不会有人释放。必须采用典型 Saga 资源净闭环设计："每次占用伴随一个补偿项"，异常路径 unwind。
 
 #### 3.5.1 CompensationStack 原语
 
@@ -1619,7 +1619,7 @@ class SandboxedExecutionProtocol:
 class CompensationItem:
     activity: str                  # 补偿 Activity 名称
     args: dict                     # 补偿参数（反序列化后为 JSON）
-    kind: ResourceKind             # member_concurrency | sandbox | skill_bundle | outbox_event | external_api
+    kind: ResourceKind             # employee_concurrency | sandbox | skill_bundle | outbox_event | external_api
     correlation_id: str            # 与正向 Activity 输出关联
 
 @workflow.defn
@@ -1659,12 +1659,12 @@ class TaskExecutionWorkflow:
     @workflow.run
     async def run(self, task_id: TaskId) -> TaskOutcome:
         try:
-            # === 分配 Member 并发名额 ===
-            await workflow.execute_activity('reserve_member_concurrency', {'task_id': task_id, 'member_id': ...})
+            # === 分配 Employee 并发名额 ===
+            await workflow.execute_activity('reserve_employee_concurrency', {'task_id': task_id, 'employee_id': ...})
             await self._push_compensation(CompensationItem(
-                activity='release_member_concurrency',
-                args={'task_id': task_id, 'member_id': ...},
-                kind=ResourceKind.MEMBER_CONCURRENCY,
+                activity='release_employee_concurrency',
+                args={'task_id': task_id, 'employee_id': ...},
+                kind=ResourceKind.EMPLOYEE_CONCURRENCY,
                 correlation_id=task_id,
             ))
 
@@ -1705,7 +1705,7 @@ class TaskExecutionWorkflow:
 
 | 资源种类 | 正向 Activity | 补偿 Activity | 幂等性保障 |
 |---|---|---|---|
-| Member concurrency | `reserve_member_concurrency` | `release_member_concurrency` | 基于 `(task_id, member_id)` 幂等；重复释放返回 no-op |
+| Employee concurrency | `reserve_employee_concurrency` | `release_employee_concurrency` | 基于 `(task_id, employee_id)` 幂等；重复释放返回 no-op |
 | Sandbox | `create_sandbox` | `destroy_sandbox` | 基于 `sandbox_id`；sandbox 已不存在返回 no-op |
 | Skill Bundle | `lock_skill_bundle` | `release_skill_bundle` | 基于 `bundle_id` |
 | Outbox 半提交 | `publish_event_pre` | `publish_compensating_event` | 发送 `*Compensated` 事件，消费者幂等处理 |
@@ -2117,7 +2117,7 @@ class JenkinsHarnessAdapter:
 
 ### 5.1 防污染反思机制（Anti-Pollution Reflection）
 
-PRD 痛点：外部 CI/CD 环境噪音（Flaky Tests）会让系统误以为产出"失败 → 修复 → 通过"，从而提炼出一条"伪经验"。这条伪经验会污染 Memory 库并向其他 Member 扩散。
+PRD 痛点：外部 CI/CD 环境噪音（Flaky Tests）会让系统误以为产出"失败 → 修复 → 通过"，从而提炼出一条"伪经验"。这条伪经验会污染 Memory 库并向其他 Employee 扩散。
 
 #### 5.1.1 Reflection Quarantine Buffer 设计
 
@@ -2177,7 +2177,7 @@ CREATE TABLE reflection_quarantine (
     consensus_outcome   VARCHAR(20),
     quarantined_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     released_at         TIMESTAMPTZ,
-    released_by         UUID,                                    -- 人工确认时为 reviewer member
+    released_by         UUID,                                    -- 人工确认时为 reviewer employee
     expire_at           TIMESTAMPTZ NOT NULL                     -- quarantined_at + M days
 );
 ```
@@ -2212,7 +2212,7 @@ class ReflectionQuarantineBuffer:
         synthesized = HarnessResult.from_consensus(record, consensus_outcome)
         self.reflection.enqueue(synthesized)
 
-    def manual_confirm(self, record_id: UUID, decision: HarnessOutcome, reviewer: MemberId):
+    def manual_confirm(self, record_id: UUID, decision: HarnessOutcome, reviewer: EmployeeId):
         record = self.repo.get(record_id)
         record.state = 'released_human'
         record.consensus_outcome = decision
@@ -2307,7 +2307,7 @@ class MemoryBatchNeedsVerifyEvent(VersionedDomainEvent):
 
 # Governance Context 创建 ReviewCase 时继承标记
 class ReviewCaseFactory:
-    def create_from_needs_verify(self, evt: MemoryBatchNeedsVerifyEvent, reviewer: MemberId) -> ReviewCase:
+    def create_from_needs_verify(self, evt: MemoryBatchNeedsVerifyEvent, reviewer: EmployeeId) -> ReviewCase:
         return ReviewCase(
             ...,
             triggered_by_system_meta=evt.triggered_by_system_meta,
@@ -2401,7 +2401,7 @@ class ArchitecturalFitnessTest:
 CREATE TABLE meta_activity_audit (
     id              UUID PRIMARY KEY,
     activity_kind   VARCHAR(32) NOT NULL,
-    actor_member_id UUID NOT NULL,
+    actor_employee_id UUID NOT NULL,
     target_id       UUID NOT NULL,
     operation       VARCHAR(32) NOT NULL,        -- approve | reject | merge | archive | sweep
     diff            JSONB,
@@ -2421,7 +2421,7 @@ def test_memory_review_does_not_seed_new_memory():
     candidate = create_memory_candidate(kind=Tier.PATTERNS)
 
     # 2. Memory Reviewer 审核（system_meta=True 的 Run）
-    reviewer = create_member(role='memory_reviewer')
+    reviewer = create_employee(role='memory_reviewer')
     review_run = run_review(candidate, reviewer, decision='approve')
     assert review_run.provenance.kind == ProvenanceKind.MEMORY_REVIEW
     assert review_run.provenance.system_meta is True
@@ -2440,14 +2440,14 @@ def test_memory_review_does_not_seed_new_memory():
 |---|---|---|
 | Memory 召回 < 2s | pgvector HNSW（m=16, ef_construction=64, ef_search=40）+ Redis 5min 缓存 + Top-K 截断 + 通道级超时降级（见 §2.5） | P95 召回延迟、缓存命中率、通道降级率 |
 | 10000+ Memory 条目 | 按 `scope_kind+scope_ref` 分区；冷数据归档到 OSS | 表大小、分区扫描占比 |
-| 100+ Member / 100+ Skill | Saga 水平扩展；Member Runtime Pool 按 `kind` 分池 | Worker 队列深度、调度延迟 |
+| 100+ Employee / 100+ Skill | Saga 水平扩展；Employee Runtime Pool 按 `kind` 分池 | Worker 队列深度、调度延迟 |
 | 异步验证 24h | Temporal Durable Timer + Workflow 状态持久化 | 挂起 Workflow 数量、TTL 命中率 |
 
 ### 5.4 风险登记册（Risk Register）
 
 | 风险 | 等级 | 缓解策略 | 监控指标 |
 |---|---|---|---|
-| Memory 污染传播 | 高 | 紧急废弃 + 影响面追溯 + 批量回滚 + 通知曾分配的 Member | `memory_recall_log` 反查 |
+| Memory 污染传播 | 高 | 紧急废弃 + 影响面追溯 + 批量回滚 + 通知曾分配的 Employee | `memory_recall_log` 反查 |
 | 异步 Webhook 风暴 | 中 | Kafka 缓冲 + 限流 + PostgreSQL webhook_inbox 幂等（替代 Redis） | Kafka Lag、webhook_inbox 重复拦截率 |
 | Saga Workflow 暴增 / History 膨胀 | 中 | Workflow 数量配额；Suspended TTL 强制；ContinueAsNew 防 History 溢出；僵尸扫描器兜底 | 活跃 Workflow 数、僵尸 Task 检出率 |
 | Skill 副作用碰撞 | 中 | 装配阶段冲突检测 + 资源锁（exclusive_lock） | 冲突拦截次数 |
@@ -2455,7 +2455,7 @@ def test_memory_review_does_not_seed_new_memory():
 | 单租户 Memory 库膨胀 | 中 | 周期 GC + 摘要压缩 + 长期未用降级 | 库内活跃比例 |
 | 跨上下文事件丢失 / 乱序 | 高 | Outbox + Kafka partition by entity_id + 投影水位 CAS + 死信队列 | DLQ 长度、投影水位满后率 |
 | 跨时区挂起超时误判 | 低 | Department-level `timeout_mode ∈ {natural, business_hours}` 配置 | 误失败 Task 数 |
-| Member 并发分配竞争 | 高 | Advisory Lock 双重锁策略（见 §3.2.1） | 并发超限事件数 |
+| Employee 并发分配竞争 | 高 | Advisory Lock 双重锁策略（见 §3.2.1） | 并发超限事件数 |
 | AI 执行脆中断脏状态 | 高 | 沙箱执行 + 补偿协议（见 §3.4.6） | 沙箱 destroyed vs merged 比率 |
 | Worker OOM 状态黑洞 | 高 | Activity heartbeat 30s + 重试策略 + 僵尸扫描器（见 §3.3.2） | heartbeat 丢失率、僵尸检出率 |
 | 级联失效图风暴 | 中 | 每跳扇出 200 + 总节点 1000 + 异步降级 + ★确定性排序锁序防死锁（见 §2.7） | BFS 降级事件频率、图查询 P99、死锁检测计数 |
@@ -2606,7 +2606,7 @@ class SandboxResourceManager:
                     self.metrics.count('sandbox_orphan_reaped')
 ```
 
-**SandboxPlacementPolicy**：优先选择负载最低且剩余磁盘最大的 host；所有 host 均达上限时 Saga 进入 ResourceWaitState（带超时，超时后 Workflow 转 Failed 不占用 Member concurrency）。
+**SandboxPlacementPolicy**：优先选择负载最低且剩余磁盘最大的 host；所有 host 均达上限时 Saga 进入 ResourceWaitState（带超时，超时后 Workflow 转 Failed 不占用 Employee concurrency）。
 
 ### 6.4 PostgreSQL 逻辑分库与逐步物理化
 
@@ -2614,7 +2614,7 @@ class SandboxResourceManager:
 
 | 逻辑库 | 所含表 | M1 状态 | M3 前状态 |
 |---|---|---|---|
-| `aiteamos_core` | memory_node, memory_edge, memory_embedding, memory_version, memory_feedback, memory_recall_log, conflict_case, skill, member, department, task, task_run, task_dependency, task_context_snapshot, harness_adapter, harness_invocation, review_case, memory_candidate, reflection_quarantine | 逻辑 schema `core.*` | 独立 PostgreSQL 实例 |
+| `aiteamos_core` | memory_node, memory_edge, memory_embedding, memory_version, memory_feedback, memory_recall_log, conflict_case, skill, employee, department, task, task_run, task_dependency, task_context_snapshot, harness_adapter, harness_invocation, review_case, memory_candidate, reflection_quarantine | 逻辑 schema `core.*` | 独立 PostgreSQL 实例 |
 | `aiteamos_event` | outbox, outbox_publish_watermark, projection_watermark, webhook_inbox, compensation_failure_dlq | 逻辑 schema `event.*` | 独立实例（高写入优化 fsync、大 wal_buffers） |
 | `aiteamos_meta` | meta_activity_audit, provenance_kind_registry, cascade_supernode_flag | 逻辑 schema `meta.*` | 独立实例 |
 
@@ -2647,7 +2647,7 @@ class SandboxResourceManager:
 
 **可交付性**：全部 v1.4 设计在单实例 PostgreSQL + 逻辑 schema (`core.*` / `event.*` / `meta.*`) 上可走通。
 
-**风险**：低。Saga 补偿链仅需 reserve/release_member_concurrency 一对 Activity 在 M1 即可证明闭环。
+**风险**：低。Saga 补偿链仅需 reserve/release_employee_concurrency 一对 Activity 在 M1 即可证明闭环。
 
 ### M2 Execution Loop（9.0/10）
 
@@ -2704,7 +2704,7 @@ CREATE TABLE skill (
     manifest        JSONB NOT NULL,
     status          VARCHAR(20) NOT NULL CHECK (status IN ('draft','published','recalibrating','deprecated','cancelled')),
     circuit_state   VARCHAR(10) NOT NULL DEFAULT 'closed' CHECK (circuit_state IN ('closed','half_open','open')),
-    owner_member_id UUID NOT NULL,
+    owner_employee_id UUID NOT NULL,
     entry_point     TEXT NOT NULL,                    -- Python 包路径
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (name, version_major, version_minor, version_patch)
@@ -2729,15 +2729,15 @@ CREATE TABLE skill_health_metric (
 CREATE TABLE department (
     id                      UUID PRIMARY KEY,
     name                    TEXT NOT NULL,
-    leader_member_id        UUID,
-    backup_leader_member_id UUID,
+    leader_employee_id        UUID,
+    backup_leader_employee_id UUID,
     timeout_mode            VARCHAR(16) NOT NULL DEFAULT 'natural'
         CHECK (timeout_mode IN ('natural','business_hours')),
     timezone                VARCHAR(64),
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE member (
+CREATE TABLE employee (
     id                  UUID PRIMARY KEY,
     kind                VARCHAR(8) NOT NULL CHECK (kind IN ('ai','human')),
     department_id       UUID NOT NULL REFERENCES department(id),
@@ -2748,13 +2748,13 @@ CREATE TABLE member (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE member_memory_assignment (
-    member_id           UUID NOT NULL REFERENCES member(id),
+CREATE TABLE employee_memory_assignment (
+    employee_id           UUID NOT NULL REFERENCES employee(id),
     memory_id           UUID NOT NULL REFERENCES memory_node(id),
     assigned_by         UUID NOT NULL,
     assigned_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_recalled_at    TIMESTAMPTZ,
-    PRIMARY KEY (member_id, memory_id)
+    PRIMARY KEY (employee_id, memory_id)
 );
 ```
 
@@ -2770,7 +2770,7 @@ CREATE TABLE task (
     description         TEXT NOT NULL,
     state               VARCHAR(20) NOT NULL DEFAULT 'draft',
     priority            VARCHAR(4) NOT NULL DEFAULT 'p2',
-    assigned_member_id  UUID REFERENCES member(id),
+    assigned_employee_id  UUID REFERENCES employee(id),
     workflow_id         VARCHAR(128),                    -- Temporal Workflow ID（僵尸扫描用）
     deliverable_spec    JSONB NOT NULL,
     declared_skills     UUID[] NOT NULL DEFAULT '{}',
@@ -2786,7 +2786,7 @@ CREATE INDEX idx_task_state_priority ON task(state, priority) WHERE state IN ('r
 CREATE TABLE task_run (
     id                  UUID PRIMARY KEY,
     task_id             TEXT NOT NULL REFERENCES task(id),
-    member_id           UUID NOT NULL REFERENCES member(id),
+    employee_id           UUID NOT NULL REFERENCES employee(id),
     snapshot_id         UUID NOT NULL,                    -- ★ 不可变快照
     state               VARCHAR(20) NOT NULL,
     provenance_kind     VARCHAR(32) NOT NULL,
@@ -2877,7 +2877,7 @@ CREATE TABLE review_case (
     id                  UUID PRIMARY KEY,
     target_kind         VARCHAR(32) NOT NULL,
     target_id           UUID NOT NULL,
-    reviewer_member_id  UUID NOT NULL REFERENCES member(id),
+    reviewer_employee_id  UUID NOT NULL REFERENCES employee(id),
     verdict             VARCHAR(16),
     reason              TEXT,
     correction          TEXT,
@@ -2888,7 +2888,7 @@ CREATE TABLE review_case (
 CREATE TABLE meta_activity_audit (   -- 见 §5.2.4
     id              UUID PRIMARY KEY,
     activity_kind   VARCHAR(32) NOT NULL,
-    actor_member_id UUID NOT NULL,
+    actor_employee_id UUID NOT NULL,
     target_id       UUID NOT NULL,
     operation       VARCHAR(32) NOT NULL,
     diff            JSONB,
@@ -2991,7 +2991,7 @@ CREATE INDEX idx_cascade_supernode_unresolved
 | Method | Path | 说明 |
 |---|---|---|
 | POST | `/api/v1/tasks` | 创建 Task（→ Draft） |
-| POST | `/api/v1/tasks/{id}/assign` | 分配 Member（→ Assigned） |
+| POST | `/api/v1/tasks/{id}/assign` | 分配 Employee（→ Assigned） |
 | POST | `/api/v1/tasks/{id}/runs` | 启动 Run（→ Running，自动装配 Snapshot） |
 | POST | `/api/v1/runs/{id}/deliverable` | 提交交付物（→ Verifying） |
 | POST | `/api/v1/harness/callback` | Harness Webhook 入站（HMAC 校验） |
@@ -3009,7 +3009,7 @@ CREATE INDEX idx_cascade_supernode_unresolved
 | 里程碑 | 必交付的架构组件 | 验收口径 |
 |---|---|---|
 | **M1 Core Foundation** | Knowledge / Capability / Workforce 三个 Bounded Context；PostgreSQL + pgvector (HNSW)；Skill SPI v1；投影水位表 + IdempotentProjectionConsumer；跨上下文事件版本化；ACL 反腐败层；MemoryEdge 独立聚合；**逻辑 schema 分库（`core.*` / `event.*` / `meta.*`）**；**provenance_kind_registry** | 单 Task 全链路（Draft→Done）走通；Memory CRUD + 版本管理；不变量 N1/N6 已生效；Edge CRUD 不锁 Node；新增 provenance_kind 仅需 INSERT |
-| **M2 Execution Loop** | Task 状态机 + Saga（Temporal，带 heartbeat）+ Member Runtime + Cost Interceptor Chain（StreamingTokenMeter check_interval=10）；**Saga 补偿链（§3.5）**；沙箱执行协议 + **SandboxResourceManager**；Advisory Lock 并发守卓；同步 Harness Adapter；元递归隔离（应用层 + DB CHECK + Trigger）；僵尸扫描器 | 单 Run Cost 硬熔断可触发且沙箱干净回滚；**补偿栈为空 fitness test 通过**；非法 system_meta 组合被 DB 拒；Worker OOM 30s 内感知 |
+| **M2 Execution Loop** | Task 状态机 + Saga（Temporal，带 heartbeat）+ Employee Runtime + Cost Interceptor Chain（StreamingTokenMeter check_interval=10）；**Saga 补偿链（§3.5）**；沙箱执行协议 + **SandboxResourceManager**；Advisory Lock 并发守卓；同步 Harness Adapter；元递归隔离（应用层 + DB CHECK + Trigger）；僵尸扫描器 | 单 Run Cost 硬熔断可触发且沙箱干净回滚；**补偿栈为空 fitness test 通过**；非法 system_meta 组合被 DB 拒；Worker OOM 30s 内感知 |
 | **M3 Verification & Review** | 异步 Harness Adapter + Webhook 入站（Outbox 原子写）+ **WebhookRateLimiter** + Suspended 状态机 + ContinueAsNew（含 signal 补查）+ Reflection Quarantine Buffer；**DB-Saga 同生同终（§3.3.6）**；**Outbox Relay 分片化（§6.1）**；**Outbox / Webhook 独立物理库** | 24h 异步验证走通；Flaky 隔离可自动/人工释放；Webhook 重复投递 100% 幂等；在限流保护下恶意压测不击穿；Relay lag P99 ±3σ < 30s；DB expired 与 Saga Failed 同期 |
 | **M4 Intelligence & Growth** | 级联失效（扇出限制 + 确定性锁序 + 异步降级）+ 置信度分批衰减（LIMIT 5000 游标）+ 关系图召回 + 召回审计；Memory 健康度 Dashboard；**§6.5 SPOF 防护总览 Chaos Engineering 验收** | 代码变更触发 Facts 批量降级（超级节点不风暴、不死锁）；批量衰减 50万 Memory 在 5min 内完成不冲击主库；Chaos drill：单点故障 60s 内业务路径恢复 |
 
@@ -3029,7 +3029,7 @@ CREATE INDEX idx_cascade_supernode_unresolved
 
 | 修复项 | 级别 | 章节 | 说明 |
 |---|---|---|---|
-| Saga 资源泄漏 | CRITICAL | §3.5 | 引入 CompensationStack + Compensation Activity 链 + DLQ + fitness test；Member/Sandbox/Skill/Outbox 均压入补偿栈 |
+| Saga 资源泄漏 | CRITICAL | §3.5 | 引入 CompensationStack + Compensation Activity 链 + DLQ + fitness test；Employee/Sandbox/Skill/Outbox 均压入补偿栈 |
 | Outbox Relay SPOF | CRITICAL | §6.1 | 按 entity_id hash 分 16 分区；Advisory Lock 互斥；分片水位 CAS；背压 503 + Retry-After |
 | harness_invocation GC 与 Saga 状态分裂 | CRITICAL | §3.3.6 | DeadlineSweeper 发领域事件驱动 Saga 转 Failed；软删除后后台归档；不变量 N8 |
 | Webhook DDoS / inbox 无限增长 | MAJOR | §6.2 | per-adapter 令牌桶 + payload<256KB + inbox 30 天 TTL + GC |

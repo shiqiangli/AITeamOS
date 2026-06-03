@@ -1,8 +1,8 @@
 import { apiRequest } from "./client";
 
-export interface WorkItemReport {
+export interface TicketReport {
   id: string;
-  reporter_member_id: string;
+  reporter_employee_id: string;
   reporter_role: string;
   content: string;
   evidence: string[];
@@ -10,25 +10,25 @@ export interface WorkItemReport {
   created_at: string;
 }
 
-export interface WorkItem {
+export interface Ticket {
   id: string;
   title: string;
   description: string;
   status: string;
-  assigned_member_id: string;
+  assigned_employee_id: string;
   assigned_role: string;
-  validation_member_id: string;
+  validation_employee_id: string;
   validation_role: string;
   knowledge_refs: string[];
   code_repository_ids: string[];
   source_thread_id: string;
   source_run_id: string;
-  reports: WorkItemReport[];
+  reports: TicketReport[];
   created_at: string;
   updated_at: string;
   saved_path: string;
 }
 
-export function listWorkItems(): Promise<WorkItem[]> {
-  return apiRequest<WorkItem[]>("/work-items");
+export function listTickets(): Promise<Ticket[]> {
+  return apiRequest<Ticket[]>("/tickets");
 }

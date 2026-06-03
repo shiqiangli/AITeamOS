@@ -2,7 +2,7 @@
 
 **Status**: P0 interaction decision  
 **Date**: 2026-06-03  
-**Scope**: Member Chat Workbench, secondary entity views, and first tool behavior
+**Scope**: Employee Chat Workbench, secondary entity views, and first tool behavior
 
 ---
 
@@ -14,7 +14,7 @@ Chat is the primary operational surface. Entity pages are secondary surfaces for
 
 This means the same capability may appear in two places:
 
-- In Chat, the user asks a member to do something.
+- In Chat, the user asks a employee to do something.
 - In an entity page, the user inspects or manually adjusts the underlying asset.
 
 Both surfaces should call the same underlying action or tool contract whenever possible.
@@ -29,7 +29,7 @@ Chat handles intent, delegation, tool execution, and next-step recommendations.
 
 Typical requests:
 
-- "Clara, list all members."
+- "Clara, list all employees."
 - "Alex, please move ticket AIT-1234 forward and report back."
 - "Create a skill for nightly regression log triage and assign it to PV."
 
@@ -42,12 +42,12 @@ Chat responses should include:
 
 ### Entity Views
 
-Entity views are not the main path for work execution.
+Entity views are not the main path for Ticket execution.
 
 They are useful when the user needs to:
 
 - Browse or filter many assets.
-- Compare member or skill details.
+- Compare employee or skill details.
 - Audit what changed and why.
 - Debug trace, runtime, memory, or permission behavior.
 - Make a manual correction when Chat is too indirect.
@@ -61,14 +61,14 @@ P0 entity views can be read-only until a clear manual edit workflow is needed.
 The navigation should keep Chat first and keep other areas available as supporting views:
 
 - Chat
-- Members
+- Employees
 - Skills
 - Knowledge
 - Settings
 
 P0 should not keep a separate Home page. The empty hash route should open Chat directly, because the first screen should be the operational workbench.
 
-Runtime/provider settings belong in Settings because they are Kernel running conditions, not the operational work surface. Chat should keep a compact runtime indicator and a deep link to `#/settings/runtimes`.
+Runtime/provider settings belong in Settings because they are Kernel running conditions, not the operational Ticket surface. Chat should keep a compact runtime indicator and a deep link to `#/settings/runtimes`.
 
 ---
 
@@ -89,19 +89,19 @@ P0 tool routing should not depend on fixed command phrasing. When a configured m
 
 ---
 
-## 5. `list_members`
+## 5. `list_employees`
 
-`list_members` is the first local tool because it proves the Chat-plus-entity-view pattern.
+`list_employees` is the first local tool because it proves the Chat-plus-entity-view pattern.
 
-When the user asks to list members, Clara should answer in the current conversation with:
+When the user asks to list employees, Clara should answer in the current conversation with:
 
-- Total member count.
-- One-line summary per member.
-- Skill count and runtime mode per member.
+- Total employee count.
+- One-line summary per employee.
+- Skill count and runtime mode per employee.
 - Obvious team gaps when built-in roles are missing.
-- Links to `#/members` and specific member anchors.
+- Links to `#/employees` and specific employee anchors.
 
-The Members page should show the same file-backed member source in a browseable view. It should not own a separate member model or duplicate action logic.
+The Employees page should show the same file-backed employee source in a browseable view. It should not own a separate employee model or duplicate action logic.
 
 P0 behavior:
 
@@ -110,23 +110,28 @@ P0 behavior:
 - Conversation and trace are still persisted.
 - The streaming API emits normal `start`, `delta`, and `final` events for the tool result.
 
-## 6. `create_member` and `edit_member_profile`
+## 6. `create_employee` and `edit_employee_profile`
 
-Member profile changes should start in Chat during P0.
+Employee profile changes should start in Chat during P0.
+
+Clara is the protected bootstrap system employee. AITeamOS creates her profile
+automatically during initialization, sets her role to `AI Team OS Manager`,
+and never allows `delete_employee` to remove her. Clara's system
+identity fields stay fixed; other AI Employees are normal file-backed profiles.
 
 Examples:
 
-- "Clara, create an AI PV member named Victor, responsible for regression and harness fail triage."
+- "Clara, create an AI PV employee named Victor, responsible for regression and harness fail triage."
 - "Clara, update Alex summary to backend API implementation owner."
 - "Clara, add skill test-engineering to Alex."
 
 P0 behavior:
 
-- `create_member` writes a new `.aiteamos/members/<id>.yaml` file.
-- `edit_member_profile` updates supported safe fields in an existing member profile: display name, role, summary, skills, and runtime mode.
+- `create_employee` writes a new `.aiteamos/employees/<id>.yaml` file.
+- `edit_employee_profile` updates supported safe fields in an existing employee profile: display name, role, summary, skills, and runtime mode.
 - Both tools use LLM planning when available, execute locally, and write trace events.
-- The chat response includes the changed fields, saved profile path, and `#/members/<id>` deep link.
-- The Members page remains a read-only inspection surface for confirming profile state.
+- The chat response includes the changed fields, saved profile path, and `#/employees/<id>` deep link.
+- The Employees page remains a read-only inspection surface for confirming profile state.
 
 ## 7. Skill tools
 
@@ -143,20 +148,20 @@ P0 behavior:
 
 - `list_skills` reads local `.aiteamos/skills/*/SKILL.md` files.
 - `create_skill` writes a new `.aiteamos/skills/<id>/SKILL.md` file.
-- `assign_skill_to_member` updates the target member profile's `skills` list.
-- `delete_skill` removes the skill directory and removes that skill id from all member profiles.
+- `assign_skill_to_employee` updates the target employee profile's `skills` list.
+- `delete_skill` removes the skill directory and removes that skill id from all employee profiles.
 - The Skills page remains a read-only inspection surface for confirming file-backed state.
 
-## 8. Member thread persistence
+## 8. Employee thread persistence
 
-Each member owns a stable default chat thread, such as `member-clara-default`.
+Each employee owns a stable default chat thread, such as `employee-clara-default`.
 
 P0 behavior:
 
-- Opening Chat selects the last active member if available; otherwise Clara.
-- Switching member loads that member's active thread through assistant-ui history.
-- Leaving Chat for Members or Skills and returning restores the same member thread.
-- Starting a new thread calls the backend thread API; the backend creates the member-scoped thread id and marks it active.
+- Opening Chat selects the last active employee if available; otherwise Clara.
+- Switching employee loads that employee's active thread through assistant-ui history.
+- Leaving Chat for Employees or Skills and returning restores the same employee thread.
+- Starting a new thread calls the backend thread API; the backend creates the employee-scoped thread id and marks it active.
 - The Thread panel lists backend-owned thread metadata, including title, message count, updated time, and active state.
 - The backend remains the canonical transcript store under `.aiteamos/conversations/<thread_id>.jsonl`.
 - The backend remains the canonical thread metadata store under `.aiteamos/threads/index.json`.
@@ -171,9 +176,9 @@ recall.
 
 P0 behavior:
 
-- Chat responses can create memory candidates when a turn contains WorkItem,
+- Chat responses can create memory candidates when a turn contains Ticket,
   decision, root-cause, style, architecture, or validation signals.
-- Candidates are not injected into member context until approved.
+- Candidates are not injected into employee context until approved.
 - Approved memories are available to Chat through the local mirror and can be
   ingested into Graphiti when Graphiti and Neo4j are configured.
 - Graphiti `disabled` means the package may be installed, but the Graphiti
@@ -182,70 +187,76 @@ P0 behavior:
   provide only the required runtime choices and credentials; Neo4j and
   Graphiti remain internal AITeamOS dependencies.
 - Memory page shows Graphiti status, candidates, approved memories, search
-  results, source trace, scope, confidence, member assignment, and ingestion
+  results, source trace, scope, confidence, employee assignment, and ingestion
   state.
 - LangGraph checkpoint remains thread-scoped state; it is not the long-term
   memory backend.
 
-## 10. Knowledge navigation
+## 10. Library Navigation
 
-Memory is promoted into a first-level Knowledge area.
+Skills, Knowledge, Tools, and Connectors are grouped under a first-level
+Library area. This keeps AI Team assets together instead of exposing
+implementation concepts as competing top-level navigation items.
 
 P0 behavior:
 
-- Sidebar shows `Knowledge` as the first-level entry.
-- Expanding Knowledge reveals `Docs`, `Memories`, `Decisions`, and `Review Queue`.
+- Sidebar shows `Library` as the first-level entry.
+- Expanding Library reveals `Knowledge`, `Skills`, `Tools`, and `Connectors`.
+- Library / Knowledge reveals `Docs`, `Memories`, `Decisions`, and `Review Queue`.
 - `Docs` reads local Markdown first and shows Plane Pages as the external Docs
   source once the Plane connector is configured. It does not inspect source code
   files.
 - `Memories` shows approved Graphiti/file-backed memories.
 - `Decisions` shows accepted decision documents under `.aiteamos/knowledge/decisions`.
 - `Review Queue` shows pending candidate items, initially memory candidates.
+- `Skills` shows local SKILL.md playbooks and employee assignments.
+- `Tools` shows executable local tools, MCP capabilities, and agent executors.
+- `Connectors` shows MCP/external capability sources and links to Settings for configuration.
 - A unified search calls `search_knowledge` across Docs, Decisions, and approved Memories.
 - Docs detail surfaces may show an `Open in Plane` deep link for Plane Pages, but
   AITeamOS does not clone Plane's full Page editor in P0.
 
-## 11. Work navigation
+## 11. Tickets navigation
 
-Work is promoted into a first-level AI running view over local P0 WorkItems and
+Ticket navigation is promoted into a first-level AI running view over local P0 Tickets and
 the Plane connector. It is not a replacement project-management UI.
 
 P0 behavior:
 
-- Sidebar shows `Work` as the first-level entry.
-- Expanding Work reveals `Tickets`, `Flow Trace`, and `Reports`.
+- Sidebar shows `Tickets` as the first-level entry.
+- Expanding Tickets reveals `Tickets`, `Flow Trace`, and `Reports`.
 - `Tickets` shows Plane connector readiness, workspace/project configuration,
-  local WorkItems, assignee/validation signals, report counts, and `Open in
+  local Tickets, assignee/validation signals, report counts, and `Open in
   Plane` when a Plane base URL is configured.
-- `Flow Trace` shows the Clara -> Member -> PV -> Clara path for a selected
-  WorkItem. P0 can start with local traces and empty states.
-- `Reports` shows Member/PV reports written back to WorkItems.
+- `Flow Trace` shows the Clara -> Employee -> PV -> Clara path for a selected
+  Ticket. P0 can start with local traces and empty states.
+- `Reports` shows Employee/PV reports written back to Tickets.
 - Complex ticket editing, permissions, project planning, and page authoring stay
   in Plane.
 
-## 12. Local WorkItem delegation
+## 12. Local Ticket delegation
 
-P0 uses local WorkItems to prove the Clara-led flow before wiring a real
-external WorkItem/Docs connector. The fixed default external target is Plane:
-Plane work items map to WorkItems, and Plane pages map to Docs. Redmine,
-Jira / Confluence, and OpenProject are not implemented unless AITeamOS later
+P0 uses local Tickets to prove the Clara-led flow before wiring a real
+external Ticket/Docs connector. The fixed default external target is Plane:
+Plane tickets map to Tickets, and Plane pages map to Docs. Redmine,
+Ticket / Docs, and OpenProject are not implemented unless AITeamOS later
 needs broad ticket-system compatibility.
 
 P0 behavior:
 
-- Clara can create a local WorkItem from chat.
-- The WorkItem records title, description, assigned member or role, validation
-  member or role, source thread/run, and Knowledge refs.
-- The assigned Member is responsible for technical investigation and repo state.
+- Clara can create a local Ticket from chat.
+- The Ticket records title, description, assigned employee or role, validation
+  employee or role, source thread/run, and Knowledge refs.
+- The assigned Employee is responsible for technical investigation and repo state.
   Clara does not inspect repo state directly.
-- Member/PV outputs are recorded as WorkItem reports.
+- Employee/PV outputs are recorded as Ticket reports.
 - Clara summarizes and cross-checks reports with Knowledge through the LLM,
   while AITeamOS only persists the evidence and trace.
 
 ## 13. Settings navigation
 
 Settings is the first-level configuration and operations area for Kernel
-running conditions. It is not the primary work surface.
+running conditions. It is not the primary Ticket surface.
 
 P0 behavior:
 
@@ -256,36 +267,35 @@ P0 behavior:
   OpenAI.
 - `Agent Executors` shows external coding/agent runtimes such as Codex, Cursor,
   Qoder, and Claude Code.
-- `Capabilities` is the read-only capability registry view. It groups local
-  tools, MCP connectors, MCP capabilities, and planned agent executors, and it
-  explains the product boundary between Knowledge, Skill, Tool, MCP, and
-  Executor. It is for planning, permission review, health, and debugging, not
-  for ordinary work execution.
+- `Capabilities` remains an internal read-only registry surfaced through
+  Library / Tools and Library / Connectors. It explains the product boundary
+  between Knowledge, Skill, Tool, MCP, and Executor without becoming a separate
+  first-level navigation item.
 - `Code Repositories` stores the thin mapping from Plane workspace/project to
   repo source. Supported source types are local path, GitHub, Gitea, GitLab, and
   generic Git URL. Local paths get a lightweight `.git` health check; remote
   repositories are recorded for provider connectors and agent executors.
-- Clara can call `list_code_repositories` from Chat. `create_work_item` can
-  attach `code_repository_ids` so the delegated Member knows which repo context
+- Clara can call `list_code_repositories` from Chat. `create_ticket` can
+  attach `code_repository_ids` so the delegated Employee knows which repo context
   to inspect.
-- Non-Clara Members can call `inspect_code_repository` against configured local
-  repositories. The tool searches/reads bounded text files and, when a WorkItem
-  id is present, records a WorkItem report with repo evidence. Clara receives a
+- Non-Clara Employees can call `inspect_code_repository` against configured local
+  repositories. The tool searches/reads bounded text files and, when a Ticket
+  id is present, records a Ticket report with repo evidence. Clara receives a
   boundary message if asked to inspect repo state directly.
 - `MCP Connectors` reads the file-backed connector registry and shows each
   connector's transport, readiness, capabilities, permissions, and required
   settings. It is the entry point for Plane, GitHub, filesystem, and CI/Harness
   connector wiring.
 - Connector settings expose API base URL, credentials, readiness, and
-  capabilities. The UI should not branch WorkItem/Docs behavior into local
+  capabilities. The UI should not branch Ticket/Docs behavior into local
   versus cloud paths; that is an endpoint concern hidden behind connector
   adapters.
 - `Knowledge Backend` owns Graphiti enablement, Neo4j connection settings,
   Graphiti group id, and the LLM key used by Graphiti ingestion/search.
 - `Secrets` shows local configured/missing secret state without revealing secret
   values.
-- `Defaults` shows member runtime modes and default thread ids.
-- `Health` summarizes runtime, Knowledge, Capabilities, MCP, Memory/Graphiti,
-  repository, and member readiness.
+- `Defaults` shows employee runtime modes and default thread ids.
+- `Health` summarizes runtime, Library/Knowledge, Capabilities, MCP, Memory/Graphiti,
+  repository, and employee readiness.
 - Chat keeps only a compact runtime indicator plus a link to
   `#/settings/runtimes`.

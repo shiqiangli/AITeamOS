@@ -32,7 +32,7 @@ def test_memory_candidate_approval_and_search_are_file_backed(tmp_path, monkeypa
             "scope_ref": "aiteamos",
             "memory_type": "principle",
             "confidence": 0.9,
-            "member_ids": ["clara"],
+            "employee_ids": ["clara"],
             "tags": ["coding-style"],
         },
     )
@@ -112,14 +112,14 @@ def test_chat_proposes_memory_candidate_and_recalls_approved_memory(tmp_path, mo
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "stub")
 
-    members_dir = workspace / ".aiteamos" / "members"
-    members_dir.mkdir(parents=True)
-    (members_dir / "clara.yaml").write_text(
+    employees_dir = workspace / ".aiteamos" / "employees"
+    employees_dir.mkdir(parents=True)
+    (employees_dir / "clara.yaml").write_text(
         """
 id: clara
 display_name: Clara
 kind: ai
-role: AI Team Lead
+role: AI Team OS Manager
 summary: Coordinator
 skills: []
 runtime:
@@ -134,9 +134,9 @@ runtime:
     first = client.post(
         "/api/v1/chat/messages",
         json={
-            "message": "Clara，请推进 Jira SV-4321，并把 root cause 和验证结论沉淀下来。",
+            "message": "Clara，请推进 Ticket SV-4321，并把 root cause 和验证结论沉淀下来。",
             "thread_id": "memory-chat-test",
-            "target_member_id": "clara",
+            "target_employee_id": "clara",
         },
     )
     assert first.status_code == 200
@@ -147,7 +147,7 @@ runtime:
     assert candidates.status_code == 200
     assert len(candidates.json()) == 1
     candidate_id = candidates.json()[0]["id"]
-    assert candidates.json()[0]["scope_kind"] == "jira"
+    assert candidates.json()[0]["scope_kind"] == "ticket"
     assert candidates.json()[0]["scope_ref"] == "SV-4321"
 
     approved = client.post(f"/api/v1/memory/candidates/{candidate_id}/approve")
@@ -158,7 +158,7 @@ runtime:
         json={
             "message": "Clara，继续处理 SV-4321。",
             "thread_id": "memory-chat-test",
-            "target_member_id": "clara",
+            "target_employee_id": "clara",
         },
     )
     assert second.status_code == 200

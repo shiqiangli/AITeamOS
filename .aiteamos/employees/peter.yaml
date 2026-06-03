@@ -11,7 +11,7 @@ skills:
 - validation-strategy
 memory_scopes:
 - project
-- member:peter
+- employee:peter
 runtime:
   mode: external_or_file_stub
   provider_identity: peter
@@ -23,7 +23,7 @@ permissions:
 - read_validation_evidence
 handoff_rules:
 - Ask for human approval before destructive or externally visible actions.
-- Escalate cross-member coordination needs to Clara.
+- Escalate cross-employee coordination needs to Clara.
 - Escalate architecture ambiguity to AI Architect.
 created_at: '2026-06-03T03:12:01.039725+00:00'
 updated_at: '2026-06-03T03:12:01.039736+00:00'

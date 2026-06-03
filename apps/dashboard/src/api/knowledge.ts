@@ -17,7 +17,7 @@ export interface DecisionRecord {
   context: string;
   decision: string;
   consequences: string;
-  linked_work_items: string[];
+  linked_tickets: string[];
   linked_memories: string[];
   created_at: string;
   updated_at: string;

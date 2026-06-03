@@ -1,0 +1,632 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  Bot,
+  Brain,
+  ChevronRight,
+  Clock3,
+  Database,
+  MessageSquare,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  UserCheck,
+  Users,
+  Wrench,
+  X,
+} from "lucide-react";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Select } from "../../components/ui/select";
+import {
+  ErrorState,
+  LoadingState,
+  navigateTo,
+} from "../../components/shared";
+import { listChatEmployees, listChatThreads, type ChatEmployeeSummary, type ChatThreadListResponse } from "../../api/chat";
+import { getCapabilities, type CapabilityRecord, type CapabilityRegistryResponse } from "../../api/capabilities";
+import { cn } from "@/lib/utils";
+
+type DetailTab = "overview" | "work" | "capabilities" | "knowledge" | "runtime";
+
+const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
+  { key: "overview", label: "Overview" },
+  { key: "work", label: "Work" },
+  { key: "capabilities", label: "Skills & Tools" },
+  { key: "knowledge", label: "Knowledge" },
+  { key: "runtime", label: "Runtime" },
+];
+
+function isTechnicalEmployee(employee: ChatEmployeeSummary): boolean {
+  const role = employee.role.toLowerCase();
+  return ["rd", "pv", "qa", "architect", "engineer", "implementer"].some((token) => role.includes(token));
+}
+
+function capabilitiesForEmployee(employee: ChatEmployeeSummary | null, registry: CapabilityRegistryResponse | null): CapabilityRecord[] {
+  if (!employee) return [];
+  const capabilities = registry?.capabilities ?? [];
+  const isClara = employee.id === "clara";
+  return capabilities.filter((capability) => {
+    if (!capability.enabled) return false;
+    if (isClara) return capability.kind === "local_tool" || capability.kind === "mcp_capability";
+    if (capability.kind === "agent_executor") return isTechnicalEmployee(employee);
+    if (capability.kind === "mcp_connector") return false;
+    if (capability.kind === "mcp_capability") return capability.configured;
+    return [
+      "search_knowledge",
+      "list_tickets",
+      "record_ticket_report",
+      "list_code_repositories",
+      "inspect_code_repository",
+    ].includes(capability.id);
+  });
+}
+
+function capabilityVariant(capability: CapabilityRecord): "success" | "warning" | "secondary" | "outline" {
+  if (!capability.configured) return "outline";
+  if (capability.status === "ready") return "success";
+  if (capability.status === "planned") return "warning";
+  return "secondary";
+}
+
+function formatThreadTime(value?: string | null): string {
+  if (!value) return "No activity";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "No activity";
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function latestThread(threads?: ChatThreadListResponse | null) {
+  return threads?.threads?.[0] ?? null;
+}
+
+function threadCount(threads?: ChatThreadListResponse | null): number {
+  return threads?.threads?.length ?? 0;
+}
+
+function totalMessages(threads?: ChatThreadListResponse | null): number {
+  return threads?.threads?.reduce((sum, thread) => sum + (thread.message_count ?? 0), 0) ?? 0;
+}
+
+function employeeInitial(employee: ChatEmployeeSummary): string {
+  return (employee.display_name || employee.id || "?").trim().charAt(0).toUpperCase() || "?";
+}
+
+function employeeState(employee: ChatEmployeeSummary, threads?: ChatThreadListResponse | null): {
+  label: string;
+  variant: "success" | "warning" | "secondary" | "outline";
+} {
+  if (employee.id === "clara") return { label: "operating", variant: "success" };
+  if (totalMessages(threads) > 0) return { label: "active", variant: "success" };
+  return { label: "ready", variant: "outline" };
+}
+
+function roleGroup(employee: ChatEmployeeSummary): string {
+  const role = employee.role.toLowerCase();
+  if (employee.id === "clara" || role.includes("manager") || role.includes("admin")) return "Operations";
+  if (role.includes("rd") || role.includes("engineer") || role.includes("implementer")) return "Engineering";
+  if (role.includes("pv") || role.includes("qa") || role.includes("validation")) return "Validation";
+  if (role.includes("architect") || role.includes("lead")) return "Architecture";
+  return "Specialist";
+}
+
+function runtimeLabel(employee: ChatEmployeeSummary): string {
+  return employee.runtime_mode.replace(/_/g, " ");
+}
+
+function runtimeShortLabel(employee: ChatEmployeeSummary): string {
+  if (employee.runtime_mode.includes("deepseek")) return "DeepSeek";
+  if (employee.runtime_mode.includes("openai")) return "OpenAI";
+  if (employee.runtime_mode.includes("stub")) return "Fallback";
+  return employee.runtime_mode;
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Users;
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+      </div>
+      <div className="text-2xl font-semibold leading-none">{value}</div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex items-start justify-between gap-3 border-b py-2 text-sm last:border-b-0">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate text-right font-medium" title={String(value)}>{value}</span>
+    </div>
+  );
+}
+
+function EmployeeAvatar({ employee, size = "md" }: { employee: ChatEmployeeSummary; size?: "sm" | "md" | "lg" }) {
+  return (
+    <div className={cn(
+      "flex shrink-0 items-center justify-center rounded-md bg-primary font-semibold text-primary-foreground",
+      size === "sm" && "h-8 w-8 text-xs",
+      size === "md" && "h-10 w-10 text-sm",
+      size === "lg" && "h-12 w-12 text-base",
+    )}>
+      {employeeInitial(employee)}
+    </div>
+  );
+}
+
+function EmployeeDrawer({
+  capabilities,
+  employee,
+  threads,
+}: {
+  capabilities: CapabilityRecord[];
+  employee: ChatEmployeeSummary;
+  threads: ChatThreadListResponse | null;
+}) {
+  const [tab, setTab] = useState<DetailTab>("overview");
+  const latest = latestThread(threads);
+  const state = employeeState(employee, threads);
+  const readyCapabilities = capabilities.filter((capability) => capability.configured && capability.status === "ready");
+  const toolCapabilities = capabilities.filter((capability) => capability.kind !== "agent_executor");
+
+  return (
+    <aside className="absolute inset-y-0 right-0 z-20 flex w-full max-w-[34rem] flex-col border-l bg-background shadow-xl">
+      <div className="border-b p-4">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <EmployeeAvatar employee={employee} size="lg" />
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <h3 className="truncate text-lg font-semibold">{employee.display_name}</h3>
+                <Badge variant={state.variant} className="shrink-0">{state.label}</Badge>
+              </div>
+              <p className="truncate text-sm text-muted-foreground">{employee.role}</p>
+              <p className="mt-1 truncate text-xs text-muted-foreground">{employee.id}</p>
+            </div>
+          </div>
+          <Button type="button" variant="ghost" size="icon" onClick={() => navigateTo("employees")} title="Close details">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" onClick={() => navigateTo("chat", employee.id)}>
+            <MessageSquare className="h-4 w-4" />
+            Chat
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("library", "skills")}>
+            <Sparkles className="h-4 w-4" />
+            Skills
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("library", "tools")}>
+            <Wrench className="h-4 w-4" />
+            Tools
+          </Button>
+        </div>
+      </div>
+
+      <div className="border-b px-3">
+        <div className="flex gap-1 overflow-hidden">
+          {DETAIL_TABS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setTab(item.key)}
+              className={cn(
+                "min-w-0 border-b-2 px-2 py-2 text-xs font-medium transition-colors",
+                tab === item.key
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <span className="block truncate">{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {tab === "overview" && (
+          <div className="space-y-4">
+            <section className="rounded-md border p-4">
+              <h4 className="mb-2 text-sm font-semibold">Mission</h4>
+              <p className="text-sm leading-6 text-muted-foreground">
+                {employee.summary || "No mission summary configured yet."}
+              </p>
+            </section>
+
+            <section className="rounded-md border p-4">
+              <h4 className="mb-2 text-sm font-semibold">Identity</h4>
+              <InfoRow label="Role group" value={roleGroup(employee)} />
+              <InfoRow label="Kind" value={employee.kind} />
+              <InfoRow label="Runtime" value={runtimeShortLabel(employee)} />
+              <InfoRow label="Provider thread" value={employee.preserve_provider_thread ? "preserved" : "per run"} />
+            </section>
+
+            <section className="grid gap-3 sm:grid-cols-3">
+              <StatCard icon={MessageSquare} label="Threads" value={threadCount(threads)} />
+              <StatCard icon={Activity} label="Messages" value={totalMessages(threads)} />
+              <StatCard icon={Wrench} label="Capabilities" value={capabilities.length} />
+            </section>
+          </div>
+        )}
+
+        {tab === "work" && (
+          <div className="space-y-4">
+            <section className="rounded-md border p-4">
+              <h4 className="mb-2 text-sm font-semibold">Current Work Signal</h4>
+              {latest ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
+                  onClick={() => navigateTo("chat", employee.id)}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{latest.title || latest.id}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {latest.message_count} msgs · last {formatThreadTime(latest.last_message_at || latest.updated_at)}
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              ) : (
+                <p className="text-sm text-muted-foreground">No thread activity yet.</p>
+              )}
+            </section>
+
+            <section className="rounded-md border p-4">
+              <h4 className="mb-3 text-sm font-semibold">Recent Threads</h4>
+              {threads?.threads?.length ? (
+                <div className="space-y-2">
+                  {threads.threads.slice(0, 8).map((thread) => (
+                    <button
+                      key={thread.id}
+                      type="button"
+                      className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
+                      onClick={() => navigateTo("chat", employee.id)}
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{thread.title || thread.id}</div>
+                        <div className="text-xs text-muted-foreground">{thread.message_count} msgs</div>
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {formatThreadTime(thread.last_message_at || thread.updated_at)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No recent threads.</p>
+              )}
+            </section>
+          </div>
+        )}
+
+        {tab === "capabilities" && (
+          <div className="space-y-4">
+            <section className="rounded-md border p-4">
+              <h4 className="mb-3 text-sm font-semibold">Assigned Skills</h4>
+              {employee.skills.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {employee.skills.map((skill) => (
+                    <button key={skill} type="button" onClick={() => navigateTo("library", "skills", skill)}>
+                      <Badge variant="secondary">{skill}</Badge>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No skills assigned.</p>
+              )}
+            </section>
+
+            <section className="rounded-md border p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold">Tool Access</h4>
+                <Badge variant="outline">{readyCapabilities.length} ready</Badge>
+              </div>
+              {toolCapabilities.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {toolCapabilities.map((capability) => (
+                    <Badge
+                      key={capability.id}
+                      variant={capabilityVariant(capability)}
+                      title={capability.description || capability.id}
+                    >
+                      {capability.name}
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No tools mapped.</p>
+              )}
+            </section>
+          </div>
+        )}
+
+        {tab === "knowledge" && (
+          <div className="space-y-4">
+            <section className="rounded-md border p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Brain className="h-4 w-4 text-muted-foreground" />
+                <h4 className="text-sm font-semibold">Knowledge Scope</h4>
+              </div>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Employee-level knowledge scope is not yet explicit in the API. Today this employee can use configured
+                knowledge tools through Clara or direct tool access.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("library", "knowledge", "docs")}>
+                  <Database className="h-4 w-4" />
+                  Docs
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("library", "knowledge", "memories")}>
+                  <Brain className="h-4 w-4" />
+                  Memories
+                </Button>
+              </div>
+            </section>
+
+            <section className="rounded-md border p-4">
+              <h4 className="mb-2 text-sm font-semibold">Governance</h4>
+              <InfoRow label="Can preserve provider session" value={employee.preserve_provider_thread ? "yes" : "no"} />
+              <InfoRow label="Default thread" value={employee.default_thread_id || "-"} />
+            </section>
+          </div>
+        )}
+
+        {tab === "runtime" && (
+          <div className="space-y-4">
+            <section className="rounded-md border p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+                <h4 className="text-sm font-semibold">Runtime Boundary</h4>
+              </div>
+              <InfoRow label="Runtime mode" value={runtimeLabel(employee)} />
+              <InfoRow label="Provider thread" value={employee.preserve_provider_thread ? "preserved" : "not preserved"} />
+              <InfoRow label="Kind" value={employee.kind} />
+            </section>
+
+            <section className="rounded-md border p-4">
+              <h4 className="mb-2 text-sm font-semibold">Operating Note</h4>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Runtime provider, API keys, MCP connectors, and memory backend are configured under Settings. This
+                employee profile only declares how the employee should participate in the AI Team OS.
+              </p>
+            </section>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
+  const [employees, setEmployees] = useState<ChatEmployeeSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [threadsMap, setThreadsMap] = useState<Record<string, ChatThreadListResponse>>({});
+  const [capabilityRegistry, setCapabilityRegistry] = useState<CapabilityRegistryResponse | null>(null);
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [runtimeFilter, setRuntimeFilter] = useState("all");
+
+  const loadEmployees = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [loaded, loadedCapabilities] = await Promise.all([
+        listChatEmployees(),
+        getCapabilities().catch(() => null),
+      ]);
+      setEmployees(loaded);
+      setCapabilityRegistry(loadedCapabilities);
+
+      const threadsResults = await Promise.allSettled(
+        loaded.map((m) => listChatThreads(m.id)),
+      );
+      const newMap: Record<string, ChatThreadListResponse> = {};
+      threadsResults.forEach((result, idx) => {
+        if (result.status === "fulfilled") {
+          newMap[loaded[idx].id] = result.value;
+        }
+      });
+      setThreadsMap(newMap);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load employees");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadEmployees();
+  }, [loadEmployees]);
+
+  const roleGroups = useMemo(() => Array.from(new Set(employees.map(roleGroup))).sort(), [employees]);
+  const runtimeGroups = useMemo(() => Array.from(new Set(employees.map(runtimeShortLabel))).sort(), [employees]);
+
+  const filteredEmployees = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return employees.filter((employee) => {
+      const matchesQuery = !normalized || [
+        employee.display_name,
+        employee.id,
+        employee.role,
+        employee.summary,
+        ...employee.skills,
+      ].some((value) => value.toLowerCase().includes(normalized));
+      const matchesRole = roleFilter === "all" || roleGroup(employee) === roleFilter;
+      const matchesRuntime = runtimeFilter === "all" || runtimeShortLabel(employee) === runtimeFilter;
+      return matchesQuery && matchesRole && matchesRuntime;
+    });
+  }, [employees, query, roleFilter, runtimeFilter]);
+
+  const selectedEmployee = useMemo(() => {
+    return selectedId ? employees.find((employee) => employee.id === selectedId) ?? null : null;
+  }, [employees, selectedId]);
+
+  const selectedThreads = selectedEmployee ? threadsMap[selectedEmployee.id] ?? null : null;
+  const selectedCapabilities = useMemo(
+    () => capabilitiesForEmployee(selectedEmployee, capabilityRegistry),
+    [capabilityRegistry, selectedEmployee],
+  );
+
+  const aggregateThreadCount = useMemo(
+    () => employees.reduce((sum, employee) => sum + threadCount(threadsMap[employee.id]), 0),
+    [employees, threadsMap],
+  );
+  const aggregateMessageCount = useMemo(
+    () => employees.reduce((sum, employee) => sum + totalMessages(threadsMap[employee.id]), 0),
+    [employees, threadsMap],
+  );
+  const readyCapabilities = capabilityRegistry?.status?.ready_count ?? 0;
+
+  if (loading) return <LoadingState />;
+  if (error) return <ErrorState message={error} onRetry={loadEmployees} />;
+
+  return (
+    <div className="relative h-[calc(100vh-8rem)] min-h-[34rem] overflow-hidden rounded-md border bg-background">
+      <section className={cn("flex h-full min-w-0 flex-col transition-[padding] duration-200", selectedEmployee && "pr-[34rem]")}>
+        <div className="border-b p-4">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <h3 className="text-base font-semibold">AI Employee Directory</h3>
+              </div>
+              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                Manage AI Team OS employees as digital employees: identity, mission, work record, skills, tools, knowledge, and runtime boundary.
+              </p>
+            </div>
+            <Button type="button" variant="outline" onClick={() => navigateTo("chat")}>
+              <MessageSquare className="h-4 w-4" />
+              Ask Clara
+            </Button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-4">
+            <StatCard icon={UserCheck} label="Employees" value={employees.length} />
+            <StatCard icon={Clock3} label="Threads" value={aggregateThreadCount} />
+            <StatCard icon={Activity} label="Messages" value={aggregateMessageCount} />
+            <StatCard icon={Wrench} label="Ready Tools" value={readyCapabilities} />
+          </div>
+        </div>
+
+        <div className="border-b p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex h-9 min-w-[14rem] flex-1 items-center gap-2 rounded-md border bg-background px-3">
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <input
+                aria-label="Search employees"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search by name, role, skill, mission"
+                className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+            <Select
+              aria-label="Role group"
+              value={roleFilter}
+              onChange={(event) => setRoleFilter(event.target.value)}
+              className="w-[11rem]"
+            >
+              <option value="all">All roles</option>
+              {roleGroups.map((group) => (
+                <option key={group} value={group}>{group}</option>
+              ))}
+            </Select>
+            <Select
+              aria-label="Runtime"
+              value={runtimeFilter}
+              onChange={(event) => setRuntimeFilter(event.target.value)}
+              className="w-[11rem]"
+            >
+              <option value="all">All runtimes</option>
+              {runtimeGroups.map((group) => (
+                <option key={group} value={group}>{group}</option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {filteredEmployees.length === 0 ? (
+            <div className="p-8 text-sm text-muted-foreground">No employees match the current filters.</div>
+          ) : (
+            <div className="divide-y">
+              {filteredEmployees.map((employee) => {
+                const active = selectedEmployee?.id === employee.id;
+                const threads = threadsMap[employee.id] ?? null;
+                const latest = latestThread(threads);
+                const capabilities = capabilitiesForEmployee(employee, capabilityRegistry);
+                const state = employeeState(employee, threads);
+                return (
+                  <button
+                    key={employee.id}
+                    type="button"
+                    onClick={() => navigateTo("employees", employee.id)}
+                    className={cn(
+                      "grid w-full grid-cols-[minmax(16rem,1.35fr)_minmax(10rem,0.8fr)_minmax(12rem,1fr)_minmax(10rem,0.8fr)_auto] items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/70",
+                      active && "bg-primary/10",
+                    )}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <EmployeeAvatar employee={employee} />
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="truncate font-medium">{employee.display_name}</span>
+                          <Badge variant={state.variant} className="shrink-0 px-1.5 text-[10px]">{state.label}</Badge>
+                        </div>
+                        <div className="mt-0.5 truncate text-xs text-muted-foreground">{employee.role}</div>
+                      </div>
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-medium uppercase text-muted-foreground">Mission</div>
+                      <div className="truncate text-sm">{employee.summary || "No mission configured."}</div>
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-medium uppercase text-muted-foreground">Current signal</div>
+                      <div className="truncate text-sm">{latest?.title || "No recent thread"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {latest ? `${latest.message_count} msgs · ${formatThreadTime(latest.last_message_at || latest.updated_at)}` : "Ready for delegation"}
+                      </div>
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-medium uppercase text-muted-foreground">Assets</div>
+                      <div className="flex min-w-0 flex-wrap gap-1">
+                        <Badge variant="secondary" className="px-1.5 text-[10px]">{employee.skills.length} skills</Badge>
+                        <Badge variant="outline" className="px-1.5 text-[10px]">{capabilities.length} tools</Badge>
+                        <Badge variant="outline" className="px-1.5 text-[10px]">{runtimeShortLabel(employee)}</Badge>
+                      </div>
+                    </div>
+
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {selectedEmployee && (
+        <EmployeeDrawer
+          capabilities={selectedCapabilities}
+          employee={selectedEmployee}
+          threads={selectedThreads}
+        />
+      )}
+    </div>
+  );
+}

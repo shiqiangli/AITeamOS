@@ -18,7 +18,7 @@ def test_mcp_connector_registry_is_file_backed(tmp_path, monkeypatch):
     assert "redmine" not in ids
     plane = next(connector for connector in connectors if connector["id"] == "plane")
     assert plane["transport"] == "rest"
-    assert "work_items.comment" in plane["capabilities"]
+    assert "tickets.comment" in plane["capabilities"]
     assert "knowledge.docs.read" in plane["capabilities"]
     assert next(connector for connector in connectors if connector["id"] == "filesystem")["configured"] is True
 

@@ -16,12 +16,12 @@ services/api/aiteamos_api/
   ├── command/              # CQRS 写路径
   │   ├── skill_commands.py # POST/PUT/DELETE + 领域操作
   │   ├── task_commands.py
-  │   ├── member_commands.py
+  │   ├── employee_commands.py
   │   └── ...
   └── read/                 # CQRS 读路径
       ├── skill_routes.py   # GET 列表 + 详情
       ├── task_routes.py
-      ├── member_routes.py
+      ├── employee_routes.py
       └── ...
 ```
 

@@ -1,10 +1,8 @@
 import { type ComponentType, useEffect, useMemo, useState } from "react";
 import {
   ClipboardList,
-  ExternalLink,
   FileText,
   MessageSquare,
-  Plug,
   RefreshCw,
   ShieldCheck,
   UserCheck,
@@ -13,20 +11,29 @@ import {
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { ErrorState, LoadingState, navigateTo, Status } from "../../components/shared";
+import { ResizableDetailLayout } from "../../components/resizable-layout";
 import { getMcpConnectorSettings, type McpConnectorSettingsResponse } from "../../api/mcp";
-import { listWorkItems, type WorkItem, type WorkItemReport } from "../../api/work";
+import { listTickets, type Ticket, type TicketReport } from "../../api/tickets";
 import { cn } from "@/lib/utils";
 
-type WorkSection = "tickets" | "trace" | "reports";
+type TicketSection = "tickets" | "trace" | "reports";
+type TicketFilter = "all" | "active" | "review" | "done";
 
-const SECTIONS: { key: WorkSection; label: string; icon: ComponentType<{ className?: string }> }[] = [
+const SECTIONS: { key: TicketSection; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { key: "tickets", label: "Tickets", icon: ClipboardList },
   { key: "trace", label: "Flow Trace", icon: Workflow },
   { key: "reports", label: "Reports", icon: FileText },
 ];
 
-function sectionFromRoute(value?: string | null): WorkSection {
-  return SECTIONS.some((section) => section.key === value) ? value as WorkSection : "tickets";
+const FILTERS: { key: TicketFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "active", label: "Active" },
+  { key: "review", label: "Review" },
+  { key: "done", label: "Done" },
+];
+
+function sectionFromRoute(value?: string | null): TicketSection {
+  return SECTIONS.some((section) => section.key === value) ? value as TicketSection : "tickets";
 }
 
 function formatTime(value?: string | null): string {
@@ -45,56 +52,24 @@ function statusVariant(status: string): "success" | "warning" | "danger" | "seco
   return "outline";
 }
 
-function assigneeLabel(item: WorkItem): string {
-  return item.assigned_member_id || item.assigned_role || "Unassigned";
+function assigneeLabel(item: Ticket): string {
+  return item.assigned_employee_id || item.assigned_role || "Unassigned";
 }
 
-function validationLabel(item: WorkItem): string {
-  return item.validation_member_id || item.validation_role || "Not set";
+function validationLabel(item: Ticket): string {
+  return item.validation_employee_id || item.validation_role || "Not set";
 }
 
-function planeHref(settings: McpConnectorSettingsResponse | null): string {
-  return settings?.base_url?.trim() || "http://localhost:8082";
+function ticketFilterForStatus(status: string): TicketFilter {
+  const normalized = status.toLowerCase();
+  if (["validated", "completed", "done", "closed"].includes(normalized)) return "done";
+  if (["reported", "review", "pending_validation", "validation"].includes(normalized)) return "review";
+  return "active";
 }
 
-function PlaneOverview({ settings }: { settings: McpConnectorSettingsResponse | null }) {
-  const configured = Boolean(settings?.configured);
-  const enabled = Boolean(settings?.enabled);
-  return (
-    <section className="rounded-md border bg-background p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
-            <Plug className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold">Plane Connector</h3>
-              <Badge variant={enabled ? "success" : "outline"}>{enabled ? "enabled" : "disabled"}</Badge>
-              <Badge variant={configured ? "success" : "warning"}>{configured ? "configured" : "not configured"}</Badge>
-            </div>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              Plane remains the WorkItem and Page fact source. This page shows the AI team running view.
-            </p>
-          </div>
-        </div>
-        <a
-          className="inline-flex h-8 items-center justify-center gap-2 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground"
-          href={planeHref(settings)}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <ExternalLink className="h-4 w-4" />
-          Open Plane
-        </a>
-      </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <Status label="Workspace" value={settings?.workspace_slug || "-"} />
-        <Status label="Project" value={settings?.project_id || "-"} />
-        <Status label="API token" value={settings?.api_token_configured ? "configured" : "missing"} tone={settings?.api_token_configured ? "ok" : "warn"} />
-      </div>
-    </section>
-  );
+function matchesTicketFilter(item: Ticket, filter: TicketFilter): boolean {
+  if (filter === "all") return true;
+  return ticketFilterForStatus(item.status) === filter;
 }
 
 function TicketRow({
@@ -103,7 +78,7 @@ function TicketRow({
   onSelect,
 }: {
   active: boolean;
-  item: WorkItem;
+  item: Ticket;
   onSelect: () => void;
 }) {
   return (
@@ -135,7 +110,7 @@ function DetailPanel({
   item,
   planeSettings,
 }: {
-  item: WorkItem | null;
+  item: Ticket | null;
   planeSettings: McpConnectorSettingsResponse | null;
 }) {
   if (!item) {
@@ -145,7 +120,7 @@ function DetailPanel({
           <ClipboardList className="h-4 w-4 text-muted-foreground" />
           <h3 className="text-sm font-semibold">Ticket Detail</h3>
         </div>
-        <p className="text-sm text-muted-foreground">No WorkItem selected.</p>
+        <p className="text-sm text-muted-foreground">No Ticket selected.</p>
       </section>
     );
   }
@@ -160,7 +135,7 @@ function DetailPanel({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">{item.id}</p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("chat")}>
+        <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("chat", item.id)}>
           <MessageSquare className="h-4 w-4" />
           Ask Clara
         </Button>
@@ -202,14 +177,14 @@ function DetailPanel({
   );
 }
 
-function TraceView({ item }: { item: WorkItem | null }) {
+function TraceView({ item }: { item: Ticket | null }) {
   if (!item) {
-    return <EmptyWorkMessage title="No WorkItem selected" description="Select a ticket to inspect its Clara to Member flow." />;
+    return <EmptyTicketMessage title="No Ticket selected" description="Select a ticket to inspect its Clara to Employee flow." />;
   }
 
   const steps = [
-    { label: "Clara", detail: item.source_thread_id ? `Source thread ${item.source_thread_id}` : "Created or selected the WorkItem" },
-    { label: assigneeLabel(item), detail: "Member investigates, executes, and writes progress reports" },
+    { label: "Clara", detail: item.source_thread_id ? `Source thread ${item.source_thread_id}` : "Created or selected the Ticket" },
+    { label: assigneeLabel(item), detail: "Employee investigates, executes, and writes progress reports" },
     { label: validationLabel(item), detail: "PV validates evidence and reports result" },
     { label: "Clara", detail: "Summarizes reports and returns to the human user" },
   ];
@@ -239,7 +214,7 @@ function TraceView({ item }: { item: WorkItem | null }) {
   );
 }
 
-function ReportRow({ item, report }: { item: WorkItem; report: WorkItemReport }) {
+function ReportRow({ item, report }: { item: Ticket; report: TicketReport }) {
   return (
     <section className="rounded-md border bg-background p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -251,7 +226,7 @@ function ReportRow({ item, report }: { item: WorkItem; report: WorkItemReport })
       </div>
       <p className="text-sm leading-6">{report.content}</p>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-        <span>{report.reporter_member_id || report.reporter_role || "unknown reporter"}</span>
+        <span>{report.reporter_employee_id || report.reporter_role || "unknown reporter"}</span>
         <span>{formatTime(report.created_at)}</span>
         <span>{item.id}</span>
       </div>
@@ -264,7 +239,7 @@ function ReportRow({ item, report }: { item: WorkItem; report: WorkItemReport })
   );
 }
 
-function EmptyWorkMessage({ title, description }: { title: string; description: string }) {
+function EmptyTicketMessage({ title, description }: { title: string; description: string }) {
   return (
     <section className="rounded-md border bg-background px-4 py-10 text-center">
       <h3 className="text-sm font-semibold">{title}</h3>
@@ -273,11 +248,12 @@ function EmptyWorkMessage({ title, description }: { title: string; description: 
   );
 }
 
-export function WorkPage({ selectedSection }: { selectedSection?: string | null }) {
-  const [section, setSection] = useState<WorkSection>(() => sectionFromRoute(selectedSection));
-  const [items, setItems] = useState<WorkItem[]>([]);
+export function TicketsPage({ selectedSection }: { selectedSection?: string | null }) {
+  const [section, setSection] = useState<TicketSection>(() => sectionFromRoute(selectedSection));
+  const [items, setItems] = useState<Ticket[]>([]);
   const [planeSettings, setPlaneSettings] = useState<McpConnectorSettingsResponse | null>(null);
   const [selectedId, setSelectedId] = useState("");
+  const [filter, setFilter] = useState<TicketFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -290,14 +266,20 @@ export function WorkPage({ selectedSection }: { selectedSection?: string | null 
     () => items.flatMap((item) => item.reports.map((report) => ({ item, report }))),
     [items],
   );
-  const activeCount = items.filter((item) => !["validated", "completed", "done"].includes(item.status.toLowerCase())).length;
-  const validationCount = items.filter((item) => item.validation_member_id || item.validation_role).length;
+  const filteredItems = useMemo(
+    () => items.filter((item) => matchesTicketFilter(item, filter)),
+    [filter, items],
+  );
+  const activeCount = items.filter((item) => ticketFilterForStatus(item.status) === "active").length;
+  const reviewCount = items.filter((item) => ticketFilterForStatus(item.status) === "review").length;
+  const doneCount = items.filter((item) => ticketFilterForStatus(item.status) === "done").length;
+  const validationCount = items.filter((item) => item.validation_employee_id || item.validation_role).length;
 
-  async function loadWork() {
+  async function loadTickets() {
     setLoading(true);
     setError(null);
     try {
-      const loadedItems = await listWorkItems();
+      const loadedItems = await listTickets();
       setItems(loadedItems);
       setSelectedId((current) => loadedItems.some((item) => item.id === current) ? current : loadedItems[0]?.id ?? "");
       try {
@@ -306,31 +288,31 @@ export function WorkPage({ selectedSection }: { selectedSection?: string | null 
         setPlaneSettings(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load work items");
+      setError(err instanceof Error ? err.message : "Failed to load tickets");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadWork();
+    void loadTickets();
   }, []);
 
   if (loading) return <LoadingState />;
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <section className="space-y-4">
-        <PlaneOverview settings={planeSettings} />
-
+    <ResizableDetailLayout
+      id="aiteamos-tickets-layout"
+      main={(
+        <section className="space-y-4">
         <section className="rounded-md border bg-background">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
             <div className="flex items-center gap-2">
               <ClipboardList className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold">Work</h3>
+              <h3 className="text-sm font-semibold">Tickets</h3>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => void loadWork()}>
+              <Button type="button" variant="outline" size="sm" onClick={() => void loadTickets()}>
                 <RefreshCw className="h-4 w-4" />
                 Refresh
               </Button>
@@ -343,7 +325,7 @@ export function WorkPage({ selectedSection }: { selectedSection?: string | null 
 
           {error && (
             <div className="border-b p-4">
-              <ErrorState message={error} onRetry={loadWork} />
+              <ErrorState message={error} onRetry={loadTickets} />
             </div>
           )}
 
@@ -356,7 +338,7 @@ export function WorkPage({ selectedSection }: { selectedSection?: string | null 
                   type="button"
                   variant={section === entry.key ? "default" : "outline"}
                   size="sm"
-                  onClick={() => navigateTo("work", entry.key)}
+                  onClick={() => navigateTo("tickets", entry.key)}
                 >
                   <Icon className="h-4 w-4" />
                   {entry.label}
@@ -367,17 +349,34 @@ export function WorkPage({ selectedSection }: { selectedSection?: string | null 
 
           {section === "tickets" && (
             items.length === 0 ? (
-              <EmptyWorkMessage title="No local WorkItems" description="Ask Clara to create a WorkItem from Chat, then it will appear here." />
+              <EmptyTicketMessage title="No local Tickets" description="Ask Clara to create a Ticket from Chat, then it will appear here." />
             ) : (
               <div>
-                {items.map((item) => (
-                  <TicketRow
-                    key={item.id}
-                    item={item}
-                    active={selected?.id === item.id}
-                    onSelect={() => setSelectedId(item.id)}
-                  />
-                ))}
+                <div className="flex flex-wrap gap-2 border-b px-4 py-3">
+                  {FILTERS.map((entry) => (
+                    <Button
+                      key={entry.key}
+                      type="button"
+                      variant={filter === entry.key ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setFilter(entry.key)}
+                    >
+                      {entry.label}
+                    </Button>
+                  ))}
+                </div>
+                {filteredItems.length === 0 ? (
+                  <EmptyTicketMessage title="No matching Tickets" description="Try another status filter." />
+                ) : (
+                  filteredItems.map((item) => (
+                    <TicketRow
+                      key={item.id}
+                      item={item}
+                      active={selected?.id === item.id}
+                      onSelect={() => setSelectedId(item.id)}
+                    />
+                  ))
+                )}
               </div>
             )
           )}
@@ -390,7 +389,7 @@ export function WorkPage({ selectedSection }: { selectedSection?: string | null 
 
           {section === "reports" && (
             reports.length === 0 ? (
-              <EmptyWorkMessage title="No reports yet" description="Member and PV reports written to WorkItems will appear here." />
+              <EmptyTicketMessage title="No reports yet" description="Employee and PV reports written to Tickets will appear here." />
             ) : (
               <div className="grid gap-3 p-4">
                 {reports.map(({ item, report }) => (
@@ -400,17 +399,21 @@ export function WorkPage({ selectedSection }: { selectedSection?: string | null 
             )
           )}
         </section>
-      </section>
+        </section>
+      )}
 
-      <aside className="space-y-4">
+      detail={(
+        <aside className="space-y-4">
         <section className="rounded-md border bg-background p-4">
           <div className="mb-3 flex items-center gap-2">
             <ClipboardList className="h-4 w-4 text-muted-foreground" />
             <h3 className="text-sm font-semibold">Status</h3>
           </div>
           <div className="space-y-3">
-            <Status label="Local WorkItems" value={items.length} />
+            <Status label="Local Tickets" value={items.length} />
             <Status label="Active" value={activeCount} />
+            <Status label="Review" value={reviewCount} />
+            <Status label="Done" value={doneCount} />
             <Status label="With validation" value={validationCount} />
             <Status label="With repo" value={items.filter((item) => item.code_repository_ids.length > 0).length} />
             <Status label="Reports" value={reports.length} />
@@ -435,7 +438,8 @@ export function WorkPage({ selectedSection }: { selectedSection?: string | null 
         </section>
 
         <DetailPanel item={selected} planeSettings={planeSettings} />
-      </aside>
-    </div>
+        </aside>
+      )}
+    />
   );
 }

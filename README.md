@@ -34,7 +34,7 @@ Evolution  = Capability --[Execute]--> Harness (Right or Wrong) --[Reflect]--> D
 |--------|--------|------|
 | **Knowledge** | `MemoryNode`, `MemoryEdge` | Memory 提炼、关系图、置信度演进、生命周期管理 |
 | **Capability** | `Skill` | Skill 注册、版本、加载、健康度、熔断 |
-| **Workforce** | `Member`, `Department` | 成员管理、组织归属、能力画像 |
+| **Workforce** | `Employee`, `Department` | 成员管理、组织归属、能力画像 |
 | **Execution** | `Task` | Task 状态机、Run、Deliverable、Context Snapshot |
 | **Validation** | `HarnessAdapter` | 验证适配、回调、结果归一、Flaky 检测 |
 | **Governance** | `ReviewCase`, `ConflictCase` | 审核流程、冲突仲裁、归因度量 |
@@ -83,7 +83,7 @@ AITeamOS/
 ├── packages/                 # DDD 边界上下文（独立 Python 包）
 │   ├── knowledge/            #   Knowledge Context — Memory 领域
 │   ├── capability/           #   Capability Context — Skill 领域
-│   ├── workforce/            #   Workforce Context — Member/Department 领域
+│   ├── workforce/            #   Workforce Context — Employee/Department 领域
 │   ├── execution/            #   Execution Context — Task/Run 领域
 │   ├── validation/           #   Validation Context — Harness 领域
 │   ├── governance/           #   Governance Context — Review/Conflict 领域
@@ -122,21 +122,23 @@ AITeamOS/
 
 进入 Dashboard 后，在 `Settings / Knowledge Backend` 中配置 Graphiti 使用的 OpenAI key。也可以在 `Settings / Runtimes` 配置 OpenAI key，Graphiti 会优先复用该 key，除非 Knowledge Backend 配置了专用 key。
 
-### 外部 WorkItem / Docs 系统
+Clara 是 AITeamOS 自动创建的系统默认 Employee，role 固定为 `AI Team OS Manager`。她负责团队运营和控制面资产管理，例如 employees、skills、memories、Knowledge access、capabilities 和 Tickets；系统不允许删除 Clara。
 
-AITeamOS 不内置用户可见的 Jira/Confluence 替代品。默认选型是 Plane：Plane Work Item 映射为 WorkItem / ticket，Plane Page 映射为 Docs。AI Member 通过 `Settings / MCP Connectors` 中配置的 connector capability 访问外部系统，例如 `work_items.search`、`work_items.create`、`work_items.comment`、`work_items.transition`、`knowledge.docs.search` 和 `knowledge.docs.read`。
+### 外部 Ticket / Docs 系统
 
-P0 仍使用本地 file-backed WorkItems 和 Docs 来验证 Clara-led flow；后续优先接 Plane connector。AITeamOS 暂不实现 Redmine、Jira/Confluence 或 OpenProject connector，除非未来需要兼容更广泛的 ticket 系统生态。
+AITeamOS 不内置用户可见的 Ticket/Docs 替代品。默认选型是 Plane：Plane Ticket 映射为 Ticket / ticket，Plane Page 映射为 Docs。AI Employee 通过 `Settings / MCP Connectors` 中配置的 connector capability 访问外部系统，例如 `tickets.search`、`tickets.create`、`tickets.comment`、`tickets.transition`、`knowledge.docs.search` 和 `knowledge.docs.read`。
 
-Dashboard 中的 `Work / Tickets` 是 AI 团队运行视图：展示 Plane 连接状态、本地 P0 WorkItems、负责人、验证状态、report 数量和 Plane 深链接。完整 ticket 编辑、项目规划、权限和文档编辑仍在 Plane 中完成。`Knowledge / Docs` 是统一知识入口：本地 Markdown 作为 AITeamOS 自身文档源，Plane Pages 作为外部项目文档源。
+P0 仍使用本地 file-backed Tickets 和 Docs 来验证 Clara-led flow；后续优先接 Plane connector。AITeamOS 暂不实现 Redmine、Ticket/Docs 或 OpenProject connector，除非未来需要兼容更广泛的 ticket 系统生态。
 
-`Settings / Capabilities` 是只读能力目录，用来查看 AITeamOS Kernel local tools、MCP connectors/capabilities 和 planned Agent Executors。它把边界保持清楚：Knowledge 是事实，Skill 是方法，Tool 是动作，MCP 是外部动作/资源接入层，Agent Executor 是成熟 agent runtime。普通工作仍从 Chat 发起，不从 Capabilities 页面点选执行。
+Dashboard 中的 `Tickets` 是 AI 团队运行视图：展示 Plane 连接状态、本地 P0 Tickets、负责人、验证状态、report 数量和 Plane 深链接。完整 ticket 编辑、项目规划、权限和文档编辑仍在 Plane 中完成。`Library / Knowledge / Docs` 是统一知识入口：本地 Markdown 作为 AITeamOS 自身文档源，Plane Pages 作为外部项目文档源。
+
+`Library / Tools` 和 `Library / Connectors` 是只读能力目录入口，用来查看 AITeamOS Kernel local tools、MCP connectors/capabilities 和 planned Agent Executors。它把边界保持清楚：Knowledge 是事实，Skill 是方法，Tool 是动作，MCP 是外部动作/资源接入层，Agent Executor 是成熟 agent runtime。普通工作仍从 Chat 发起，不从 Library 页面点选执行。
 
 代码仓库在 `Settings / Code Repositories` 中配置。AITeamOS 只记录 Plane workspace/project 到 repo source 的薄映射，支持本地路径、GitHub、Gitea、GitLab 和 generic Git URL。本地路径会做轻量 `.git` 检查；远端仓库的 API/MCP 访问由后续 provider connector 或 agent executor 负责。
 
-Chat 中 Clara 可以列出这些仓库，并在创建本地 WorkItem 时把 `code_repository_ids` 写入上下文，供 RD/PV Member 后续通过 repo tools 或外部 agent executor 获取代码事实。
+Chat 中 Clara 可以列出这些仓库，并在创建本地 Ticket 时把 `code_repository_ids` 写入上下文，供 RD/PV Employee 后续通过 repo tools 或外部 agent executor 获取代码事实。
 
-P0 的 repo tool 只支持配置过的本地仓库：非 Clara Member 可以搜索/读取有界文本文件，并在消息包含 WorkItem id 时把 repo evidence 写回 WorkItem report。GitHub/Gitea/GitLab 等远端仓库在 P0 只保存配置，真实读取由后续 provider connector、MCP server 或 agent executor 承接。
+P0 的 repo tool 只支持配置过的本地仓库：非 Clara Employee 可以搜索/读取有界文本文件，并在消息包含 Ticket id 时把 repo evidence 写回 Ticket report。GitHub/Gitea/GitLab 等远端仓库在 P0 只保存配置，真实读取由后续 provider connector、MCP server 或 agent executor 承接。
 
 ### 可选：Plane 本地服务
 

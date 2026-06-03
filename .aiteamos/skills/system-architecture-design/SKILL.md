@@ -21,7 +21,7 @@
 |---|---|---|---|
 | Knowledge | MemoryNode, MemoryEdge | `packages/knowledge/` | Memory 提炼、关系图、置信度演进 |
 | Capability | Skill | `packages/capability/` | Skill 注册、版本、可分配性 |
-| Workforce | Member, Department | `packages/workforce/` | Member 组织归属、Skill-Memory 分配 |
+| Workforce | Employee, Department | `packages/workforce/` | Employee 组织归属、Skill-Memory 分配 |
 | Execution | Task | `packages/execution/` | Task 状态机（T0-T10）、Run、Deliverable |
 | Validation | HarnessAdapter, HarnessInvocation | `packages/validation/` | 验证适配、回调、结果归一 |
 | Governance | ReviewCase, ConflictCase | `packages/governance/` | 审核、冲突仲裁、归因 |
@@ -42,7 +42,7 @@
 
 ### 依赖方向检查
 - [ ] Knowledge Context 不引用 Execution 内部类型
-- [ ] Capability Context 不引用 Workforce 的 Member 细节（Skill 是独立能力标签）
+- [ ] Capability Context 不引用 Workforce 的 Employee 细节（Skill 是独立能力标签）
 - [ ] Execution Context 不直接操作 Memory Graph（通过 Context Assembler 间接获取）
 - [ ] Validation Context 不感知 Task 的业务语义（只看 Deliverable）
 

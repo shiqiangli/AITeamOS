@@ -16,9 +16,9 @@ React + Vite frontend for AITeamOS.
 | `#home` | Home | Summary stats, memory health, recent items |
 | `#memories` | Memory | Memory CRUD, lifecycle, detail view |
 | `#skills` | Skills | Skill registration, publish, deprecate |
-| `#members` | Members | Member creation, skill/memory assignment |
+| `#employees` | Employees | Employee creation, skill/memory assignment |
 | `#departments` | Departments | Department management |
-| `#projects` | Projects | Project CRUD, member assignment |
+| `#projects` | Projects | Project CRUD, employee assignment |
 | `#tasks` | Tasks | Task lifecycle, assignment, run history |
 | `#reviews` | Reviews | Review queue, proposals, conflict resolution |
 | `#metrics` | Metrics | Value metrics, system health, memory health |

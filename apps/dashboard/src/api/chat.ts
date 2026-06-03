@@ -1,6 +1,6 @@
 import { apiRequest } from "./client";
 
-export interface ChatMemberSummary {
+export interface ChatEmployeeSummary {
   id: string;
   display_name: string;
   kind: string;
@@ -16,7 +16,7 @@ export interface ChatSkillSummary {
   id: string;
   title: string;
   description: string;
-  assigned_members: string[];
+  assigned_employees: string[];
   resources: string[];
   saved_path: string;
 }
@@ -29,19 +29,20 @@ export interface ChatTraceEvent {
 
 export interface ChatMessageRequest {
   message: string;
-  target_member_id?: string;
+  target_employee_id?: string;
   thread_id?: string;
-  jira_key?: string;
+  ticket_key?: string;
 }
 
 export interface ChatMessageResponse {
   thread_id: string;
   run_id: string;
-  target_member: ChatMemberSummary;
+  target_employee: ChatEmployeeSummary;
   provider_thread_id: string;
-  jira_keys: string[];
+  ticket_keys: string[];
   reply: string;
   trace_events: ChatTraceEvent[];
+  run_metadata: Record<string, unknown>;
   saved_paths: Record<string, string>;
 }
 
@@ -49,8 +50,9 @@ export interface ConversationMessage {
   timestamp: string;
   role: string;
   content: string;
-  member_id?: string | null;
+  employee_id?: string | null;
   run_id?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ConversationResponse {
@@ -61,7 +63,7 @@ export interface ConversationResponse {
 
 export interface ChatThreadSummary {
   id: string;
-  member_id: string;
+  employee_id: string;
   title: string;
   created_at: string;
   updated_at: string;
@@ -72,7 +74,7 @@ export interface ChatThreadSummary {
 }
 
 export interface ChatThreadListResponse {
-  member_id: string;
+  employee_id: string;
   active_thread_id: string;
   threads: ChatThreadSummary[];
 }
@@ -116,8 +118,8 @@ export interface ChatRuntimeProviderUpdateRequest {
   activate?: boolean;
 }
 
-export function listChatMembers(): Promise<ChatMemberSummary[]> {
-  return apiRequest<ChatMemberSummary[]>("/chat/members");
+export function listChatEmployees(): Promise<ChatEmployeeSummary[]> {
+  return apiRequest<ChatEmployeeSummary[]>("/chat/employees");
 }
 
 export function listChatSkills(): Promise<ChatSkillSummary[]> {
@@ -156,23 +158,29 @@ export function getChatThread(threadId: string): Promise<ConversationResponse> {
   return apiRequest<ConversationResponse>(`/chat/threads/${encodeURIComponent(threadId)}`);
 }
 
-export function listChatThreads(memberId: string): Promise<ChatThreadListResponse> {
-  return apiRequest<ChatThreadListResponse>(`/chat/threads?member_id=${encodeURIComponent(memberId)}`);
+export function listChatThreads(employeeId: string): Promise<ChatThreadListResponse> {
+  return apiRequest<ChatThreadListResponse>(`/chat/threads?employee_id=${encodeURIComponent(employeeId)}`);
 }
 
-export function createChatThread(memberId: string, title?: string): Promise<ChatThreadSummary> {
+export function createChatThread(employeeId: string, title?: string): Promise<ChatThreadSummary> {
   return apiRequest<ChatThreadSummary>("/chat/threads", {
     method: "POST",
     body: {
-      member_id: memberId,
+      employee_id: employeeId,
       ...(title ? { title } : {}),
     },
   });
 }
 
-export function activateChatThread(threadId: string, memberId: string): Promise<ChatThreadSummary> {
+export function activateChatThread(threadId: string, employeeId: string): Promise<ChatThreadSummary> {
   return apiRequest<ChatThreadSummary>(`/chat/threads/${encodeURIComponent(threadId)}/activate`, {
     method: "POST",
-    body: { member_id: memberId },
+    body: { employee_id: employeeId },
+  });
+}
+
+export function deleteChatThread(threadId: string): Promise<void> {
+  return apiRequest<void>(`/chat/threads/${encodeURIComponent(threadId)}`, {
+    method: "DELETE",
   });
 }

@@ -40,7 +40,7 @@ class DecisionRecord(BaseModel):
     context: str = ""
     decision: str
     consequences: str = ""
-    linked_work_items: list[str] = Field(default_factory=list)
+    linked_tickets: list[str] = Field(default_factory=list)
     linked_memories: list[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
@@ -53,7 +53,7 @@ class DecisionCreateRequest(BaseModel):
     context: str = ""
     decision: str = Field(min_length=1)
     consequences: str = ""
-    linked_work_items: list[str] = Field(default_factory=list)
+    linked_tickets: list[str] = Field(default_factory=list)
     linked_memories: list[str] = Field(default_factory=list)
 
 
@@ -304,7 +304,7 @@ def _decision_to_markdown(decision: DecisionRecord) -> str:
             decision.consequences or "-",
             "",
             "## Links",
-            f"- Work items: {', '.join(decision.linked_work_items) or '-'}",
+            f"- Tickets: {', '.join(decision.linked_tickets) or '-'}",
             f"- Memories: {', '.join(decision.linked_memories) or '-'}",
             "",
         ]
@@ -361,7 +361,7 @@ def create_decision(request: DecisionCreateRequest) -> DecisionRecord:
         context=request.context.strip(),
         decision=request.decision.strip(),
         consequences=request.consequences.strip(),
-        linked_work_items=sorted({item.strip() for item in request.linked_work_items if item.strip()}),
+        linked_tickets=sorted({item.strip() for item in request.linked_tickets if item.strip()}),
         linked_memories=sorted({item.strip() for item in request.linked_memories if item.strip()}),
         created_at=timestamp,
         updated_at=timestamp,

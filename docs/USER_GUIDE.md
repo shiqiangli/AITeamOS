@@ -11,7 +11,7 @@
 3. [快速上手：推荐操作顺序](#快速上手推荐操作顺序)
 4. [Dashboard 导航](#dashboard-导航)
 5. [Departments — 部门管理](#departments--部门管理)
-6. [Members — 成员管理](#members--成员管理)
+6. [Employees — 成员管理](#employees--成员管理)
 7. [Projects — 项目管理](#projects--项目管理)
 8. [Tasks — 任务管理](#tasks--任务管理)
 9. [Memories — 经验管理](#memories--经验管理)
@@ -42,8 +42,8 @@ Dashboard 是管理员操作系统的统一入口，覆盖从组织架构搭建�
 
 | 概念 | 说明 |
 |------|------|
-| **Department（部门）** | 组织架构单元，Member 和 Project 的归属容器 |
-| **Member（成员）** | 团队成员，可以是人类（human）或 AI 数字员工（ai） |
+| **Department（部门）** | 组织架构单元，Employee 和 Project 的归属容器 |
+| **Employee（成员）** | 团队成员，可以是人类（human）或 AI 数字员工（ai） |
 | **Project（项目）** | 归属于某个部门的工作项目，可分配成员参与 |
 | **Task（任务）** | 具体的工作单元，拥有完整的状态生命周期 |
 | **Memory（经验/记忆）** | 团队沉淀的知识，分为 Facts（事实）、Patterns（模式）、Principles（原则）三层 |
@@ -60,12 +60,12 @@ Dashboard 是管理员操作系统的统一入口，覆盖从组织架构搭建�
 
 ```
 1. 创建 Department（部门）   ← 先搭组织架构
-2. 创建 Member（成员）       ← 将成员归入部门
+2. 创建 Employee（成员）       ← 将成员归入部门
 3. 创建 Project（项目）      ← 在部门下建项目
 4. 创建 Task（任务）         ← 在部门下创建任务并分配给成员
 5. 管理 Memory（经验）       ← 沉淀和管理团队知识
 6. 注册 Skill（技能）        ← 登记可复用的能力组件
-7. 配置 Agent / LLM          ← 为 AI Member 选择执行运行时
+7. 配置 Agent / LLM          ← 为 AI Employee 选择执行运行时
 8. 在 Memory 详情中审查       ← 审核提案、处理冲突
 9. 查看 Metrics 度量         ← 监控系统健康度
 ```
@@ -82,7 +82,7 @@ Dashboard 左侧为固定侧边栏，包含以下导航项：
 | 大脑 | **Memories** | 管理团队的经验和知识 |
 | 扳手 | **Skills** | 管理可复用的能力组件 |
 | 机器人 | **Agents** | 管理中性的 Agent Profile 与 LLM 模型 |
-| 用户 | **Members** | 管理团队成员（人类和 AI） |
+| 用户 | **Employees** | 管理团队成员（人类和 AI） |
 | 建筑 | **Departments** | 管理组织架构中的部门 |
 | 文件夹 | **Projects** | 管理项目 |
 | 清单 | **Tasks** | 管理任务及其生命周期 |
@@ -96,7 +96,7 @@ Dashboard 左侧为固定侧边栏，包含以下导航项：
 
 **路径**：侧边栏 → Departments
 
-部门是组织架构的基本单元，每个 Member 和 Project 都必须归属于一个部门。
+部门是组织架构的基本单元，每个 Employee 和 Project 都必须归属于一个部门。
 
 ### 创建部门
 
@@ -116,15 +116,15 @@ Dashboard 左侧为固定侧边栏，包含以下导航项：
 
 ---
 
-## Members — 成员管理
+## Employees — 成员管理
 
-**路径**：侧边栏 → Members
+**路径**：侧边栏 → Employees
 
 成员是团队中的工作单元，分为 **AI（数字员工）** 和 **Human（人类工程师）** 两种类型。
 
 ### 创建成员
 
-1. 点击 **Create Member** 按钮
+1. 点击 **Create Employee** 按钮
 2. 填写以下信息：
    - **Display Name**（必填）：成员显示名称，不可重复
    - **Kind**：选择 `AI` 或 `Human`
@@ -180,7 +180,7 @@ Dashboard 左侧为固定侧边栏，包含以下导航项：
 
 ### 分配成员到项目
 
-1. 在详情面板中点击 **Assign Member**
+1. 在详情面板中点击 **Assign Employee**
 2. 从下拉菜单中选择成员名称
 3. 点击 **Confirm**
 
@@ -460,7 +460,7 @@ Memory 冲突也在 Memory 详情的 **Review** tab 中处理。
 - **Active**：活跃 Memory 数量
 - **Candidates**：候选 Memory 数量
 - **Skills**：Skill 总数
-- **Members**：成员总数
+- **Employees**：成员总数
 - **Tasks**：任务总数
 - **Recalls**：Memory 召回次数
 - **Active Rate**：Memory 活跃率
@@ -489,12 +489,12 @@ Memory 冲突也在 Memory 详情的 **Review** tab 中处理。
 
 首页提供系统的快速概览：
 
-- **顶部统计卡片**：Memories 总数、Skills 总数、Members 总数、Projects 总数、Running Tasks 数、Ready Tasks 数
+- **顶部统计卡片**：Memories 总数、Skills 总数、Employees 总数、Projects 总数、Running Tasks 数、Ready Tasks 数
 - **Memory Health**：Memory 各状态的分布
 - **Recent Memories**：最近创建的 Memory（点击可跳转详情）
 - **Recent Tasks**：最近创建的任务（点击可跳转详情）
 - **Recent Skills**：最近注册的 Skill
-- **Recent Members**：最近加入的成员
+- **Recent Employees**：最近加入的成员
 
 ---
 
@@ -511,7 +511,7 @@ Memory 冲突也在 Memory 详情的 **Review** tab 中处理。
 由于引用关系的存在，推荐的删除顺序为（从叶子到根）：
 
 ```
-Task → Review/Conflict → Project → Member → Skill → Memory → Department
+Task → Review/Conflict → Project → Employee → Skill → Memory → Department
 ```
 
 ---

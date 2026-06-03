@@ -53,7 +53,7 @@ export interface MemoryCandidate {
   scope_ref: string;
   memory_type: string;
   confidence: number;
-  member_ids: string[];
+  employee_ids: string[];
   tags: string[];
   provenance: Record<string, unknown>;
   created_at: string;
@@ -71,7 +71,7 @@ export interface MemoryCandidateCreateRequest {
   scope_ref?: string;
   memory_type?: string;
   confidence?: number;
-  member_ids?: string[];
+  employee_ids?: string[];
   tags?: string[];
   provenance?: Record<string, unknown>;
 }
@@ -94,7 +94,7 @@ export interface MemorySearchResult {
   scope_kind: string;
   scope_ref: string;
   memory_type: string;
-  member_ids: string[];
+  employee_ids: string[];
   tags: string[];
   provenance: Record<string, unknown>;
 }

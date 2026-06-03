@@ -251,8 +251,8 @@ def _search_terms(query: str) -> list[str]:
         "repos",
         "repository",
         "repositories",
-        "item",
-        "workitem",
+        "ticket",
+        "tickets",
         "代码仓库",
         "代码库",
         "仓库",
@@ -266,7 +266,7 @@ def _search_terms(query: str) -> list[str]:
     seen: set[str] = set()
     for term in terms:
         key = term.lower()
-        if key in ignored or key.startswith("work-"):
+        if key in ignored or key.startswith("ticket-"):
             continue
         if key in seen:
             continue

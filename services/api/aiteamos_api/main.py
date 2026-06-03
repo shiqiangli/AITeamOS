@@ -1,7 +1,7 @@
 """
 AITeamOS API Gateway — FastAPI Application Entry Point (file-first P0).
 
-Simplified: no database, no DDD container. The Member Chat Workbench
+Simplified: no database, no DDD container. The Employee Chat Workbench
 runs against local .aiteamos assets only.
 """
 
@@ -36,7 +36,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="AITeamOS API",
-        description="Agent Team OS — file-backed Member Chat Workbench REST API",
+        description="Agent Team OS — file-backed Employee Chat Workbench REST API",
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",

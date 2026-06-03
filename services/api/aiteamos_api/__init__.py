@@ -1,3 +1,3 @@
 """
-AITeamOS API Gateway — file-first P0 Member Chat Workbench.
+AITeamOS API Gateway — file-first P0 Employee Chat Workbench.
 """

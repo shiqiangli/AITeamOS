@@ -83,7 +83,7 @@ T5 DeliverableSubmitted
 1. **Spec Fail** → 直接打回 Running，无需 Saga 补偿
 2. **Functional Fail** → 打回 Running，附带失败日志（`evidence_ref`）
 3. **System Fail** → 打回 Running，Saga 触发补偿（释放沙箱、恢复并发槽位）
-4. **Adapter Error** → 不惩罚 Member，排队重试或升级给人工
+4. **Adapter Error** → 不惩罚 Employee，排队重试或升级给人工
 
 ## 参考
 - `docs/arch.md` §2.2.5 — Validation Context

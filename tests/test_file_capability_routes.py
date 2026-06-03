@@ -13,22 +13,22 @@ def test_capability_registry_groups_local_tools_mcp_and_executors(tmp_path, monk
 
     capabilities = payload["capabilities"]
     ids = {item["id"] for item in capabilities}
-    assert "list_members" in ids
-    assert "create_work_item" in ids
+    assert "list_employees" in ids
+    assert "create_ticket" in ids
     assert "inspect_code_repository" in ids
-    assert "mcp:plane:work_items.create" in ids
+    assert "mcp:plane:tickets.create" in ids
     assert "mcp:plane:knowledge.docs.read" in ids
     assert "executor:codex" in ids
 
-    list_members = next(item for item in capabilities if item["id"] == "list_members")
-    assert list_members["kind"] == "local_tool"
-    assert list_members["status"] == "ready"
-    assert list_members["deep_link"] == "#/members"
+    list_employees = next(item for item in capabilities if item["id"] == "list_employees")
+    assert list_employees["kind"] == "local_tool"
+    assert list_employees["status"] == "ready"
+    assert list_employees["deep_link"] == "#/employees"
 
-    plane_capability = next(item for item in capabilities if item["id"] == "mcp:plane:work_items.create")
+    plane_capability = next(item for item in capabilities if item["id"] == "mcp:plane:tickets.create")
     assert plane_capability["kind"] == "mcp_capability"
     assert plane_capability["connector_id"] == "plane"
-    assert "work_items:write" in plane_capability["permissions"]
+    assert "tickets:write" in plane_capability["permissions"]
 
     status = payload["status"]
     assert status["capability_count"] == len(capabilities)

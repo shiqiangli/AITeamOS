@@ -25,7 +25,7 @@ class Task:
 |------|--------|----------|
 | T0 创建 | **PM** | 创建 Task，填写完整规格 |
 | T1 就绪 | Admin/PM | 信息完备校验：department_id + declared_skills + deliverable_spec 非空 |
-| T2 分配 | **PM**/Auto-Router | 选择 Member（基于 Skill+Memory 匹配度） |
+| T2 分配 | **PM**/Auto-Router | 选择 Employee（基于 Skill+Memory 匹配度） |
 | T8 审核 | Reviewer | PM 可作为 Reviewer 验收交付物是否符合 deliverable_spec |
 
 ### 核心公式（PRD §1.4）
@@ -44,7 +44,7 @@ Task 的 `declared_skills` 定义"需要什么能力"，Context Assembler 在 T3
 ### Skill 声明规则
 - 每个 Skill 必须在 `skill` 表中存在且 `status=published`
 - Skill 数量控制在 1-5 个（过多说明 Task 应该拆分）
-- 至少有一个 Member 的 `base_skill_set` 能覆盖全部 declared_skills
+- 至少有一个 Employee 的 `base_skill_set` 能覆盖全部 declared_skills
 - 前后端分离的 Task 应拆为两个子 Task（前端 Skill vs 后端 Skill）
 
 ### 预算设定

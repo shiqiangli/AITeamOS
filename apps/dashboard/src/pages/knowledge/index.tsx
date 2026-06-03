@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Brain, Check, ExternalLink, FileText, MessageSquare, Plug, RefreshCw, Search } from "lucide-react";
+import { BookOpen, Brain, Check, ExternalLink, FileText, MessageSquare, Plug, RefreshCw, Search, Settings, Wrench } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { ErrorState, LoadingState, navigateTo, Status } from "../../components/shared";
+import { ResizableDetailLayout } from "../../components/resizable-layout";
 import { getMcpConnectorSettings, type McpConnectorSettingsResponse } from "../../api/mcp";
 import {
   getKnowledgeStatus,
@@ -77,7 +78,7 @@ function DocsSourcePanel({ settings }: { settings: McpConnectorSettingsResponse 
             <Badge variant={configured ? "success" : "warning"}>{configured ? "configured" : "not configured"}</Badge>
           </div>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Project pages, proposals, postmortems, and long-form docs linked to WorkItems.
+            Project pages, proposals, postmortems, and long-form docs linked to Tickets.
           </p>
           <a
             className="mt-3 inline-flex h-8 items-center justify-center gap-2 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground"
@@ -338,8 +339,10 @@ export function KnowledgePage({ selectedSection }: { selectedSection?: string | 
   if (loading) return <LoadingState />;
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <section className="rounded-md border bg-background">
+    <ResizableDetailLayout
+      id="aiteamos-knowledge-layout"
+      main={(
+        <section className="rounded-md border bg-background">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div className="flex items-center gap-2">
             <Brain className="h-4 w-4 text-muted-foreground" />
@@ -362,6 +365,44 @@ export function KnowledgePage({ selectedSection }: { selectedSection?: string | 
             <ErrorState message={error} onRetry={loadKnowledge} />
           </div>
         )}
+
+        <div className="grid gap-3 border-b bg-muted/20 p-4 md:grid-cols-3">
+          <div className="rounded-md border bg-background p-3">
+            <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
+              <Brain className="h-4 w-4 text-muted-foreground" />
+              Knowledge
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Shared docs, memories, decisions, and review candidates.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="rounded-md border bg-background p-3 text-left transition-colors hover:bg-muted"
+            onClick={() => navigateTo("library", "skills")}
+          >
+            <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
+              <BookOpen className="h-4 w-4 text-muted-foreground" />
+              Skills
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Employee methods, playbooks, and role workflows.
+            </p>
+          </button>
+          <button
+            type="button"
+            className="rounded-md border bg-background p-3 text-left transition-colors hover:bg-muted"
+            onClick={() => navigateTo("library", "tools")}
+          >
+            <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
+              <Wrench className="h-4 w-4 text-muted-foreground" />
+              Tools
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Executable tools, MCP capabilities, and agent executors.
+            </p>
+          </button>
+        </div>
 
         <div className="border-b p-4">
           <form onSubmit={submitSearch} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -392,7 +433,7 @@ export function KnowledgePage({ selectedSection }: { selectedSection?: string | 
               type="button"
               variant={section === entry.key ? "default" : "outline"}
               size="sm"
-              onClick={() => navigateTo("knowledge", entry.key)}
+              onClick={() => navigateTo("library", "knowledge", entry.key)}
             >
               {entry.label}
             </Button>
@@ -415,9 +456,11 @@ export function KnowledgePage({ selectedSection }: { selectedSection?: string | 
             ))}
           </div>
         )}
-      </section>
+        </section>
+      )}
 
-      <aside className="space-y-4">
+      detail={(
+        <aside className="space-y-4">
         <section className="rounded-md border bg-background p-4">
           <div className="mb-3 flex items-center gap-2">
             <Brain className="h-4 w-4 text-muted-foreground" />
@@ -429,6 +472,27 @@ export function KnowledgePage({ selectedSection }: { selectedSection?: string | 
             <Status label="Decisions" value={status?.decisions_count ?? decisions.length} />
             <Status label="Review" value={status?.review_queue_count ?? reviewItems.length} />
           </div>
+        </section>
+
+        <section className="rounded-md border bg-background p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Plug className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold">Backend</h3>
+            </div>
+            <Badge variant={status ? "success" : "warning"}>{status ? "connected" : "unknown"}</Badge>
+          </div>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Graphiti / Neo4j powers knowledge indexing and semantic search.
+          </p>
+          <button
+            type="button"
+            className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            onClick={() => navigateTo("settings", "knowledge")}
+          >
+            <Settings className="h-3 w-3" />
+            Settings &gt; Knowledge
+          </button>
         </section>
 
         <section className="rounded-md border bg-background p-4">
@@ -446,7 +510,8 @@ export function KnowledgePage({ selectedSection }: { selectedSection?: string | 
         <DocsSourcePanel settings={planeSettings} />
 
         <DetailPanel item={selected} approving={approving} onApprove={(item) => void approve(item)} />
-      </aside>
-    </div>
+        </aside>
+      )}
+    />
   );
 }

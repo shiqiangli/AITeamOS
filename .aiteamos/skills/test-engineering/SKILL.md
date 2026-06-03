@@ -57,19 +57,19 @@ async def test_pgvector_projection_no_rollback(conn, event_seq_10, event_seq_5):
 ### Saga 补偿测试（arch.md §3.5）
 ```python
 # 测试模板：Saga 补偿
-async def test_saga_compensation_on_member_failure(saga_client):
-    """Member 执行失败时，补偿栈正确释放"""
-    workflow = await saga_client.start_task_workflow(task_id, member_id)
+async def test_saga_compensation_on_employee_failure(saga_client):
+    """Employee 执行失败时，补偿栈正确释放"""
+    workflow = await saga_client.start_task_workflow(task_id, employee_id)
 
-    # 模拟 Member 执行异常
-    await saga_client.signal_failure(workflow.id, "member_crash")
+    # 模拟 Employee 执行异常
+    await saga_client.signal_failure(workflow.id, "employee_crash")
 
     # 等待补偿完成
     result = await saga_client.wait_terminal(workflow.id, timeout=30)
 
     assert result.status == "Failed"
     assert result.compensation_stack == []  # N7: 补偿栈清空
-    assert result.member_concurrency_released == True
+    assert result.employee_concurrency_released == True
     assert result.sandbox_destroyed == True
 ```
 
@@ -88,7 +88,7 @@ async def test_saga_compensation_on_member_failure(saga_client):
 - [ ] Knowledge: Memory 置信度衰减公式验证（Facts λ=0, Patterns λ=1/180d, Principles λ=1/365d）
 - [ ] Knowledge: 级联失效 BFS 深度上限 3、扇出上限 200
 - [ ] Capability: Skill 版本 SemVer 解析和比较
-- [ ] Workforce: Member 并发上限校验（当前并发 < concurrency_limit）
+- [ ] Workforce: Employee 并发上限校验（当前并发 < concurrency_limit）
 - [ ] Execution: Task 状态机迁移合法性（Draft→Ready→Assigned→Running→Verifying→InReview→Done）
 - [ ] Validation: Webhook 回调幂等（UNIQUE 约束 + HMAC 校验）
 - [ ] Governance: ReviewCase verdict 迁移（approve/reject/merge/revise）

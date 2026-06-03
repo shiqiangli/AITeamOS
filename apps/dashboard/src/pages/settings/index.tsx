@@ -3,7 +3,6 @@ import {
   Activity,
   Bot,
   CheckCircle2,
-  Cpu,
   Database,
   FolderGit2,
   GitBranch,
@@ -22,13 +21,14 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Select } from "../../components/ui/select";
 import { ErrorState, LoadingState, Status, navigateTo } from "../../components/shared";
+import { ResizableDetailLayout } from "../../components/resizable-layout";
 import { getCapabilities, type CapabilityRecord, type CapabilityRegistryResponse } from "../../api/capabilities";
 import {
   getChatRuntime,
-  listChatMembers,
+  listChatEmployees,
   updateChatRuntime,
   updateChatRuntimeProvider,
-  type ChatMemberSummary,
+  type ChatEmployeeSummary,
   type ChatRuntimeProviderUpdateRequest,
   type ChatRuntimeSettings,
 } from "../../api/chat";
@@ -63,17 +63,7 @@ import {
 } from "../../api/repositories";
 import { cn } from "@/lib/utils";
 
-type SettingsSection =
-  | "runtimes"
-  | "providers"
-  | "agent-executors"
-  | "capabilities"
-  | "code-repositories"
-  | "mcp-connectors"
-  | "knowledge-backend"
-  | "secrets"
-  | "defaults"
-  | "health";
+type SettingsSection = "runtime" | "integrations" | "system";
 
 type RuntimeForm = {
   provider: string;
@@ -115,23 +105,49 @@ type RepositoryForm = {
   enabled: boolean;
 };
 
-const SECTIONS: { key: SettingsSection; label: string; icon: typeof Settings }[] = [
-  { key: "runtimes", label: "Runtimes", icon: SlidersHorizontal },
-  { key: "providers", label: "Providers", icon: Cpu },
-  { key: "agent-executors", label: "Agent Executors", icon: Bot },
-  { key: "capabilities", label: "Capabilities", icon: Wrench },
-  { key: "code-repositories", label: "Code Repositories", icon: FolderGit2 },
-  { key: "mcp-connectors", label: "MCP Connectors", icon: Plug },
-  { key: "knowledge-backend", label: "Knowledge Backend", icon: Database },
-  { key: "secrets", label: "Secrets", icon: KeyRound },
-  { key: "defaults", label: "Defaults", icon: ShieldCheck },
-  { key: "health", label: "Health", icon: Activity },
+interface SettingsGroup {
+  key: SettingsSection;
+  label: string;
+  icon: typeof Settings;
+  subsections: { key: string; label: string }[];
+}
+
+const SECTION_GROUPS: SettingsGroup[] = [
+  {
+    key: "runtime",
+    label: "Runtime",
+    icon: SlidersHorizontal,
+    subsections: [
+      { key: "runtimes", label: "LLM Providers" },
+      { key: "agent-executors", label: "Agent Executors" },
+    ],
+  },
+  {
+    key: "integrations",
+    label: "Integrations",
+    icon: Plug,
+    subsections: [
+      { key: "mcp-connectors", label: "MCP Connectors" },
+      { key: "code-repositories", label: "Code Repositories" },
+      { key: "knowledge-backend", label: "Knowledge Backend" },
+    ],
+  },
+  {
+    key: "system",
+    label: "System",
+    icon: Activity,
+    subsections: [
+      { key: "secrets", label: "Secrets" },
+      { key: "defaults", label: "Employee Defaults" },
+      { key: "health", label: "Health" },
+    ],
+  },
 ];
 
 const PROVIDERS = [
   { id: "stub", name: "File stub", kind: "local", description: "Offline deterministic fallback for development." },
   { id: "deepseek", name: "DeepSeek", kind: "llm_api", description: "Chat Completions provider used for low-cost runtime testing." },
-  { id: "openai", name: "OpenAI / ChatGPT", kind: "llm_api", description: "Responses API runtime for ChatGPT/OpenAI-backed members." },
+  { id: "openai", name: "OpenAI / ChatGPT", kind: "llm_api", description: "Responses API runtime for ChatGPT/OpenAI-backed employees." },
 ];
 
 const AGENT_EXECUTORS = [
@@ -142,7 +158,16 @@ const AGENT_EXECUTORS = [
 ];
 
 function sectionFromRoute(value?: string | null): SettingsSection {
-  return SECTIONS.some((section) => section.key === value) ? value as SettingsSection : "runtimes";
+  // Map old subsection keys to their parent group for backward compatibility
+  const legacyMap: Record<string, SettingsSection> = {
+    runtimes: "runtime", providers: "runtime", "agent-executors": "runtime",
+    "mcp-connectors": "integrations", "code-repositories": "integrations",
+    "knowledge-backend": "integrations", capabilities: "integrations",
+    knowledge: "integrations",
+    secrets: "system", defaults: "system", health: "system",
+  };
+  if (value && legacyMap[value]) return legacyMap[value];
+  return SECTION_GROUPS.some((g) => g.key === value) ? (value as SettingsSection) : "runtime";
 }
 
 function runtimeToForm(runtime: ChatRuntimeSettings): RuntimeForm {
@@ -422,7 +447,7 @@ function RuntimesSection({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold">OpenAI / ChatGPT</h3>
-              <p className="mt-1 text-sm text-muted-foreground">OpenAI-backed member runtime for later ChatGPT integration.</p>
+              <p className="mt-1 text-sm text-muted-foreground">OpenAI-backed employee runtime for later ChatGPT integration.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {openai?.active && <Badge variant="success">active</Badge>}
@@ -495,10 +520,10 @@ function CapabilitiesSection({ registry }: { registry: CapabilityRegistryRespons
   const groups = groupedCapabilities(capabilities);
   const modelEntries = [
     ["Knowledge", registry?.model.knowledge ?? "Facts and history that ground reasoning."],
-    ["Skill", registry?.model.skill ?? "Member methods and workflows."],
+    ["Skill", registry?.model.skill ?? "Employee methods and workflows."],
     ["Tool", registry?.model.tool ?? "Executable deterministic actions."],
     ["MCP", registry?.model.mcp ?? "External tool and resource connector layer."],
-    ["Executor", registry?.model.executor ?? "Mature agent runtime used by members."],
+    ["Executor", registry?.model.executor ?? "Mature agent runtime used by employees."],
   ];
 
   return (
@@ -1045,7 +1070,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
   const [repositoryStatus, setRepositoryStatus] = useState<CodeRepositoryStatus | null>(null);
   const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
   const [capabilityRegistry, setCapabilityRegistry] = useState<CapabilityRegistryResponse | null>(null);
-  const [members, setMembers] = useState<ChatMemberSummary[]>([]);
+  const [employees, setEmployees] = useState<ChatEmployeeSummary[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeStatusResponse | null>(null);
   const [memory, setMemory] = useState<MemoryStatusResponse | null>(null);
   const [graphiti, setGraphiti] = useState<GraphitiSettingsResponse | null>(null);
@@ -1061,8 +1086,8 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     setSection(sectionFromRoute(selectedSection));
   }, [selectedSection]);
 
-  const activeSection = useMemo(
-    () => SECTIONS.find((item) => item.key === section) ?? SECTIONS[0],
+  const activeGroup = useMemo(
+    () => SECTION_GROUPS.find((g) => g.key === section) ?? SECTION_GROUPS[0]!,
     [section],
   );
 
@@ -1072,7 +1097,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     try {
       const [
         loadedRuntime,
-        loadedMembers,
+        loadedEmployees,
         loadedKnowledge,
         loadedMemory,
         loadedGraphiti,
@@ -1084,7 +1109,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         loadedMcpStatus,
       ] = await Promise.all([
         getChatRuntime(),
-        listChatMembers(),
+        listChatEmployees(),
         getKnowledgeStatus(),
         getMemoryStatus(),
         getGraphitiSettings(),
@@ -1097,7 +1122,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       ]);
       setRuntime(loadedRuntime);
       setForm(runtimeToForm(loadedRuntime));
-      setMembers(loadedMembers);
+      setEmployees(loadedEmployees);
       setKnowledge(loadedKnowledge);
       setMemory(loadedMemory);
       setGraphiti(loadedGraphiti);
@@ -1292,16 +1317,19 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
   }
 
   if (loading) return <LoadingState />;
-  const ActiveIcon = activeSection.icon;
+  const ActiveIcon = activeGroup.icon;
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <section className="space-y-4">
+    <ResizableDetailLayout
+      id="aiteamos-settings-layout"
+      main={(
+        <section className="space-y-4">
+        {/* Group header with refresh */}
         <div className="rounded-md border bg-background">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
             <div className="flex items-center gap-2">
               <ActiveIcon className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold">{activeSection.label}</h3>
+              <h3 className="text-sm font-semibold">{activeGroup.label}</h3>
             </div>
             <Button type="button" variant="outline" size="sm" onClick={() => void loadSettings()}>
               <RefreshCw className="h-4 w-4" />
@@ -1309,18 +1337,23 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
             </Button>
           </div>
 
+          {/* Grouped tab navigation */}
           <div className="flex flex-wrap gap-2 border-b px-4 py-3">
-            {SECTIONS.map((entry) => (
-              <Button
-                key={entry.key}
-                type="button"
-                variant={section === entry.key ? "default" : "outline"}
-                size="sm"
-                onClick={() => navigateTo("settings", entry.key)}
-              >
-                {entry.label}
-              </Button>
-            ))}
+            {SECTION_GROUPS.map((group) => {
+              const GIcon = group.icon;
+              return (
+                <Button
+                  key={group.key}
+                  type="button"
+                  variant={section === group.key ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => navigateTo("settings", group.key)}
+                >
+                  <GIcon className="h-3.5 w-3.5" />
+                  {group.label}
+                </Button>
+              );
+            })}
           </div>
 
           {error && (
@@ -1330,227 +1363,241 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
           )}
         </div>
 
-        {section === "runtimes" && (
-          <RuntimesSection
-            form={form}
-            runtime={runtime}
-            saving={saving}
-            setForm={setForm}
-            onPolicySubmit={handleRuntimePolicySubmit}
-            onProviderSubmit={(providerId, payload) => void handleRuntimeProviderSubmit(providerId, payload)}
-          />
-        )}
-
-        {section === "providers" && (
-          <div className="grid gap-3">
-            {PROVIDERS.map((provider) => {
-              const settings = runtime?.providers?.[provider.id];
-              const configured = provider.id === "stub" || Boolean(settings?.api_key_configured);
-              return (
-                <ConfigRow
-                  key={provider.id}
-                  active={Boolean(settings?.active)}
-                  name={provider.name}
-                  kind={provider.kind}
-                  status={settings?.active ? "active" : configured ? "configured" : "missing"}
-                  description={provider.description}
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {section === "agent-executors" && (
-          <div className="grid gap-3">
-            {AGENT_EXECUTORS.map((executor) => (
-              <ConfigRow
-                key={executor.id}
-                name={executor.name}
-                status={executor.status}
-                description={executor.description}
-              />
-            ))}
-          </div>
-        )}
-
-        {section === "capabilities" && (
-          <CapabilitiesSection registry={capabilityRegistry} />
-        )}
-
-        {section === "code-repositories" && (
-          <CodeRepositoriesSection
-            form={repositoryForm}
-            repositories={repositories}
-            saving={saving}
-            selectedId={selectedRepositoryId}
-            status={repositoryStatus}
-            setForm={setRepositoryForm}
-            onDelete={(repoId) => void handleRepositoryDelete(repoId)}
-            onNew={() => {
-              setSelectedRepositoryId("");
-              setRepositoryForm(emptyRepositoryForm());
-            }}
-            onSelect={(repository) => {
-              setSelectedRepositoryId(repository.id);
-              setRepositoryForm(repositoryToForm(repository));
-            }}
-            onSubmit={(event) => void handleRepositorySubmit(event)}
-          />
-        )}
-
-        {section === "mcp-connectors" && (
-          <div className="grid gap-3">
-            {mcpConnectors.map((connector) => (
-              <ConfigRow
-                key={connector.id}
-                name={connector.name}
-                kind={connector.transport}
-                status={connector.enabled && connector.configured ? "ready" : connector.status}
-                description={connector.description}
-              >
-                <div className="flex flex-wrap gap-2">
-                  {connector.capabilities.slice(0, 4).map((capability) => (
-                    <Badge key={capability} variant="outline">{capability}</Badge>
-                  ))}
-                  {connector.capabilities.length > 4 && (
-                    <Badge variant="secondary">+{connector.capabilities.length - 4}</Badge>
-                  )}
-                </div>
-              </ConfigRow>
-            ))}
-            <PlaneConnectorSection
-              form={planeForm}
-              health={planeHealth}
+        {/* ─── Runtime Group ─── */}
+        {section === "runtime" && (
+          <>
+            <RuntimesSection
+              form={form}
+              runtime={runtime}
               saving={saving}
-              settings={planeSettings}
-              setForm={setPlaneForm}
-              onHealth={() => void handlePlaneHealth()}
-              onSubmit={(event) => void handlePlaneSubmit(event)}
+              setForm={setForm}
+              onPolicySubmit={handleRuntimePolicySubmit}
+              onProviderSubmit={(providerId, payload) => void handleRuntimeProviderSubmit(providerId, payload)}
             />
-          </div>
-        )}
-
-        {section === "knowledge-backend" && (
-          <KnowledgeBackendSection
-            form={graphitiForm}
-            graphiti={graphiti}
-            saving={saving}
-            setForm={setGraphitiForm}
-            onSubmit={handleGraphitiSubmit}
-          />
-        )}
-
-        {section === "secrets" && (
-          <div className="grid gap-3">
-            <ConfigRow
-              name="DeepSeek API key"
-              status={runtime?.api_keys_configured.deepseek ? "configured" : "missing"}
-              description="Stored in the local ignored secrets file through the Runtimes form."
-            />
-            <ConfigRow
-              name="OpenAI API key"
-              status={runtime?.api_keys_configured.openai ? "configured" : "missing"}
-              description="Stored in the local ignored secrets file through the Runtimes form."
-            />
-            <ConfigRow
-              name="Graphiti Neo4j password"
-              status={graphiti?.password_configured ? "configured" : "missing"}
-              description="Stored in the local ignored secrets file through the Knowledge Backend form."
-            />
-            <ConfigRow
-              name="Graphiti OpenAI API key"
-              status={graphiti?.openai_api_key_configured ? "configured" : "missing"}
-              description={graphiti?.uses_runtime_openai_key ? "Using the Runtime OpenAI key." : "Optional dedicated key for Graphiti ingestion."}
-            />
-            <ConfigRow
-              name="Plane API token"
-              status={planeSettings?.api_token_configured ? "configured" : "missing"}
-              description="Stored in the local ignored secrets file through the MCP Connectors form."
-            />
-          </div>
-        )}
-
-        {section === "defaults" && (
-          <div className="rounded-md border bg-background">
-            {members.map((member) => (
-              <div key={member.id} className="grid gap-2 border-b px-4 py-3 text-sm last:border-b-0 md:grid-cols-[minmax(0,1fr)_12rem_10rem]">
-                <div>
-                  <div className="font-medium">{member.display_name}</div>
-                  <div className="text-muted-foreground">{member.role}</div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase text-muted-foreground">Runtime mode</div>
-                  <div className="font-medium">{member.runtime_mode}</div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase text-muted-foreground">Thread</div>
-                  <div className="truncate font-medium" title={member.default_thread_id}>{member.default_thread_id}</div>
+            <section className="rounded-md border bg-background">
+              <div className="border-b px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">Agent Executors</h3>
                 </div>
               </div>
-            ))}
-          </div>
+              <div className="grid gap-3 p-4">
+                {AGENT_EXECUTORS.map((executor) => (
+                  <ConfigRow
+                    key={executor.id}
+                    name={executor.name}
+                    status={executor.status}
+                    description={executor.description}
+                  />
+                ))}
+              </div>
+            </section>
+          </>
         )}
 
-        {section === "health" && (
-          <div className="grid gap-3 md:grid-cols-2">
-            <Status label="Runtime" value={runtime?.provider ?? "-"} tone={runtime?.provider === "stub" ? "warn" : "ok"} />
-            <Status label="Members" value={members.length} />
-            <Status label="Knowledge docs" value={knowledge?.docs_count ?? 0} />
-            <Status label="Review items" value={knowledge?.review_queue_count ?? 0} />
-            <Status label="Capabilities" value={capabilityRegistry?.status.capability_count ?? 0} />
-            <Status label="Capability ready" value={capabilityRegistry?.status.ready_count ?? 0} tone={(capabilityRegistry?.status.ready_count ?? 0) > 0 ? "ok" : "warn"} />
-            <Status label="MCP ready" value={mcpStatus?.ready_count ?? 0} tone={(mcpStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
-            <Status label="Code repositories" value={repositoryStatus?.repository_count ?? repositories.length} />
-            <Status label="Repos ready" value={repositoryStatus?.ready_count ?? 0} tone={(repositoryStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
-            <Status label="Approved memories" value={memory?.approved_count ?? 0} />
-            <section className="rounded-md border bg-background p-4 md:col-span-2">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Graphiti Memory Backend</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {graphiti?.backend.detail ?? memory?.backend.detail ?? "Memory backend status is unavailable."}
-                  </p>
+        {/* ─── Integrations Group ─── */}
+        {section === "integrations" && (
+          <>
+            <div className="grid gap-3">
+              {mcpConnectors.map((connector) => (
+                <ConfigRow
+                  key={connector.id}
+                  name={connector.name}
+                  kind={connector.transport}
+                  status={connector.enabled && connector.configured ? "ready" : connector.status}
+                  description={connector.description}
+                >
+                  <div className="flex flex-wrap gap-2">
+                    {connector.capabilities.slice(0, 4).map((capability) => (
+                      <Badge key={capability} variant="outline">{capability}</Badge>
+                    ))}
+                    {connector.capabilities.length > 4 && (
+                      <Badge variant="secondary">+{connector.capabilities.length - 4}</Badge>
+                    )}
+                  </div>
+                </ConfigRow>
+              ))}
+              <PlaneConnectorSection
+                form={planeForm}
+                health={planeHealth}
+                saving={saving}
+                settings={planeSettings}
+                setForm={setPlaneForm}
+                onHealth={() => void handlePlaneHealth()}
+                onSubmit={(event) => void handlePlaneSubmit(event)}
+              />
+            </div>
+            <CodeRepositoriesSection
+              form={repositoryForm}
+              repositories={repositories}
+              saving={saving}
+              selectedId={selectedRepositoryId}
+              status={repositoryStatus}
+              setForm={setRepositoryForm}
+              onDelete={(repoId) => void handleRepositoryDelete(repoId)}
+              onNew={() => {
+                setSelectedRepositoryId("");
+                setRepositoryForm(emptyRepositoryForm());
+              }}
+              onSelect={(repository) => {
+                setSelectedRepositoryId(repository.id);
+                setRepositoryForm(repositoryToForm(repository));
+              }}
+              onSubmit={(event) => void handleRepositorySubmit(event)}
+            />
+            <KnowledgeBackendSection
+              form={graphitiForm}
+              graphiti={graphiti}
+              saving={saving}
+              setForm={setGraphitiForm}
+              onSubmit={handleGraphitiSubmit}
+            />
+          </>
+        )}
+
+        {/* ─── System Group ─── */}
+        {section === "system" && (
+          <div className="space-y-4">
+            {/* Secrets */}
+            <section className="rounded-md border bg-background">
+              <div className="border-b px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">Secrets</h3>
                 </div>
-                <Badge variant={statusVariant(graphiti?.backend.status ?? memory?.backend.status ?? "missing")}>
-                  {graphiti?.backend.status ?? memory?.backend.status ?? "-"}
-                </Badge>
               </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-4">
-                <Status
-                  label="Package"
-                  value={(graphiti?.backend.package_installed ?? memory?.backend.package_installed) ? "installed" : "missing"}
-                  tone={(graphiti?.backend.package_installed ?? memory?.backend.package_installed) ? "ok" : "warn"}
+              <div className="grid gap-3 p-4">
+                <ConfigRow
+                  name="DeepSeek API key"
+                  status={runtime?.api_keys_configured.deepseek ? "configured" : "missing"}
+                  description="Stored in the local ignored secrets file through the Runtime form."
                 />
-                <Status
-                  label="Enabled"
-                  value={(graphiti?.backend.enabled ?? memory?.backend.enabled) ? "yes" : "no"}
-                  tone={(graphiti?.backend.enabled ?? memory?.backend.enabled) ? "ok" : "warn"}
+                <ConfigRow
+                  name="OpenAI API key"
+                  status={runtime?.api_keys_configured.openai ? "configured" : "missing"}
+                  description="Stored in the local ignored secrets file through the Runtime form."
                 />
-                <Status
-                  label="Neo4j config"
-                  value={(graphiti?.backend.graph_configured ?? memory?.backend.graph_configured) ? "set" : "missing"}
-                  tone={(graphiti?.backend.graph_configured ?? memory?.backend.graph_configured) ? "ok" : "warn"}
+                <ConfigRow
+                  name="Graphiti Neo4j password"
+                  status={graphiti?.password_configured ? "configured" : "missing"}
+                  description="Stored in the local ignored secrets file through the Knowledge Backend form."
                 />
-                <Status
-                  label="LLM key"
-                  value={(graphiti?.backend.llm_configured ?? memory?.backend.llm_configured) ? "set" : "missing"}
-                  tone={(graphiti?.backend.llm_configured ?? memory?.backend.llm_configured) ? "ok" : "warn"}
+                <ConfigRow
+                  name="Graphiti OpenAI API key"
+                  status={graphiti?.openai_api_key_configured ? "configured" : "missing"}
+                  description={graphiti?.uses_runtime_openai_key ? "Using the Runtime OpenAI key." : "Optional dedicated key for Graphiti ingestion."}
                 />
+                <ConfigRow
+                  name="Plane API token"
+                  status={planeSettings?.api_token_configured ? "configured" : "missing"}
+                  description="Stored in the local ignored secrets file through the MCP Connectors form."
+                />
+              </div>
+            </section>
+
+            {/* Employee Defaults */}
+            <section className="rounded-md border bg-background">
+              <div className="border-b px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">Employee Defaults</h3>
+                </div>
+              </div>
+              <div>
+                {employees.length === 0 ? (
+                  <p className="px-4 py-6 text-center text-sm text-muted-foreground">No employees configured.</p>
+                ) : (
+                  employees.map((employee) => (
+                    <div key={employee.id} className="grid gap-2 border-b px-4 py-3 text-sm last:border-b-0 md:grid-cols-[minmax(0,1fr)_12rem_10rem]">
+                      <div>
+                        <div className="font-medium">{employee.display_name}</div>
+                        <div className="text-muted-foreground">{employee.role}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase text-muted-foreground">Runtime mode</div>
+                        <div className="font-medium">{employee.runtime_mode}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase text-muted-foreground">Thread</div>
+                        <div className="truncate font-medium" title={employee.default_thread_id}>{employee.default_thread_id}</div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+            {/* Health */}
+            <section className="rounded-md border bg-background">
+              <div className="border-b px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">System Health</h3>
+                </div>
+              </div>
+              <div className="grid gap-3 p-4 md:grid-cols-2">
+                <Status label="Runtime" value={runtime?.provider ?? "-"} tone={runtime?.provider === "stub" ? "warn" : "ok"} />
+                <Status label="Employees" value={employees.length} />
+                <Status label="Knowledge docs" value={knowledge?.docs_count ?? 0} />
+                <Status label="Review items" value={knowledge?.review_queue_count ?? 0} />
+                <Status label="Capabilities" value={capabilityRegistry?.status.capability_count ?? 0} />
+                <Status label="Capability ready" value={capabilityRegistry?.status.ready_count ?? 0} tone={(capabilityRegistry?.status.ready_count ?? 0) > 0 ? "ok" : "warn"} />
+                <Status label="MCP ready" value={mcpStatus?.ready_count ?? 0} tone={(mcpStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
+                <Status label="Code repositories" value={repositoryStatus?.repository_count ?? repositories.length} />
+                <Status label="Repos ready" value={repositoryStatus?.ready_count ?? 0} tone={(repositoryStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
+                <Status label="Approved memories" value={memory?.approved_count ?? 0} />
+                <section className="rounded-md border bg-background p-4 md:col-span-2">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold">Graphiti Memory Backend</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {graphiti?.backend.detail ?? memory?.backend.detail ?? "Memory backend status is unavailable."}
+                      </p>
+                    </div>
+                    <Badge variant={statusVariant(graphiti?.backend.status ?? memory?.backend.status ?? "missing")}>
+                      {graphiti?.backend.status ?? memory?.backend.status ?? "-"}
+                    </Badge>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-4">
+                    <Status
+                      label="Package"
+                      value={(graphiti?.backend.package_installed ?? memory?.backend.package_installed) ? "installed" : "missing"}
+                      tone={(graphiti?.backend.package_installed ?? memory?.backend.package_installed) ? "ok" : "warn"}
+                    />
+                    <Status
+                      label="Enabled"
+                      value={(graphiti?.backend.enabled ?? memory?.backend.enabled) ? "yes" : "no"}
+                      tone={(graphiti?.backend.enabled ?? memory?.backend.enabled) ? "ok" : "warn"}
+                    />
+                    <Status
+                      label="Neo4j config"
+                      value={(graphiti?.backend.graph_configured ?? memory?.backend.graph_configured) ? "set" : "missing"}
+                      tone={(graphiti?.backend.graph_configured ?? memory?.backend.graph_configured) ? "ok" : "warn"}
+                    />
+                    <Status
+                      label="LLM key"
+                      value={(graphiti?.backend.llm_configured ?? memory?.backend.llm_configured) ? "set" : "missing"}
+                      tone={(graphiti?.backend.llm_configured ?? memory?.backend.llm_configured) ? "ok" : "warn"}
+                    />
+                  </div>
+                </section>
               </div>
             </section>
           </div>
         )}
-      </section>
+        </section>
+      )}
 
-      <aside className="space-y-4">
+      detail={(
+        <aside className="space-y-4">
         <section className="rounded-md border bg-background p-4">
           <div className="mb-3 flex items-center gap-2">
             <Settings className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Kernel Settings</h3>
+            <h3 className="text-sm font-semibold">Overview</h3>
           </div>
           <div className="space-y-3">
             <Status label="Provider" value={runtime?.provider ?? "-"} />
-            <Status label="Members" value={members.length} />
+            <Status label="Employees" value={employees.length} />
             <Status label="Docs" value={knowledge?.docs_count ?? 0} />
             <Status label="Capabilities" value={capabilityRegistry?.status.capability_count ?? 0} />
             <Status label="Repos" value={repositoryStatus?.repository_count ?? repositories.length} />
@@ -1603,7 +1650,8 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
             ))}
           </div>
         </section>
-      </aside>
-    </div>
+        </aside>
+      )}
+    />
   );
 }

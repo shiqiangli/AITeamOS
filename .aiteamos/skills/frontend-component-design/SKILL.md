@@ -18,7 +18,7 @@
 |------|------|---------|
 | Agents | `/agents` | 表格列表 + 详情 Dialog（Tabs 分区） |
 | Tasks | `/tasks` | 表格列表 + 状态 Badge + 操作按钮 |
-| Members | `/members` | 表格列表 + Skill/Memory 分配面板 |
+| Employees | `/employees` | 表格列表 + Skill/Memory 分配面板 |
 | Skills | `/skills` | 表格列表 + 详情 Dialog（Overview/Edit/SKILL.md/Actions Tabs） |
 | Memory | `/memory` | 知识图谱可视化 + 详情面板 |
 | Metrics | `/metrics` | 指标卡片 + 时序图表 |

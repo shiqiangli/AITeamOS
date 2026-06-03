@@ -19,7 +19,7 @@ import pytest
 # types
 # ---------------------------------------------------------------------------
 from aiteamos_shared.types import (
-    MemberKind,
+    EmployeeKind,
     Priority,
     ResourceKind,
     SemVer,
