@@ -1,7 +1,7 @@
 """
-API Gateway — Error Handler (plan.md §1.5.4).
+API Gateway — Error Handler (file-first P0).
 
-统一异常响应格式，保证 API 返回结构一致。
+Unified error response format for the file-backed API.
 """
 
 from __future__ import annotations
@@ -12,39 +12,11 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-# Domain exceptions
-from aiteamos_knowledge.domain.exceptions import (
-    MemoryConflictError,
-    MemoryInvariantError,
-    MemoryNotFoundError,
-)
-from aiteamos_capability.domain.exceptions import (
-    SkillCircuitOpenError,
-    SkillInvariantError,
-    SkillNotFoundError,
-)
-from aiteamos_workforce.domain.exceptions import (
-    ConcurrencyLimitError,
-    DepartmentNotFoundError,
-    MemberNotFoundError,
-)
-from aiteamos_execution.domain.exceptions import (
-    InvalidStateTransition,
-    TaskDependencyError,
-    TaskNotFoundError,
-)
-
-# Governance exceptions
-from aiteamos_governance.domain.exceptions import (
-    ReviewAlreadyDecided,
-    ReviewNotFoundError,
-)
-
 logger = logging.getLogger(__name__)
 
 
 class ApiError(Exception):
-    """业务异常基类。"""
+    """Business error base class."""
 
     def __init__(self, *, status_code: int = 400, detail: str = "", code: str = "BAD_REQUEST"):
         self.status_code = status_code
@@ -77,45 +49,12 @@ def _error_response(status_code: int, code: str, detail: str) -> JSONResponse:
     )
 
 
-# Domain exception → (status_code, error_code) mapping
-_NOT_FOUND_EXCEPTIONS = (
-    MemoryNotFoundError,
-    SkillNotFoundError,
-    MemberNotFoundError,
-    DepartmentNotFoundError,
-    TaskNotFoundError,
-    ReviewNotFoundError,
-)
-_INVARIANT_EXCEPTIONS = (
-    MemoryInvariantError,
-    SkillInvariantError,
-    InvalidStateTransition,
-)
-_CONFLICT_EXCEPTIONS = (
-    MemoryConflictError,
-    ConcurrencyLimitError,
-    TaskDependencyError,
-    SkillCircuitOpenError,
-    ReviewAlreadyDecided,
-)
-
-
 def register_error_handlers(app: FastAPI) -> None:
-    """注册全局异常处理器。"""
+    """Register global error handlers."""
 
     @app.exception_handler(ApiError)
     async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
         return _error_response(exc.status_code, exc.code, exc.detail)
-
-    # Domain exception handlers
-    for exc_cls in _NOT_FOUND_EXCEPTIONS:
-        app.add_exception_handler(exc_cls, _make_not_found_handler(exc_cls))
-
-    for exc_cls in _INVARIANT_EXCEPTIONS:
-        app.add_exception_handler(exc_cls, _make_invariant_handler(exc_cls))
-
-    for exc_cls in _CONFLICT_EXCEPTIONS:
-        app.add_exception_handler(exc_cls, _make_conflict_handler(exc_cls))
 
     @app.exception_handler(ValueError)
     async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
@@ -130,21 +69,3 @@ def register_error_handlers(app: FastAPI) -> None:
             return _error_response(exc.status_code, exc.code, exc.detail)
         logger.exception("Unhandled exception: %s", exc)
         return _error_response(500, "INTERNAL_ERROR", "Internal server error")
-
-
-def _make_not_found_handler(exc_cls: type):
-    async def handler(request: Request, exc: Exception) -> JSONResponse:
-        return _error_response(404, "NOT_FOUND", str(exc))
-    return handler
-
-
-def _make_invariant_handler(exc_cls: type):
-    async def handler(request: Request, exc: Exception) -> JSONResponse:
-        return _error_response(422, "INVARIANT_VIOLATION", str(exc))
-    return handler
-
-
-def _make_conflict_handler(exc_cls: type):
-    async def handler(request: Request, exc: Exception) -> JSONResponse:
-        return _error_response(409, "CONFLICT", str(exc))
-    return handler

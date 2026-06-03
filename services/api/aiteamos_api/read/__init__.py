@@ -1,1 +1,1 @@
-"""API Gateway — Read-Side Routes (CQRS query side)."""
+"""API Gateway — Read-Side Routes (file-backed P0)."""

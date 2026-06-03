@@ -65,3 +65,8 @@ htmlcov/
 .aiteamos/runs/*/raw-provider-response*
 .aiteamos/runs/*/*.log
 .aiteamos/runs/*/*.tmp
+.aiteamos/conversations/
+.aiteamos/traces/
+.aiteamos/provider_threads.json
+.aiteamos/runtime.json
+.aiteamos/secrets.local.json

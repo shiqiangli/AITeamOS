@@ -1,22 +1,13 @@
 /**
- * AITeamOS Dashboard — Shared UI Components
- *
- * Rewritten with Tailwind CSS + shadcn/ui primitives.
- * Same public API as before.
+ * AITeamOS Dashboard — Shared UI Components (file-first P0)
  */
 
 import { type ReactNode, useId } from "react";
 import {
-  LayoutDashboard,
   Brain,
-  Bot,
-  Wrench,
+  BookOpen,
+  MessageSquare,
   Users,
-  Building2,
-  FolderKanban,
-  ListTodo,
-  BarChart3,
-  Zap,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
@@ -57,211 +48,110 @@ export function Panel({
 
 // ─── Status badge ────────────────────────────────────────────────────────────
 
-export function Status({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string | number;
-  tone?: "ok" | "warn";
-}) {
-  const variant = tone === "ok" ? "success" : tone === "warn" ? "warning" : "secondary";
+const STATUS_COLORS: Record<string, string> = {
+  active: "bg-green-100 text-green-800",
+  published: "bg-blue-100 text-blue-800",
+  deprecated: "bg-gray-100 text-gray-600",
+  draft: "bg-yellow-100 text-yellow-800",
+  pending: "bg-orange-100 text-orange-800",
+  completed: "bg-emerald-100 text-emerald-800",
+  failed: "bg-red-100 text-red-800",
+  running: "bg-cyan-100 text-cyan-800",
+};
+
+export function StatusBadge({ status }: { status: string }) {
+  const color = STATUS_COLORS[status.toLowerCase()] ?? "bg-gray-100 text-gray-600";
+  return <Badge variant="outline" className={`${color} border-0 capitalize`}>{status}</Badge>;
+}
+
+// ─── Key-Value list ──────────────────────────────────────────────────────────
+
+export function KVList({ items }: { items: [string, ReactNode][] }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <Badge variant={variant}>{value}</Badge>
+    <dl className="space-y-2 text-sm">
+      {items.map(([label, value]) => (
+        <div key={label} className="flex gap-2">
+          <dt className="w-36 shrink-0 font-medium text-muted-foreground">{label}</dt>
+          <dd className="text-foreground">{value ?? <span className="text-muted-foreground">—</span>}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+// ─── Empty state ─────────────────────────────────────────────────────────────
+
+export function EmptyState({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <h3 className="text-lg font-semibold text-foreground mb-1">{title}</h3>
+      {description && <p className="text-sm text-muted-foreground mb-4 max-w-sm">{description}</p>}
+      {action}
     </div>
   );
 }
 
-// ─── Definition (label + value) ──────────────────────────────────────────────
+// ─── Loading table ───────────────────────────────────────────────────────────
 
-export function Definition({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground uppercase tracking-wide">
-        {label}
-      </span>
-      <span className="text-sm font-medium">{value ?? "—"}</span>
-    </div>
-  );
-}
-
-// ─── Data Table ──────────────────────────────────────────────────────────────
-
-export interface Column<T> {
-  key: string;
-  label?: string;
-  render?: (row: T) => ReactNode;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function DataTable<T extends Record<string, any>>({
-  data,
-  columns,
-  selectedId,
-  onSelect,
-}: {
-  data: T[];
-  columns: Column<T>[];
-  selectedId?: string;
-  onSelect?: (row: T) => void;
-}) {
-  if (data.length === 0) {
-    return (
-      <div className="py-8 text-center text-sm text-muted-foreground">
-        No records
-      </div>
-    );
-  }
+export function LoadingTable({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          {columns.map((col) => (
-            <TableHead key={col.key}>{col.label ?? col.key}</TableHead>
+          {Array.from({ length: cols }).map((_, i) => (
+            <TableHead key={i}><Skeleton className="h-4 w-20" /></TableHead>
           ))}
         </TableRow>
       </TableHeader>
       <TableBody>
-        {data.map((row, idx) => {
-          const id = String(row["id"] ?? idx);
-          const isSelected = id === selectedId;
-          return (
-            <TableRow
-              key={id}
-              className={cn(
-                "cursor-pointer transition-colors",
-                isSelected && "bg-muted"
-              )}
-              onClick={() => onSelect?.(row)}
-            >
-              {columns.map((col) => (
-                <TableCell key={col.key}>
-                  {col.render
-                    ? col.render(row)
-                    : formatCellValue(row[col.key])}
-                </TableCell>
-              ))}
-            </TableRow>
-          );
-        })}
+        {Array.from({ length: rows }).map((_, r) => (
+          <TableRow key={r}>
+            {Array.from({ length: cols }).map((_, c) => (
+              <TableCell key={c}><Skeleton className="h-4 w-full" /></TableCell>
+            ))}
+          </TableRow>
+        ))}
       </TableBody>
     </Table>
   );
 }
 
-function formatCellValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (Array.isArray(value)) return value.join(", ") || "—";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
+// ─── Section header ──────────────────────────────────────────────────────────
 
-// ─── Loading / Error states ──────────────────────────────────────────────────
-
-export function LoadingState() {
-  return (
-    <Card>
-      <CardContent className="py-6 space-y-3">
-        <Skeleton className="h-4 w-3/4" />
-        <Skeleton className="h-4 w-1/2" />
-        <Skeleton className="h-4 w-5/6" />
-      </CardContent>
-    </Card>
-  );
-}
-
-export function ErrorState({
-  message,
-  onRetry,
+export function SectionHeader({
+  title,
+  action,
 }: {
-  message: string;
-  onRetry?: () => void;
+  title: string;
+  action?: ReactNode;
 }) {
   return (
-    <Card className="border-destructive">
-      <CardContent className="py-6 space-y-3">
-        <p className="text-sm text-destructive">{message}</p>
-        {onRetry && (
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            Retry
-          </Button>
-        )}
-      </CardContent>
-    </Card>
+    <div className="flex items-center justify-between mb-4">
+      <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+      {action}
+    </div>
   );
 }
 
-// ─── Form helpers ────────────────────────────────────────────────────────────
+// ─── Confirm dialog trigger ─────────────────────────────────────────────────
 
-export function FormField({
-  label,
-  children,
-  wide,
-}: {
-  label: string;
-  children: ReactNode;
-  wide?: boolean;
-}) {
-  return (
-    <label className={cn("flex flex-col gap-1.5", wide && "col-span-full")}>
-      <span className="text-sm font-medium text-muted-foreground">{label}</span>
-      {children}
-    </label>
-  );
+export function useConfirm() {
+  const id = useId();
+  return {
+    confirmId: id,
+    confirm: (message: string) => window.confirm(message),
+  };
 }
 
-// ─── ComboInput (select + free text) ─────────────────────────────────────────
-
-export interface ComboOption {
-  value: string;
-  label: string;
-}
-
-export function ComboInput({
-  value,
-  onChange,
-  options,
-  placeholder,
-  className,
-}: {
-  value: string;
-  onChange: (val: string) => void;
-  options: ComboOption[];
-  placeholder?: string;
-  className?: string;
-}) {
-  const listId = useId();
-  return (
-    <>
-      <input
-        list={listId}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-          className,
-        )}
-      />
-      <datalist id={listId}>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </datalist>
-    </>
-  );
-}
-
-// ─── Hash-based Router ───────────────────────────────────────────────────────
+// ─── Router types & helpers ─────────────────────────────────────────────────
 
 export interface RouteState {
   page: string;
@@ -271,7 +161,7 @@ export interface RouteState {
 export function parseHash(): RouteState {
   const hash = window.location.hash.replace(/^#\/?/, "");
   const parts = hash.split("/").filter(Boolean);
-  if (parts.length === 0) return { page: "home", id: null };
+  if (parts.length === 0) return { page: "chat", id: null };
   return {
     page: parts[0],
     id: parts.length > 1 ? decodeURIComponent(parts[1]) : null,
@@ -283,6 +173,67 @@ export function navigateTo(page: string, id?: string | null): void {
   window.location.hash = path;
 }
 
+// ─── Status card ─────────────────────────────────────────────────────────────
+
+export function Status({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  tone?: "ok" | "warn";
+}) {
+  const toneClass =
+    tone === "ok"
+      ? "text-green-600"
+      : tone === "warn"
+      ? "text-orange-500"
+      : "text-foreground";
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`text-2xl font-bold ${toneClass}`}>{value}</p>
+    </div>
+  );
+}
+
+// ─── Loading state ──────────────────────────────────────────────────────────
+
+export function LoadingState({ message = "Loading…" }: { message?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mb-3" />
+      <p className="text-sm text-muted-foreground">{message}</p>
+    </div>
+  );
+}
+
+// ─── Error state ─────────────────────────────────────────────────────────────
+
+export function ErrorState({
+  message,
+  retry,
+  onRetry,
+}: {
+  message: string;
+  retry?: () => void;
+  onRetry?: () => void;
+}) {
+  const handleRetry = onRetry ?? retry;
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <h3 className="text-lg font-semibold text-destructive mb-1">Error</h3>
+      <p className="text-sm text-muted-foreground mb-4 max-w-sm">{message}</p>
+      {handleRetry && (
+        <Button variant="outline" onClick={handleRetry}>
+          Retry
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // ─── Nav items ───────────────────────────────────────────────────────────────
 
 export interface NavItem {
@@ -292,14 +243,8 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { key: "home", label: "Home", icon: LayoutDashboard },
-  { key: "memories", label: "Memories", icon: Brain },
-  { key: "skills", label: "Skills", icon: Wrench },
-  { key: "agents", label: "API", icon: Bot },
+  { key: "chat", label: "Chat", icon: MessageSquare },
   { key: "members", label: "Members", icon: Users },
-  { key: "departments", label: "Departments", icon: Building2 },
-  { key: "projects", label: "Projects", icon: FolderKanban },
-  { key: "tasks", label: "Tasks", icon: ListTodo },
-  { key: "jobs", label: "Jobs", icon: Zap },
-  { key: "metrics", label: "Metrics", icon: BarChart3 },
+  { key: "skills", label: "Skills", icon: BookOpen },
+  { key: "memory", label: "Memory", icon: Brain },
 ];

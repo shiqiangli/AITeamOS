@@ -1,23 +1,15 @@
 /**
- * AITeamOS Dashboard — App Shell
- *
- * Tailwind CSS layout with sidebar navigation and icons.
+ * AITeamOS Dashboard — App Shell (file-first P0)
  */
 
 import { useEffect, useState } from "react";
 import { parseHash, navigateTo, NAV_ITEMS, type RouteState } from "../components/shared";
 import { Toaster } from "../components/ui/toaster";
 import { cn } from "@/lib/utils";
-import { HomePage } from "../pages/home";
+import { ChatPage } from "../pages/chat";
+import { MembersPage } from "../pages/members";
 import { MemoryPage } from "../pages/memory";
-import { SkillPage } from "../pages/skills";
-import { ApiPage } from "../pages/agents";
-import { MemberPage } from "../pages/members";
-import { DepartmentPage } from "../pages/manager";
-import { ProjectPage } from "../pages/projects";
-import { TaskPage } from "../pages/tasks";
-import { JobsPage } from "../pages/jobs";
-import { MetricsPage } from "../pages/metrics";
+import { SkillsPage } from "../pages/skills";
 
 function NotFoundPage() {
   return (
@@ -26,9 +18,9 @@ function NotFoundPage() {
       <p className="text-muted-foreground mb-4">The page you are looking for does not exist.</p>
       <button
         className="text-primary underline"
-        onClick={() => navigateTo("home")}
+        onClick={() => navigateTo("chat")}
       >
-        Go to Home
+        Go to Chat
       </button>
     </div>
   );
@@ -36,26 +28,14 @@ function NotFoundPage() {
 
 function PageBody({ route }: { route: RouteState }) {
   switch (route.page) {
-    case "home":
-      return <HomePage />;
-    case "memories":
-      return <MemoryPage selectedId={route.id} />;
-    case "skills":
-      return <SkillPage selectedId={route.id} />;
-    case "agents":
-      return <ApiPage selectedId={route.id} />;
+    case "chat":
+      return <ChatPage />;
     case "members":
-      return <MemberPage selectedId={route.id} />;
-    case "departments":
-      return <DepartmentPage selectedId={route.id} />;
-    case "projects":
-      return <ProjectPage selectedId={route.id} />;
-    case "tasks":
-      return <TaskPage selectedId={route.id} />;
-    case "jobs":
-      return <JobsPage selectedId={route.id} />;
-    case "metrics":
-      return <MetricsPage />;
+      return <MembersPage selectedId={route.id} />;
+    case "skills":
+      return <SkillsPage selectedId={route.id} />;
+    case "memory":
+      return <MemoryPage />;
     default:
       return <NotFoundPage />;
   }
