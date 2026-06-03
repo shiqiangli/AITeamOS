@@ -379,7 +379,7 @@ export function KnowledgePage({ selectedSection }: { selectedSection?: string | 
           <button
             type="button"
             className="rounded-md border bg-background p-3 text-left transition-colors hover:bg-muted"
-            onClick={() => navigateTo("library", "skills")}
+            onClick={() => navigateTo("assets", "skills")}
           >
             <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
               <BookOpen className="h-4 w-4 text-muted-foreground" />
@@ -392,7 +392,7 @@ export function KnowledgePage({ selectedSection }: { selectedSection?: string | 
           <button
             type="button"
             className="rounded-md border bg-background p-3 text-left transition-colors hover:bg-muted"
-            onClick={() => navigateTo("library", "tools")}
+            onClick={() => navigateTo("assets", "tools")}
           >
             <div className="mb-1 flex items-center gap-2 text-sm font-semibold">
               <Wrench className="h-4 w-4 text-muted-foreground" />
@@ -433,7 +433,7 @@ export function KnowledgePage({ selectedSection }: { selectedSection?: string | 
               type="button"
               variant={section === entry.key ? "default" : "outline"}
               size="sm"
-              onClick={() => navigateTo("library", "knowledge", entry.key)}
+              onClick={() => navigateTo("assets", "knowledge", entry.key)}
             >
               {entry.label}
             </Button>

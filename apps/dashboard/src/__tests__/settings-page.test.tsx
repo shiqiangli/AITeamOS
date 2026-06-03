@@ -286,6 +286,41 @@ const planeSettings = {
   connector: mcpConnectors[0],
 };
 
+const ticketBackendModes = [
+  {
+    id: "local_file",
+    label: "Local file",
+    status: "ready",
+    description: "File-backed Tickets for fast local dogfooding.",
+  },
+  {
+    id: "plane",
+    label: "Plane",
+    status: "planned",
+    description: "Future Plane-backed source of truth.",
+  },
+];
+
+const ticketBackendSettings = {
+  mode: "local_file",
+  local_file_path: ".aiteamos/tickets/index.json",
+  saved_paths: {
+    settings: ".aiteamos/tickets/backend.json",
+    local_file: ".aiteamos/tickets/index.json",
+  },
+  supported_modes: ticketBackendModes,
+};
+
+const ticketBackendStatus = {
+  mode: "local_file",
+  status: "ready",
+  detail: "Local file Ticket backend is active.",
+  ticket_count: 2,
+  local_file_path: ".aiteamos/tickets/index.json",
+  saved_paths: ticketBackendSettings.saved_paths,
+  supported_modes: ticketBackendModes,
+};
+
 const codeRepositories = [
   {
     id: "repo-aiteamos",
@@ -340,6 +375,12 @@ describe("SettingsPage", () => {
         if (url.endsWith("/capabilities")) {
           return new Response(JSON.stringify(capabilityRegistry), { status: 200, headers: { "Content-Type": "application/json" } });
         }
+        if (url.endsWith("/tickets/backend")) {
+          return new Response(JSON.stringify(ticketBackendSettings), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.endsWith("/tickets/status")) {
+          return new Response(JSON.stringify(ticketBackendStatus), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
         if (url.endsWith("/mcp/connectors")) {
           return new Response(JSON.stringify(mcpConnectors), { status: 200, headers: { "Content-Type": "application/json" } });
         }
@@ -378,8 +419,10 @@ describe("SettingsPage", () => {
     render(<SettingsPage selectedSection="mcp-connectors" />);
 
     expect((await screen.findAllByText("Integrations")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Ticket Backend")).toBeTruthy();
+    expect(screen.getByLabelText("Local Ticket file")).toBeTruthy();
     expect(screen.getByText("Plane Connector")).toBeTruthy();
-    expect(screen.getByText("Plane")).toBeTruthy();
+    expect(screen.getAllByText("Plane").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Plane API base URL")).toBeTruthy();
   });
 

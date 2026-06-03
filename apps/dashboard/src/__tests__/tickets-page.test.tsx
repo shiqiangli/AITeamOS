@@ -33,34 +33,39 @@ const tickets = [
   },
 ];
 
-const planeSettings = {
-  connector_id: "plane",
-  enabled: true,
-  configured: true,
-  base_url: "http://localhost:8082",
-  email: "",
-  space_key: "",
-  workspace_slug: "aiteamos",
-  project_id: "ait",
-  api_token_configured: true,
-  saved_paths: {
-    settings: ".aiteamos/connectors/plane.json",
-    secrets: ".aiteamos/secrets.local.json",
-  },
-  connector: {
-    id: "plane",
-    name: "Plane",
+const supportedModes = [
+  {
+    id: "local_file",
+    label: "Local file",
     status: "ready",
-    transport: "rest",
-    enabled: true,
-    configured: true,
-    description: "Default Ticket/Docs backend.",
-    capabilities: ["tickets.search", "knowledge.docs.search"],
-    permissions: ["tickets:read", "docs:read"],
-    required_settings: ["base_url", "api_token", "workspace_slug"],
-    server: {},
-    updated_at: "2026-06-03T08:00:00Z",
+    description: "File-backed Tickets for fast local dogfooding.",
   },
+  {
+    id: "plane",
+    label: "Plane",
+    status: "planned",
+    description: "Future Plane-backed source of truth.",
+  },
+];
+
+const backendSettings = {
+  mode: "local_file",
+  local_file_path: ".aiteamos/tickets/index.json",
+  saved_paths: {
+    settings: ".aiteamos/tickets/backend.json",
+    local_file: ".aiteamos/tickets/index.json",
+  },
+  supported_modes: supportedModes,
+};
+
+const backendStatus = {
+  mode: "local_file",
+  status: "ready",
+  detail: "Local file Ticket backend is active.",
+  ticket_count: 1,
+  local_file_path: ".aiteamos/tickets/index.json",
+  saved_paths: backendSettings.saved_paths,
+  supported_modes: supportedModes,
 };
 
 describe("TicketsPage", () => {
@@ -75,8 +80,14 @@ describe("TicketsPage", () => {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (url.endsWith("/mcp/connectors/plane/settings")) {
-          return new Response(JSON.stringify(planeSettings), {
+        if (url.endsWith("/tickets/backend")) {
+          return new Response(JSON.stringify(backendSettings), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.endsWith("/tickets/status")) {
+          return new Response(JSON.stringify(backendStatus), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
@@ -93,19 +104,22 @@ describe("TicketsPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders local Tickets with status filters and Plane source", async () => {
+  it("renders local Tickets with status filters and backend source", async () => {
     render(<TicketsPage selectedSection="tickets" />);
 
+    expect(await screen.findByText("Ticket Cockpit")).toBeTruthy();
     expect((await screen.findAllByText("Implement Plane sync")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("All").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Review").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Blocked").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Done").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Implement Plane sync").length).toBeGreaterThan(0);
     expect(screen.getAllByText("alex").length).toBeGreaterThan(0);
     expect(screen.getAllByText("peter").length).toBeGreaterThan(0);
     expect(screen.getAllByText("repo-aiteamos").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Plane source:/)).toBeTruthy();
+    expect(screen.getByText("Ticket Backend")).toBeTruthy();
+    expect(screen.getAllByText("local_file").length).toBeGreaterThan(0);
   });
 
   it("renders report view from Ticket reports", async () => {

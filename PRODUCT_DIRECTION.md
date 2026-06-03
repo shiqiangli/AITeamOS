@@ -12,7 +12,11 @@
 
 > AITeamOS 为什么值得存在，以及它应该避免变成什么。
 
-它位于 PRD、架构文档和交互设计之前。它不定义完整数据模型、API schema、页面细节、runtime 配置格式或具体实现目录。那些内容应在后续设计文档中展开。
+它位于产品模型、PRD、架构文档和交互设计之前。它不定义完整数据模型、API schema、页面细节、runtime 配置格式或具体实现目录。那些内容应在后续设计文档中展开。
+
+相关文档：
+
+- `PRODUCT_MODEL.md`：定义 Ticket-centric AI Workforce Operating System、Ticket Asset Graph、Assets / Employees / Tickets / Settings 的产品对象关系。
 
 本文档只定义：
 
@@ -193,12 +197,12 @@ AITeamOS 不开发用户可见 Task 系统，也不开发 Confluence 替代品�
 
 Adapter 仍然是必要边界：AITeamOS 内部只消费 `tickets.search/create/update/transition/comment/relate` 和 `knowledge.docs.search/read/write` 这类稳定 capability。AITeamOS Kernel 不复制 Plane 的完整产品模型；Cycle、Module、Intake、Initiative 等 Plane 特有概念先作为 PlaneAdapter 扩展，不升格为 AITeamOS 核心模型，除非后续产品需求证明它们是 Clara flow 的必要抽象。
 
-产品形态上，Plane 是事实源，AITeamOS 是 AI Team Workbench：
+产品形态上，Ticket backend 是事实源，AITeamOS 是 AI Team Workbench。长期默认后端推荐 Plane；P0 和自举阶段使用 local file：
 
 - Plane 保留完整 Ticket / Page / project / permission / comment 体验。
 - AITeamOS 不做 Plane 的表单克隆，不提供第二套完整 ticket 编辑器或 doc editor。
-- AITeamOS 的 Tickets 页面提供 AI 团队运行视图：连接状态、活跃 Tickets、负责人、阻塞点、验证状态、最近 report 和 trace 深链接。
-- AITeamOS 的 Library / Knowledge / Docs 页面提供统一知识入口：本地 Markdown、Plane Pages、Decisions 和 approved Memories 可以被统一搜索、引用和喂给 Clara/Employee。
+- AITeamOS 的 Tickets 页面提供 AI 团队运行视图：backend 状态、活跃 Tickets、负责人、阻塞点、验证状态、最近 report、asset graph 和 trace 深链接。
+- AITeamOS 的 Assets / Knowledge / Docs 页面提供统一知识入口：本地 Markdown、Plane Pages、Decisions 和 approved Memories 可以被统一搜索、引用和喂给 Clara/Employee。
 - 每个外部对象都应保留 `Open in Plane` 深链接；需要复杂编辑、权限治理或项目管理时回到 Plane。
 
 选择 Plane 的长期原因：
@@ -227,6 +231,12 @@ Plane 的部署形态：
 这些配置归入 Settings / Code Repositories，保存为本地 ignored registry。它记录 repo name、provider、URL/path、default branch、Plane workspace/project 绑定和 enabled 状态。AITeamOS 不在这个 registry 内做 repo indexing、PR 编辑器、diff UI 或权限系统；真正的 repo 读取、搜索、修改、测试和报告由 Employee Runtime、MCP repo connector 或外部 agent executor 执行。
 
 Clara 可以通过 `list_code_repositories` 查看可用代码仓库，并在创建 Ticket 时把 `code_repository_ids` 写入 Ticket context。被委派的 RD/PV Employee 再根据这些 repo ids 调用 repo tools 或外部 agent executor 获取代码事实。
+
+Ticket backend 配置归入 Settings / Integrations / Ticket Backend。AITeamOS 通过 `TicketAdapter` 访问 Ticket 事实源：
+
+- `local_file` 是 P0 默认后端，适合开发、自举和将 AITeamOS 自身优化过程提交到仓库追踪。
+- `plane` 是长期默认目标，接入 Plane API/MCP 后提供完整 Ticket/Page/comment/project 现场。
+- `jira` 只作为未来兼容目标，除非需要企业系统对接，不应增加当前复杂度。
 
 P0 repo tools 只提供非常薄的本地能力：
 
@@ -308,10 +318,10 @@ UI 可以展示 Skill 列表、Skill 详情、Role 的 Skills 列表，以及某
 
 ### Knowledge
 
-Knowledge 是 AITeamOS Library 下的一级资产域，包含 Docs、Memories、Decisions 和 Review Queue。Clara 和各 Employee 都应优先从 Knowledge 获取项目原则、流程、历史经验和已接受决策，而不是凭通用 LLM 常识行动。
+Knowledge 是 AITeamOS Assets 下的一级资产域，包含 Docs、Memories、Decisions 和 Review Queue。Clara 和各 Employee 都应优先从 Knowledge 获取项目原则、流程、历史经验和已接受决策，而不是凭通用 LLM 常识行动。
 
 ```text
-Library
+Assets
   -> Knowledge
       -> Docs
       -> Memories
@@ -333,7 +343,7 @@ Docs 的职责边界：
 
 - 本地 Docs 承载 AITeamOS 自身方向、架构原则、coding style、流程规范和启动约束。
 - Plane Pages 承载项目协作文档、方案页、复盘页、需求背景和与 Ticket 强绑定的长文档。
-- Library / Knowledge / Docs 可以展示摘要、来源、更新时间、关联 Ticket 和 `Open in Plane`，但不在 P0 做完整 Page 编辑器。
+- Assets / Knowledge / Docs 可以展示摘要、来源、更新时间、关联 Ticket 和 `Open in Plane`，但不在 P0 做完整 Page 编辑器。
 - 需要沉淀成长期原则的内容，应通过 Decision 或 Memory candidate 进入 Review Queue，而不是散落在聊天记录里。
 
 ### Memory
@@ -408,7 +418,7 @@ Tool、MCP、Skill 和 Knowledge 不应混成同一个概念。AITeamOS 使用�
 - **MCP** 是外部 tools/resources 的标准接入层，例如 Plane、GitHub、filesystem 或 CI/Harness。
 - **Agent Executor** 是成熟 Agent runtime，例如 Codex、Cursor、Qoder 或 Claude Code，负责更深的 coding、repo edit、test 和报告能力。
 
-Capability Registry 是 Clara、EmployeeRuntimeAdapter、权限系统、trace、Library / Tools、Library / Connectors 和 Settings UI 共享的能力目录。它记录 capability id、kind、domain、source、status、enabled/configured、permissions、required settings、arguments、produces、boundary 和 deep link。它不替代 Chat，也不提供普通用户点选执行入口；用户仍然通过 Chat 让 Clara 或某个 Employee 选择并调用合适能力。
+Capability Registry 是 Clara、EmployeeRuntimeAdapter、权限系统、trace、Assets / Capabilities 和 Settings UI 共享的能力目录。它记录 capability id、kind、domain、source、status、enabled/configured、permissions、required settings、arguments、produces、boundary 和 deep link。它不替代 Chat，也不提供普通用户点选执行入口；用户仍然通过 Chat 让 Clara 或某个 Employee 选择并调用合适能力。
 
 P0 中 registry 聚合三类内容：
 
@@ -422,7 +432,7 @@ P0 中 registry 聚合三类内容：
 
 Runtime、API 和 LLM 配置不应成为独立产品层，而应是 Kernel 配置和 Clara 的运行条件。
 
-可见配置入口应归入 **Settings**，而不是把 Runtime 做成主要业务导航。Settings 承载系统运行条件：Runtimes、Providers、Agent Executors、Code Repositories、MCP Connectors、Secrets、Defaults 和 Health。Library 承载 Knowledge、Skills、Tools 和 Connectors 的观察/治理入口；Chat 只保留当前 runtime 状态、轻量选择或跳转入口，不承担 API key、connector、agent executor 的完整配置。
+可见配置入口应归入 **Settings**，而不是把 Runtime 做成主要业务导航。Settings 承载系统运行条件：Runtimes、Providers、Agent Executors、Ticket Backend、Code Repositories、MCP Connectors、Secrets、Defaults 和 Health。Assets 承载 Knowledge、Skills、Capabilities 和 Review Queue 的观察/治理入口；Chat 只保留当前 runtime 状态、轻量选择或跳转入口，不承担 API key、connector、agent executor 的完整配置。
 
 Settings 还承载 Code Repositories。它不是 Project 管理系统，只是将 Plane workspace/project 与本地路径、GitHub、Gitea、GitLab 或 generic Git URL 关联起来，供 Clara 在创建/委派 Ticket 时选择 repo context，并供 RD/PV Employee 调用 repo tools 时定位目标代码源。
 
@@ -518,12 +528,12 @@ UI 应服务两个目标：
 
 ```text
 Tickets
-  -> Tickets
+  -> Overview
   -> Flow Trace
   -> Reports
 ```
 
-- **Tickets**：显示 Plane connector 状态、本地 P0 Tickets、后续 Plane Tickets 摘要、assignee、status、validation 和 deep links。
+- **Overview**：显示 Ticket backend 状态、Ticket queue、assignee、status、validation、next action、asset graph 和 deep links。
 - **Flow Trace**：显示某个 Ticket 背后的 Clara -> Employee -> PV -> Clara 链路。
 - **Reports**：显示 Employee/PV 写回的结果、证据、阻塞点和 Clara 汇总。
 
@@ -543,13 +553,13 @@ Ticket Flow Trace 可以展示：
 
 ### Conversation Command 与 Entity View
 
-AITeamOS 仍然需要 Tickets、Employees、Library、Settings 等导航视图，但它们不应成为主要操作路径。默认产品形式应是：
+AITeamOS 仍然需要 Tickets、Employees、Assets、Settings 等导航视图，但它们不应成为主要操作路径。默认产品形式应是：
 
 - **Chat 是主入口**：用户通过 Clara 或直接点名 Employee 发出目标和命令。
 - **工具结果先在对话中解释**：例如 `list_employees` 应由 Clara 在当前对话中返回成员摘要、风险、缺口和建议下一步，而不是默认跳转页面。
 - **实体页作为可检查视图**：当结果需要浏览、筛选、比较、审计或编辑细节时，对话回复应附带 deep link，例如 `Open Tickets`、`Open Employees`、`Open Skill`、`Open Trace`。
 - **高频动作可由工具完成**：创建 Employee、创建 Skill、分配 Skill、读取 runtime settings 等优先做成 AI Employee tool。
-- **复杂管理仍可有页面**：当用户需要批量查看、手工修正、审计历史或调试运行条件时，Employees / Library / Settings 页面仍然有价值。
+- **复杂管理仍可有页面**：当用户需要批量查看、手工修正、审计历史或调试运行条件时，Tickets / Employees / Assets / Settings 页面仍然有价值。
 
 因此，导航栏应保留，但其角色应从“产品主流程”降级为“观察、审计、调试和手工维护视图”。用户能在 Chat 中完成的动作，不应强制跳转到表单页。
 

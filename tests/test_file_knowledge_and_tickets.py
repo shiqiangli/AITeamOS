@@ -81,6 +81,11 @@ def test_ticket_routes_create_and_record_reports(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     client = TestClient(create_app())
 
+    backend = client.get("/api/v1/tickets/backend")
+    assert backend.status_code == 200
+    assert backend.json()["mode"] == "local_file"
+    assert backend.json()["local_file_path"] == ".aiteamos/tickets/index.json"
+
     created = client.post(
         "/api/v1/tickets",
         json={
@@ -111,8 +116,23 @@ def test_ticket_routes_create_and_record_reports(tmp_path, monkeypatch):
     assert reported.json()["status"] == "validated"
     assert reported.json()["reports"][0]["evidence"] == ["pytest passed"]
 
+    status = client.get("/api/v1/tickets/status")
+    assert status.status_code == 200
+    assert status.json()["status"] == "ready"
+    assert status.json()["ticket_count"] == 1
+
     index = json.loads((workspace / ".aiteamos" / "tickets" / "index.json").read_text(encoding="utf-8"))
     assert index[0]["id"] == ticket_id
+
+    updated_backend = client.put(
+        "/api/v1/tickets/backend",
+        json={
+            "mode": "local_file",
+            "local_file_path": "tickets/self-improvement.json",
+        },
+    )
+    assert updated_backend.status_code == 200
+    assert updated_backend.json()["local_file_path"] == "tickets/self-improvement.json"
 
 
 def test_clara_can_search_knowledge_and_create_local_ticket(tmp_path, monkeypatch):

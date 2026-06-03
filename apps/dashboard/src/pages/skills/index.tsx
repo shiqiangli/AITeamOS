@@ -63,9 +63,9 @@ export function SkillsPage({ selectedId }: { selectedId: string | null }) {
                 <button
                   type="button"
                   className="font-medium text-primary hover:underline"
-                  onClick={() => navigateTo("library", "tools")}
+                  onClick={() => navigateTo("assets", "tools")}
                 >
-                  Library / Tools
+                  Assets / Capabilities
                 </button>.
               </p>
             </div>
@@ -92,7 +92,7 @@ export function SkillsPage({ selectedId }: { selectedId: string | null }) {
                 <TableRow
                   key={skill.id}
                   className={cn("cursor-pointer", active && "bg-muted/60")}
-                  onClick={() => navigateTo("library", "skills", skill.id)}
+                  onClick={() => navigateTo("assets", "skills", skill.id)}
                 >
                   <TableCell>
                     <div className="flex items-center gap-2">

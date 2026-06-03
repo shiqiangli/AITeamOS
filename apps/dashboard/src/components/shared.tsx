@@ -4,7 +4,7 @@
 
 import { type ReactNode, useId } from "react";
 import {
-  BookOpen,
+  Archive,
   ClipboardList,
   MessageSquare,
   Settings,
@@ -253,25 +253,25 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { key: "chat", label: "Chat", icon: MessageSquare },
   {
-    key: "library",
-    label: "Library",
-    icon: BookOpen,
-    children: [
-      { key: "knowledge", label: "Knowledge" },
-      { key: "skills", label: "Skills" },
-      { key: "tools", label: "Tools" },
-      { key: "connectors", label: "Connectors" },
-    ],
-  },
-  { key: "employees", label: "Employees", icon: Users },
-  {
     key: "tickets",
     label: "Tickets",
     icon: ClipboardList,
     children: [
-      { key: "tickets", label: "Tickets" },
-      { key: "trace", label: "Flow Trace" },
+      { key: "overview", label: "Overview" },
+      { key: "flow", label: "Flow Trace" },
       { key: "reports", label: "Reports" },
+    ],
+  },
+  { key: "employees", label: "Employees", icon: Users },
+  {
+    key: "assets",
+    label: "Assets",
+    icon: Archive,
+    children: [
+      { key: "knowledge", label: "Knowledge" },
+      { key: "skills", label: "Skills" },
+      { key: "capabilities", label: "Capabilities" },
+      { key: "review", label: "Review Queue" },
     ],
   },
   {

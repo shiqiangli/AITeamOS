@@ -9,7 +9,7 @@ import { Toaster } from "../components/ui/toaster";
 import { Button } from "../components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChatPage } from "../pages/chat";
-import { LibraryPage } from "../pages/library";
+import { AssetsPage } from "../pages/assets";
 import { EmployeesPage } from "../pages/employees";
 import { SettingsPage } from "../pages/settings";
 import { TicketsPage } from "../pages/tickets";
@@ -37,16 +37,16 @@ function PageBody({ route }: { route: RouteState }) {
       return <TicketsPage selectedSection={route.id} />;
     case "employees":
       return <EmployeesPage selectedId={route.id} />;
-    case "library":
-      return <LibraryPage selectedArea={route.id} selectedDetail={route.detail} />;
+    case "assets":
+      return <AssetsPage selectedArea={route.id} selectedDetail={route.detail} />;
     case "skills":
-      return <LibraryPage selectedArea="skills" selectedDetail={route.id} />;
+      return <AssetsPage selectedArea="skills" selectedDetail={route.id} />;
     case "knowledge":
-      return <LibraryPage selectedArea="knowledge" selectedDetail={route.id} />;
+      return <AssetsPage selectedArea="knowledge" selectedDetail={route.id} />;
     case "memory":
-      return <LibraryPage selectedArea="knowledge" selectedDetail="memories" />;
+      return <AssetsPage selectedArea="knowledge" selectedDetail="memories" />;
     case "capabilities":
-      return <LibraryPage selectedArea="tools" />;
+      return <AssetsPage selectedArea="capabilities" />;
     case "settings":
       return <SettingsPage selectedSection={route.id} />;
     default:
@@ -66,7 +66,7 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const navPage = ["skills", "knowledge", "memory", "capabilities"].includes(route.page) ? "library" : route.page;
+  const navPage = ["skills", "knowledge", "memory", "capabilities"].includes(route.page) ? "assets" : route.page;
 
   return (
     <div className="h-screen bg-background">

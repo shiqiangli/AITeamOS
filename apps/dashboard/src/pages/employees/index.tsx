@@ -202,11 +202,11 @@ function EmployeeDrawer({
             <MessageSquare className="h-4 w-4" />
             Chat
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("library", "skills")}>
+          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "skills")}>
             <Sparkles className="h-4 w-4" />
             Skills
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("library", "tools")}>
+          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "tools")}>
             <Wrench className="h-4 w-4" />
             Tools
           </Button>
@@ -317,7 +317,7 @@ function EmployeeDrawer({
               {employee.skills.length ? (
                 <div className="flex flex-wrap gap-2">
                   {employee.skills.map((skill) => (
-                    <button key={skill} type="button" onClick={() => navigateTo("library", "skills", skill)}>
+                    <button key={skill} type="button" onClick={() => navigateTo("assets", "skills", skill)}>
                       <Badge variant="secondary">{skill}</Badge>
                     </button>
                   ))}
@@ -363,11 +363,11 @@ function EmployeeDrawer({
                 knowledge tools through Clara or direct tool access.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("library", "knowledge", "docs")}>
+                <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "knowledge", "docs")}>
                   <Database className="h-4 w-4" />
                   Docs
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("library", "knowledge", "memories")}>
+                <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "knowledge", "memories")}>
                   <Brain className="h-4 w-4" />
                   Memories
                 </Button>

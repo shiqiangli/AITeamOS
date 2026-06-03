@@ -29,6 +29,52 @@ export interface Ticket {
   saved_path: string;
 }
 
+export interface TicketBackendMode {
+  id: string;
+  label: string;
+  status: string;
+  description: string;
+}
+
+export interface TicketBackendSettings {
+  mode: string;
+  local_file_path: string;
+  saved_paths: Record<string, string>;
+  supported_modes: TicketBackendMode[];
+}
+
+export interface TicketBackendSettingsUpdateRequest {
+  mode: string;
+  local_file_path: string;
+}
+
+export interface TicketBackendStatus {
+  mode: string;
+  status: string;
+  detail: string;
+  ticket_count: number;
+  local_file_path: string;
+  saved_paths: Record<string, string>;
+  supported_modes: TicketBackendMode[];
+}
+
 export function listTickets(): Promise<Ticket[]> {
   return apiRequest<Ticket[]>("/tickets");
+}
+
+export function getTicketBackendSettings(): Promise<TicketBackendSettings> {
+  return apiRequest<TicketBackendSettings>("/tickets/backend");
+}
+
+export function updateTicketBackendSettings(
+  payload: TicketBackendSettingsUpdateRequest,
+): Promise<TicketBackendSettings> {
+  return apiRequest<TicketBackendSettings>("/tickets/backend", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getTicketBackendStatus(): Promise<TicketBackendStatus> {
+  return apiRequest<TicketBackendStatus>("/tickets/status");
 }

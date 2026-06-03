@@ -1,5 +1,5 @@
 import { type ComponentType } from "react";
-import { BookOpen, Brain, Plug, Wrench } from "lucide-react";
+import { Archive, BookOpen, Brain, ClipboardCheck, Wrench } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { navigateTo } from "../../components/shared";
 import { CapabilitiesPage } from "../capabilities";
@@ -7,10 +7,10 @@ import { KnowledgePage } from "../knowledge";
 import { SkillsPage } from "../skills";
 import { cn } from "@/lib/utils";
 
-type LibraryArea = "knowledge" | "skills" | "tools" | "connectors";
+type AssetArea = "knowledge" | "skills" | "capabilities" | "review";
 
 const AREAS: {
-  key: LibraryArea;
+  key: AssetArea;
   label: string;
   description: string;
   icon: ComponentType<{ className?: string }>;
@@ -18,7 +18,7 @@ const AREAS: {
   {
     key: "knowledge",
     label: "Knowledge",
-    description: "Docs, Memories, Decisions, and Review Queue.",
+    description: "Docs, Memories, Decisions, and accepted team context.",
     icon: Brain,
   },
   {
@@ -28,24 +28,24 @@ const AREAS: {
     icon: BookOpen,
   },
   {
-    key: "tools",
-    label: "Tools",
-    description: "Executable actions, schemas, and agent executors.",
+    key: "capabilities",
+    label: "Capabilities",
+    description: "Tools, MCP connectors, external systems, and agent executors.",
     icon: Wrench,
   },
   {
-    key: "connectors",
-    label: "Connectors",
-    description: "MCP and external system capability sources.",
-    icon: Plug,
+    key: "review",
+    label: "Review Queue",
+    description: "Candidate memories and knowledge updates waiting for approval.",
+    icon: ClipboardCheck,
   },
 ];
 
-function areaFromRoute(value?: string | null): LibraryArea {
-  return AREAS.some((area) => area.key === value) ? value as LibraryArea : "knowledge";
+function areaFromRoute(value?: string | null): AssetArea {
+  return AREAS.some((area) => area.key === value) ? value as AssetArea : "knowledge";
 }
 
-export function LibraryPage({
+export function AssetsPage({
   selectedArea,
   selectedDetail,
 }: {
@@ -53,16 +53,20 @@ export function LibraryPage({
   selectedDetail?: string | null;
 }) {
   const area = areaFromRoute(selectedArea);
+  const knowledgeDetail = area === "review" ? "review" : selectedDetail;
 
   return (
     <div className="space-y-4">
       <section className="rounded-md border bg-background">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-          <div>
-            <h3 className="text-sm font-semibold">Library</h3>
-            <p className="text-xs text-muted-foreground">
-              Shared AI Team assets: what employees know, how they work, what they can execute, and where capabilities come from.
-            </p>
+          <div className="flex items-center gap-2">
+            <Archive className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <h3 className="text-sm font-semibold">Assets</h3>
+              <p className="text-xs text-muted-foreground">
+                Team assets produced and reused through Ticket flow: knowledge, skills, capabilities, and reviewable candidates.
+              </p>
+            </div>
           </div>
         </div>
         <div className="grid gap-3 p-4 md:grid-cols-4">
@@ -73,7 +77,7 @@ export function LibraryPage({
               <button
                 key={entry.key}
                 type="button"
-                onClick={() => navigateTo("library", entry.key)}
+                onClick={() => navigateTo("assets", entry.key)}
                 className={cn(
                   "rounded-md border p-3 text-left transition-colors",
                   active ? "border-primary/40 bg-primary/10" : "bg-background hover:bg-muted",
@@ -88,7 +92,7 @@ export function LibraryPage({
             );
           })}
         </div>
-        {area === "knowledge" && (
+        {(area === "knowledge" || area === "review") && (
           <div className="flex flex-wrap gap-2 border-t px-4 py-3">
             {[
               ["docs", "Docs"],
@@ -99,9 +103,9 @@ export function LibraryPage({
               <Button
                 key={key}
                 type="button"
-                variant={(selectedDetail ?? "docs") === key ? "default" : "outline"}
+                variant={(knowledgeDetail ?? "docs") === key ? "default" : "outline"}
                 size="sm"
-                onClick={() => navigateTo("library", "knowledge", key)}
+                onClick={() => navigateTo("assets", key === "review" ? "review" : "knowledge", key)}
               >
                 {label}
               </Button>
@@ -110,10 +114,9 @@ export function LibraryPage({
         )}
       </section>
 
-      {area === "knowledge" && <KnowledgePage selectedSection={selectedDetail} />}
+      {(area === "knowledge" || area === "review") && <KnowledgePage selectedSection={knowledgeDetail} />}
       {area === "skills" && <SkillsPage selectedId={selectedDetail ?? null} />}
-      {area === "tools" && <CapabilitiesPage view="tools" />}
-      {area === "connectors" && <CapabilitiesPage view="connectors" />}
+      {area === "capabilities" && <CapabilitiesPage view="all" />}
     </div>
   );
 }

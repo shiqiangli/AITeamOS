@@ -1618,8 +1618,8 @@ def _list_skills_tool_result() -> dict[str, Any]:
         "count": len(skills),
         "skills": [skill.model_dump() for skill in skills],
         "deep_links": {
-            "skills": "#/library/skills",
-            **{f"skill:{skill.id}": f"#/library/skills/{skill.id}" for skill in skills},
+            "skills": "#/assets/skills",
+            **{f"skill:{skill.id}": f"#/assets/skills/{skill.id}" for skill in skills},
         },
     }
 
@@ -1927,14 +1927,14 @@ def _complete_search_knowledge_tool(context: ChatRunContext, plan: ChatToolPlan 
             f"- [{item.source_type}] {item.title} ({item.source_ref})；score={item.score:.2f}\n"
             f"  {item.content[:260]}"
         )
-    lines.extend(["", "入口：", "- Knowledge: #/library/knowledge/docs"])
+    lines.extend(["", "入口：", "- Knowledge: #/assets/knowledge/docs"])
 
     result = {
         "status": "completed",
         "detail": "Searched local Knowledge docs, decisions, and approved memories.",
         "query": query,
         "results": [item.model_dump(mode="json") for item in response.results],
-        "deep_links": {"knowledge": "#/library/knowledge/docs"},
+        "deep_links": {"knowledge": "#/assets/knowledge/docs"},
         "plan": _plan_trace_data(plan),
     }
     return _persist_local_tool_response(
@@ -2683,13 +2683,13 @@ def _complete_create_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
             "reason": "skill_already_exists",
             "detail": f"Skill already exists: {existing.id}",
             "skill": existing.model_dump(),
-            "deep_links": {"skill": f"#/library/skills/{existing.id}", "skills": "#/library/skills"},
+            "deep_links": {"skill": f"#/assets/skills/{existing.id}", "skills": "#/assets/skills"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有创建新 Skill，因为 {existing.title} 已经存在。\n\n"
             f"- Skill: {existing.title} ({existing.id})\n"
-            f"- 查看：#/library/skills/{existing.id}\n\n"
+            f"- 查看：#/assets/skills/{existing.id}\n\n"
             "如果要分配它，可以说：Clara，请把 "
             f"{existing.id} 分配给 Alex。"
         )
@@ -2717,7 +2717,7 @@ def _complete_create_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         "detail": f"Created skill: {skill.id}",
         "skill": skill.model_dump(),
         "saved_path": str(skill_path.relative_to(_workspace_root())),
-        "deep_links": {"skill": f"#/library/skills/{skill.id}", "skills": "#/library/skills"},
+        "deep_links": {"skill": f"#/assets/skills/{skill.id}", "skills": "#/assets/skills"},
         "plan": _plan_trace_data(plan),
     }
     reply = (
@@ -2725,7 +2725,7 @@ def _complete_create_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         f"- ID: {skill.id}\n"
         f"- Description: {skill.description or 'none'}\n"
         f"- Profile: {result['saved_path']}\n"
-        f"- 查看：#/library/skills/{skill.id}\n\n"
+        f"- 查看：#/assets/skills/{skill.id}\n\n"
         "下一步可以把它分配给一个或多个 Employees。"
     )
     return _persist_local_tool_response(
@@ -2797,13 +2797,13 @@ def _complete_assign_skill_to_employee_tool(
             "status": "blocked",
             "reason": "skill_not_found",
             "detail": f"Skill not found: {skill_lookup}",
-            "deep_links": {"skills": "#/library/skills"},
+            "deep_links": {"skills": "#/assets/skills"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有找到 Skill {skill_lookup}，所以没有分配。\n\n"
             "你可以先让我列出所有 Skills，或先创建这个 Skill。\n"
-            "- Skills: #/library/skills"
+            "- Skills: #/assets/skills"
         )
         return _persist_local_tool_response(
             context,
@@ -2849,9 +2849,9 @@ def _complete_assign_skill_to_employee_tool(
         "employee": employee.model_dump(),
         "saved_path": str(profile_path.relative_to(_workspace_root())),
         "deep_links": {
-            "skill": f"#/library/skills/{skill.id}",
+            "skill": f"#/assets/skills/{skill.id}",
             "employee": f"#/employees/{employee.id}",
-            "skills": "#/library/skills",
+            "skills": "#/assets/skills",
             "employees": "#/employees",
         },
         "plan": _plan_trace_data(plan),
@@ -2862,7 +2862,7 @@ def _complete_assign_skill_to_employee_tool(
         f"- Employee: {employee.display_name} ({employee.id})\n"
         f"- Employee skills: {', '.join(employee.skills) if employee.skills else 'none'}\n"
         f"- Profile: {result['saved_path']}\n"
-        f"- 查看 Skill：#/library/skills/{skill.id}\n"
+        f"- 查看 Skill：#/assets/skills/{skill.id}\n"
         f"- 查看 Employee：#/employees/{employee.id}"
     )
     return _persist_local_tool_response(
@@ -2908,13 +2908,13 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
             "status": "blocked",
             "reason": "skill_not_found",
             "detail": f"Skill not found: {skill_lookup}",
-            "deep_links": {"skills": "#/library/skills"},
+            "deep_links": {"skills": "#/assets/skills"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有找到 Skill {skill_lookup}，所以没有删除任何文件。\n\n"
             "你可以先让我列出所有 Skills。\n"
-            "- Skills: #/library/skills"
+            "- Skills: #/assets/skills"
         )
         return _persist_local_tool_response(
             context,
@@ -2953,7 +2953,7 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         "deleted_path": relative_skill_dir,
         "unassigned_employees": unassigned_employees,
         "retained_evidence": ["conversations", "traces"],
-        "deep_links": {"skills": "#/library/skills", "employees": "#/employees"},
+        "deep_links": {"skills": "#/assets/skills", "employees": "#/employees"},
         "plan": _plan_trace_data(plan),
     }
     unassigned_text = ", ".join(unassigned_employees) if unassigned_employees else "none"
@@ -2963,7 +2963,7 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         f"- Deleted: {relative_skill_dir}\n"
         f"- 已从成员移除：{unassigned_text}\n"
         "- 历史 conversation 和 trace 已保留，用于审计。\n"
-        "- Skills: #/library/skills"
+        "- Skills: #/assets/skills"
     )
     return _persist_local_tool_response(
         context,

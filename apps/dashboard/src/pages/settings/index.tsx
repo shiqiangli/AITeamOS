@@ -3,6 +3,7 @@ import {
   Activity,
   Bot,
   CheckCircle2,
+  ClipboardList,
   Database,
   FolderGit2,
   GitBranch,
@@ -61,6 +62,13 @@ import {
   type CodeRepository,
   type CodeRepositoryStatus,
 } from "../../api/repositories";
+import {
+  getTicketBackendSettings,
+  getTicketBackendStatus,
+  updateTicketBackendSettings,
+  type TicketBackendSettings,
+  type TicketBackendStatus,
+} from "../../api/tickets";
 import { cn } from "@/lib/utils";
 
 type SettingsSection = "runtime" | "integrations" | "system";
@@ -92,6 +100,11 @@ type PlaneForm = {
   workspaceSlug: string;
   projectId: string;
   apiToken: string;
+};
+
+type TicketBackendForm = {
+  mode: string;
+  localFilePath: string;
 };
 
 type RepositoryForm = {
@@ -127,6 +140,7 @@ const SECTION_GROUPS: SettingsGroup[] = [
     label: "Integrations",
     icon: Plug,
     subsections: [
+      { key: "ticket-backend", label: "Ticket Backend" },
       { key: "mcp-connectors", label: "MCP Connectors" },
       { key: "code-repositories", label: "Code Repositories" },
       { key: "knowledge-backend", label: "Knowledge Backend" },
@@ -161,7 +175,7 @@ function sectionFromRoute(value?: string | null): SettingsSection {
   // Map old subsection keys to their parent group for backward compatibility
   const legacyMap: Record<string, SettingsSection> = {
     runtimes: "runtime", providers: "runtime", "agent-executors": "runtime",
-    "mcp-connectors": "integrations", "code-repositories": "integrations",
+    "ticket-backend": "integrations", "mcp-connectors": "integrations", "code-repositories": "integrations",
     "knowledge-backend": "integrations", capabilities: "integrations",
     knowledge: "integrations",
     secrets: "system", defaults: "system", health: "system",
@@ -202,6 +216,13 @@ function planeToForm(settings: McpConnectorSettingsResponse): PlaneForm {
     workspaceSlug: settings.workspace_slug,
     projectId: settings.project_id,
     apiToken: "",
+  };
+}
+
+function ticketBackendToForm(settings: TicketBackendSettings): TicketBackendForm {
+  return {
+    mode: settings.mode,
+    localFilePath: settings.local_file_path,
   };
 }
 
@@ -606,6 +627,98 @@ function CapabilitiesSection({ registry }: { registry: CapabilityRegistryRespons
         </section>
       ))}
     </div>
+  );
+}
+
+function TicketBackendSection({
+  form,
+  saving,
+  settings,
+  status,
+  setForm,
+  onSubmit,
+}: {
+  form: TicketBackendForm;
+  saving: boolean;
+  settings: TicketBackendSettings | null;
+  status: TicketBackendStatus | null;
+  setForm: Dispatch<SetStateAction<TicketBackendForm>>;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const supportedModes = settings?.supported_modes ?? status?.supported_modes ?? [
+    {
+      id: "local_file",
+      label: "Local file",
+      status: "ready",
+      description: "File-backed Tickets for fast local dogfooding.",
+    },
+  ];
+
+  return (
+    <section className="rounded-md border bg-background">
+      <div className="border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <ClipboardList className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Ticket Backend</h3>
+        </div>
+      </div>
+      <form onSubmit={onSubmit} className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Source of truth</span>
+              <Select
+                aria-label="Ticket backend mode"
+                value={form.mode}
+                onChange={(event) => setForm((current) => ({ ...current, mode: event.target.value }))}
+              >
+                {supportedModes.map((mode) => (
+                  <option key={mode.id} value={mode.id} disabled={mode.status !== "ready"}>
+                    {mode.label}{mode.status !== "ready" ? ` (${mode.status})` : ""}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Local Ticket file</span>
+              <input
+                aria-label="Local Ticket file"
+                value={form.localFilePath}
+                onChange={(event) => setForm((current) => ({ ...current, localFilePath: event.target.value }))}
+                placeholder=".aiteamos/tickets/index.json"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-3">
+            {supportedModes.map((mode) => (
+              <ConfigRow
+                key={mode.id}
+                active={form.mode === mode.id}
+                name={mode.label}
+                status={mode.status}
+                description={mode.description}
+              />
+            ))}
+          </div>
+
+          <Button type="submit" disabled={saving}>
+            <Save className="h-4 w-4" />
+            {saving ? "Saving" : "Save Ticket backend"}
+          </Button>
+        </div>
+
+        <aside className="space-y-3">
+          <Status label="Mode" value={status?.mode ?? settings?.mode ?? "-"} />
+          <Status label="Status" value={compactStatus(status?.status)} tone={status?.status === "ready" ? "ok" : "warn"} />
+          <Status label="Tickets" value={status?.ticket_count ?? 0} />
+          <div className="rounded-md border bg-card p-3 text-xs leading-5 text-muted-foreground">
+            {status?.detail ?? "Local file is the active P0 backend. Plane/Jira are Adapter targets, not separate product models."}
+          </div>
+        </aside>
+      </form>
+    </section>
   );
 }
 
@@ -1065,6 +1178,10 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     projectId: "",
     apiToken: "",
   });
+  const [ticketBackendForm, setTicketBackendForm] = useState<TicketBackendForm>({
+    mode: "local_file",
+    localFilePath: ".aiteamos/tickets/index.json",
+  });
   const [repositoryForm, setRepositoryForm] = useState<RepositoryForm>(emptyRepositoryForm);
   const [repositories, setRepositories] = useState<CodeRepository[]>([]);
   const [repositoryStatus, setRepositoryStatus] = useState<CodeRepositoryStatus | null>(null);
@@ -1074,6 +1191,8 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
   const [knowledge, setKnowledge] = useState<KnowledgeStatusResponse | null>(null);
   const [memory, setMemory] = useState<MemoryStatusResponse | null>(null);
   const [graphiti, setGraphiti] = useState<GraphitiSettingsResponse | null>(null);
+  const [ticketBackend, setTicketBackend] = useState<TicketBackendSettings | null>(null);
+  const [ticketBackendStatus, setTicketBackendStatus] = useState<TicketBackendStatus | null>(null);
   const [mcpConnectors, setMcpConnectors] = useState<McpConnector[]>([]);
   const [planeSettings, setPlaneSettings] = useState<McpConnectorSettingsResponse | null>(null);
   const [planeHealth, setPlaneHealth] = useState<McpConnectorHealthResponse | null>(null);
@@ -1102,6 +1221,8 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         loadedMemory,
         loadedGraphiti,
         loadedCapabilityRegistry,
+        loadedTicketBackend,
+        loadedTicketBackendStatus,
         loadedRepositories,
         loadedRepositoryStatus,
         loadedMcpConnectors,
@@ -1114,6 +1235,8 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         getMemoryStatus(),
         getGraphitiSettings(),
         getCapabilities(),
+        getTicketBackendSettings(),
+        getTicketBackendStatus(),
         listCodeRepositories(),
         getCodeRepositoryStatus(),
         listMcpConnectors(),
@@ -1128,6 +1251,9 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       setGraphiti(loadedGraphiti);
       setGraphitiForm(graphitiToForm(loadedGraphiti));
       setCapabilityRegistry(loadedCapabilityRegistry);
+      setTicketBackend(loadedTicketBackend);
+      setTicketBackendStatus(loadedTicketBackendStatus);
+      setTicketBackendForm(ticketBackendToForm(loadedTicketBackend));
       setRepositories(loadedRepositories);
       setRepositoryStatus(loadedRepositoryStatus);
       const selectedRepository = loadedRepositories.find((repo) => repo.id === selectedRepositoryId) ?? null;
@@ -1210,6 +1336,27 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       setMemory(updatedMemory);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save Knowledge backend settings");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleTicketBackendSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await updateTicketBackendSettings({
+        mode: ticketBackendForm.mode,
+        local_file_path: ticketBackendForm.localFilePath,
+      });
+      const updatedStatus = await getTicketBackendStatus();
+      setTicketBackend(updated);
+      setTicketBackendForm(ticketBackendToForm(updated));
+      setTicketBackendStatus(updatedStatus);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save Ticket backend settings");
     } finally {
       setSaving(false);
     }
@@ -1398,6 +1545,14 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         {/* ─── Integrations Group ─── */}
         {section === "integrations" && (
           <>
+            <TicketBackendSection
+              form={ticketBackendForm}
+              saving={saving}
+              settings={ticketBackend}
+              status={ticketBackendStatus}
+              setForm={setTicketBackendForm}
+              onSubmit={(event) => void handleTicketBackendSubmit(event)}
+            />
             <div className="grid gap-3">
               {mcpConnectors.map((connector) => (
                 <ConfigRow
@@ -1542,6 +1697,8 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
                 <Status label="Review items" value={knowledge?.review_queue_count ?? 0} />
                 <Status label="Capabilities" value={capabilityRegistry?.status.capability_count ?? 0} />
                 <Status label="Capability ready" value={capabilityRegistry?.status.ready_count ?? 0} tone={(capabilityRegistry?.status.ready_count ?? 0) > 0 ? "ok" : "warn"} />
+                <Status label="Ticket backend" value={compactStatus(ticketBackendStatus?.status)} tone={ticketBackendStatus?.status === "ready" ? "ok" : "warn"} />
+                <Status label="Tickets" value={ticketBackendStatus?.ticket_count ?? 0} />
                 <Status label="MCP ready" value={mcpStatus?.ready_count ?? 0} tone={(mcpStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
                 <Status label="Code repositories" value={repositoryStatus?.repository_count ?? repositories.length} />
                 <Status label="Repos ready" value={repositoryStatus?.ready_count ?? 0} tone={(repositoryStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
@@ -1599,6 +1756,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
             <Status label="Provider" value={runtime?.provider ?? "-"} />
             <Status label="Employees" value={employees.length} />
             <Status label="Docs" value={knowledge?.docs_count ?? 0} />
+            <Status label="Tickets" value={ticketBackendStatus?.ticket_count ?? 0} />
             <Status label="Capabilities" value={capabilityRegistry?.status.capability_count ?? 0} />
             <Status label="Repos" value={repositoryStatus?.repository_count ?? repositories.length} />
             <Status label="MCP" value={mcpStatus?.connector_count ?? 0} />
@@ -1627,6 +1785,12 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
             {Object.entries(capabilityRegistry?.status.saved_paths ?? {}).map(([key, value]) => (
               <div key={`capability-${key}`} className="min-w-0">
                 <div className="text-xs uppercase text-muted-foreground">capability {key}</div>
+                <div className="truncate text-sm font-medium" title={value}>{value}</div>
+              </div>
+            ))}
+            {Object.entries(ticketBackendStatus?.saved_paths ?? ticketBackend?.saved_paths ?? {}).map(([key, value]) => (
+              <div key={`ticket-${key}`} className="min-w-0">
+                <div className="text-xs uppercase text-muted-foreground">ticket {key}</div>
                 <div className="truncate text-sm font-medium" title={value}>{value}</div>
               </div>
             ))}

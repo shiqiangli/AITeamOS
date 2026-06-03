@@ -131,7 +131,7 @@ _LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
         permissions=["skills:read"],
         produces=["chat_result", "trace_event"],
         boundary="Read-only local skill inventory.",
-        deep_link="#/library/skills",
+        deep_link="#/assets/skills",
     ),
     CapabilityRecord(
         id="create_skill",
@@ -148,7 +148,7 @@ _LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
         arguments=["skill_id", "title", "description", "body"],
         produces=["skill_file", "trace_event"],
         boundary="Creates method/context assets; it does not execute the method by itself.",
-        deep_link="#/library/skills",
+        deep_link="#/assets/skills",
     ),
     CapabilityRecord(
         id="assign_skill_to_employee",
@@ -165,7 +165,7 @@ _LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
         arguments=["skill_id", "skill_name", "target_employee_id", "target_employee_name"],
         produces=["employee_profile", "trace_event"],
         boundary="Records availability; execution still depends on the employee runtime and tool permissions.",
-        deep_link="#/library/skills",
+        deep_link="#/assets/skills",
     ),
     CapabilityRecord(
         id="delete_skill",
@@ -182,7 +182,7 @@ _LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
         arguments=["skill_id", "skill_name"],
         produces=["trace_event"],
         boundary="Deletes local skill files only.",
-        deep_link="#/library/skills",
+        deep_link="#/assets/skills",
     ),
     CapabilityRecord(
         id="search_knowledge",
@@ -199,7 +199,7 @@ _LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
         arguments=["query"],
         produces=["knowledge_refs", "trace_event"],
         boundary="Retrieval only; Knowledge does not execute actions.",
-        deep_link="#/library/knowledge/docs",
+        deep_link="#/assets/knowledge/docs",
     ),
     CapabilityRecord(
         id="create_ticket",
