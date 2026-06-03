@@ -6,7 +6,9 @@ import { type ReactNode, useId } from "react";
 import {
   Brain,
   BookOpen,
+  ClipboardList,
   MessageSquare,
+  Settings,
   Users,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
@@ -240,11 +242,49 @@ export interface NavItem {
   key: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  children?: { key: string; label: string }[];
 }
 
 export const NAV_ITEMS: NavItem[] = [
   { key: "chat", label: "Chat", icon: MessageSquare },
+  {
+    key: "work",
+    label: "Work",
+    icon: ClipboardList,
+    children: [
+      { key: "tickets", label: "Tickets" },
+      { key: "trace", label: "Flow Trace" },
+      { key: "reports", label: "Reports" },
+    ],
+  },
   { key: "members", label: "Members", icon: Users },
   { key: "skills", label: "Skills", icon: BookOpen },
-  { key: "memory", label: "Memory", icon: Brain },
+  {
+    key: "knowledge",
+    label: "Knowledge",
+    icon: Brain,
+    children: [
+      { key: "docs", label: "Docs" },
+      { key: "memories", label: "Memories" },
+      { key: "decisions", label: "Decisions" },
+      { key: "review", label: "Review Queue" },
+    ],
+  },
+  {
+    key: "settings",
+    label: "Settings",
+    icon: Settings,
+    children: [
+      { key: "runtimes", label: "Runtimes" },
+      { key: "providers", label: "Providers" },
+      { key: "agent-executors", label: "Agent Executors" },
+      { key: "capabilities", label: "Capabilities" },
+      { key: "code-repositories", label: "Code Repositories" },
+      { key: "mcp-connectors", label: "MCP Connectors" },
+      { key: "knowledge-backend", label: "Knowledge Backend" },
+      { key: "secrets", label: "Secrets" },
+      { key: "defaults", label: "Defaults" },
+      { key: "health", label: "Health" },
+    ],
+  },
 ];

@@ -56,6 +56,48 @@ runtime:
     members = client.get("/api/v1/chat/members")
     assert members.status_code == 200
     assert [member["id"] for member in members.json()] == ["alex", "clara"]
+    assert members.json()[0]["default_thread_id"] == "member-alex-default"
+
+    default_thread_response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "Alex, please remember this default thread.",
+            "target_member_id": "alex",
+        },
+    )
+    assert default_thread_response.status_code == 200
+    default_thread_payload = default_thread_response.json()
+    assert default_thread_payload["thread_id"] == "member-alex-default"
+
+    default_thread = client.get("/api/v1/chat/threads/member-alex-default")
+    assert default_thread.status_code == 200
+    assert [message["role"] for message in default_thread.json()["messages"]] == ["user", "assistant"]
+    assert default_thread.json()["messages"][0]["content"] == "Alex, please remember this default thread."
+    assert default_thread.json()["thread"]["id"] == "member-alex-default"
+
+    thread_list = client.get("/api/v1/chat/threads?member_id=alex")
+    assert thread_list.status_code == 200
+    thread_payload = thread_list.json()
+    assert thread_payload["active_thread_id"] == "member-alex-default"
+    assert thread_payload["threads"][0]["id"] == "member-alex-default"
+    assert thread_payload["threads"][0]["message_count"] == 2
+    assert thread_payload["threads"][0]["title"] == "Alex, please remember this default thread."
+
+    new_thread = client.post("/api/v1/chat/threads", json={"member_id": "alex", "title": "Fresh Alex thread"})
+    assert new_thread.status_code == 200
+    assert new_thread.json()["member_id"] == "alex"
+    assert new_thread.json()["title"] == "Fresh Alex thread"
+
+    thread_list = client.get("/api/v1/chat/threads?member_id=alex")
+    assert thread_list.status_code == 200
+    assert thread_list.json()["active_thread_id"] == new_thread.json()["id"]
+
+    activate_default = client.post(
+        "/api/v1/chat/threads/member-alex-default/activate",
+        json={"member_id": "alex"},
+    )
+    assert activate_default.status_code == 200
+    assert activate_default.json()["id"] == "member-alex-default"
 
     response = client.post(
         "/api/v1/chat/messages",
@@ -114,6 +156,33 @@ def test_chat_runtime_settings_are_file_backed(tmp_path, monkeypatch):
     secrets_file = workspace / ".aiteamos" / "secrets.local.json"
     assert json.loads(runtime_file.read_text())["provider"] == "deepseek"
     assert json.loads(secrets_file.read_text())["deepseek_api_key"] == "secret-test-key"
+
+
+def test_chat_runtime_provider_settings_can_be_updated_independently(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    client = TestClient(create_app())
+
+    updated = client.put(
+        "/api/v1/chat/runtime/providers/openai",
+        json={"model": "gpt-5-mini", "api_key": "openai-test-key", "activate": True},
+    )
+    assert updated.status_code == 200
+    payload = updated.json()
+    assert payload["provider"] == "openai"
+    assert payload["openai_model"] == "gpt-5-mini"
+    assert payload["providers"]["openai"]["active"] is True
+    assert payload["providers"]["openai"]["api_key_configured"] is True
+    assert "openai-test-key" not in json.dumps(payload)
+
+    runtime_file = workspace / ".aiteamos" / "runtime.json"
+    secrets_file = workspace / ".aiteamos" / "secrets.local.json"
+    runtime_payload = json.loads(runtime_file.read_text(encoding="utf-8"))
+    assert runtime_payload["providers"]["openai"]["model"] == "gpt-5-mini"
+    assert "deepseek_model" not in runtime_payload
+    assert json.loads(secrets_file.read_text(encoding="utf-8"))["openai_api_key"] == "openai-test-key"
 
 
 def test_member_chat_streams_sse_events(tmp_path, monkeypatch):
@@ -204,10 +273,16 @@ runtime:
     assert "TEXT_MESSAGE_END" in body
     assert "MESSAGES_SNAPSHOT" in body
     assert "STATE_SNAPSHOT" in body
+    assert "langgraph_checkpoint" in body
     assert body.index("TEXT_MESSAGE_CONTENT") < body.index("MESSAGES_SNAPSHOT")
     assert "Clara received the request." in body
     assert "aiteamos_chat_response" in body
     assert (workspace / ".aiteamos" / "conversations" / "agui-thread-test.jsonl").exists()
+    assert (workspace / ".aiteamos" / "langgraph" / "checkpoints.sqlite").exists()
+
+    health = client.get("/api/v1/chat/agent/health")
+    assert health.status_code == 200
+    assert health.json()["checkpoint"]["mode"] == "sqlite"
 
 
 def test_member_chat_streams_deepseek_native_chunks(tmp_path, monkeypatch):
@@ -245,7 +320,6 @@ runtime:
 """.strip(),
         encoding="utf-8",
     )
-
     calls = []
 
     class FakeStreamResponse:
@@ -730,7 +804,6 @@ runtime:
 """.strip(),
         encoding="utf-8",
     )
-
     calls = []
 
     class FakePlannerResponse:
@@ -1073,7 +1146,6 @@ handoff_rules:
 """.strip(),
         encoding="utf-8",
     )
-
     calls = []
 
     class FakeResponse:
@@ -1159,6 +1231,34 @@ handoff_rules:
 """.strip(),
         encoding="utf-8",
     )
+    conversations_dir = workspace / ".aiteamos" / "conversations"
+    conversations_dir.mkdir(parents=True)
+    (conversations_dir / "deepseek-who-are-you.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "timestamp": "2026-06-03T00:00:00+00:00",
+                        "role": "user",
+                        "content": "上一轮问题",
+                        "member_id": None,
+                        "run_id": "run-prev",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-06-03T00:00:01+00:00",
+                        "role": "assistant",
+                        "content": "上一轮回答",
+                        "member_id": "clara",
+                        "run_id": "run-prev",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     calls = []
 
@@ -1217,6 +1317,11 @@ handoff_rules:
     assert calls[0]["json"]["thinking"] == {"type": "disabled"}
     assert calls[0]["json"]["messages"][0]["role"] == "system"
     assert "Role: AI Team Lead" in calls[0]["json"]["messages"][0]["content"]
+    assert calls[0]["json"]["messages"][1:4] == [
+        {"role": "user", "content": "上一轮问题"},
+        {"role": "assistant", "content": "上一轮回答"},
+        {"role": "user", "content": "你是谁？"},
+    ]
 
     provider_threads = json.loads((workspace / ".aiteamos" / "provider_threads.json").read_text())
     state = provider_threads["clara::deepseek-who-are-you"]

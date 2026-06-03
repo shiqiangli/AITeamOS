@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,6 +44,24 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
+from .capability_service import local_chat_tool_ids, local_chat_tool_prompt, local_chat_tool_union
+from .knowledge_service import knowledge_snippets, search_knowledge_sync
+from .memory_service import propose_memory_from_chat_turn, recall_memory_snippets
+from .repository_service import CodeRepository, get_code_repository, inspect_code_repository, list_code_repositories
+from .work_item_service import (
+    WorkItemCreateRequest,
+    WorkItemReportRequest,
+    add_work_item_report,
+    create_work_item,
+    get_work_item,
+    list_work_items,
+)
+
+try:  # The dependency is explicit in pyproject, but keep dev checkouts bootable.
+    from langgraph.checkpoint.sqlite import SqliteSaver
+except ImportError:  # pragma: no cover - exercised only when dependency is absent.
+    SqliteSaver = None  # type: ignore[assignment]
+
 router = APIRouter(prefix="/api/v1/chat", tags=["member-chat"])
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
@@ -57,12 +76,27 @@ _LIST_SKILLS_EN_RE = re.compile(r"\b(list|show|display|view)\b.*\bskills?\b|\bsk
 _CREATE_SKILL_EN_RE = re.compile(r"\b(create|add|new|setup|set up)\b.*\bskill\b")
 _ASSIGN_SKILL_EN_RE = re.compile(r"\b(assign|add|give|attach)\b.*\bskill\b.*\b(to|for)\b")
 _DELETE_SKILL_EN_RE = re.compile(r"\b(delete|remove|drop)\b.*\bskill\b")
+_SEARCH_KNOWLEDGE_EN_RE = re.compile(r"\b(search|find|lookup|read|query)\b.*\b(knowledge|docs?|documents?|memories|decisions)\b")
+_CREATE_WORK_ITEM_EN_RE = re.compile(r"\b(create|open|plan|delegate|assign)\b.*\b(work\s*item|task|ticket)\b")
+_REPORT_WORK_ITEM_EN_RE = re.compile(r"\b(report|record|complete|finish|validate)\b.*\b(work\s*item|task|ticket)\b")
+_LIST_CODE_REPOSITORIES_EN_RE = re.compile(
+    r"\b(list|show|display|view)\b.*\b(code\s+)?(repos?|repositories)\b|"
+    r"\b(code\s+)?(repos?|repositories)\b.*\b(list|show|all|available)\b"
+)
+_INSPECT_CODE_REPOSITORY_EN_RE = re.compile(
+    r"\b(inspect|search|read|check|review|analy[sz]e|look)\b.*\b(codebase|source|files?|paths?|repos?|repositories|repository)\b|"
+    r"\b(codebase|source|files?|paths?|repos?|repositories|repository)\b.*\b(inspect|search|read|check|review|analy[sz]e|look)\b"
+)
+_FILE_PATH_RE = re.compile(
+    r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\.(?:css|html|json|md|py|sh|toml|ts|tsx|txt|yaml|yml)"
+)
 _TOOL_PLANNING_SIGNAL_RE = re.compile(
     r"create_member|edit_member_profile|delete_member|list_members|"
     r"list_skills|create_skill|assign_skill_to_member|delete_skill|"
+    r"search_knowledge|create_work_item|record_work_item_report|list_work_items|list_code_repositories|inspect_code_repository|"
     r"创建|新增|添加|新建|补|配置|设置|编辑|修改|更新|调整|改成|改为|删除|移除|删掉|分配|关联|"
-    r"列出|列表|清单|有哪些|所有|员工|成员|用户|"
-    r"技能|"
+    r"列出|列表|清单|有哪些|所有|员工|成员|用户|委派|派给|交给|推进|汇报|验证|完成|"
+    r"技能|知识库|文档|决策|记忆|代码仓库|代码库|仓库|\brepos?\b|\brepository\b|\brepositories\b|work\s*item|"
     r"\b(create|add|new|setup|edit|update|modify|change|delete|remove|drop|assign|list|show|member|employee|profile|user|skills?)\b",
     re.IGNORECASE,
 )
@@ -105,6 +139,7 @@ class ChatMemberSummary(BaseModel):
     skills: list[str] = Field(default_factory=list)
     runtime_mode: str = "external_or_file_stub"
     preserve_provider_thread: bool = True
+    default_thread_id: str = ""
 
 
 class ChatSkillSummary(BaseModel):
@@ -151,6 +186,52 @@ class ConversationMessage(BaseModel):
 class ConversationResponse(BaseModel):
     thread_id: str
     messages: list[ConversationMessage]
+    thread: "ChatThreadSummary | None" = None
+
+
+class ChatThreadSummary(BaseModel):
+    id: str
+    member_id: str
+    title: str
+    created_at: str
+    updated_at: str
+    last_message_at: str | None = None
+    message_count: int = 0
+    archived: bool = False
+    saved_path: str = ""
+
+
+class ChatThreadListResponse(BaseModel):
+    member_id: str
+    active_thread_id: str
+    threads: list[ChatThreadSummary]
+
+
+class ChatThreadCreateRequest(BaseModel):
+    member_id: str
+    title: str | None = None
+
+
+class ChatThreadActivateRequest(BaseModel):
+    member_id: str | None = None
+
+
+class ChatRuntimeProviderSettings(BaseModel):
+    id: str
+    display_name: str
+    kind: str
+    model: str | None = None
+    thinking: str | None = None
+    active: bool = False
+    api_key_configured: bool = False
+    status: str = "missing"
+
+
+class ChatRuntimeProviderUpdateRequest(BaseModel):
+    model: str | None = None
+    thinking: str | None = None
+    api_key: str | None = None
+    activate: bool = False
 
 
 class ChatRuntimeSettings(BaseModel):
@@ -159,6 +240,7 @@ class ChatRuntimeSettings(BaseModel):
     deepseek_thinking: str = "disabled"
     openai_model: str = "gpt-5-nano"
     fallback_on_error: bool = True
+    providers: dict[str, ChatRuntimeProviderSettings] = Field(default_factory=dict)
     api_keys_configured: dict[str, bool] = Field(default_factory=dict)
     saved_paths: dict[str, str] = Field(default_factory=dict)
 
@@ -201,6 +283,7 @@ class ChatRunContext:
     provider_thread_id: str
     skills: list[str]
     memories: list[str]
+    recent_messages: list[ConversationMessage]
     trace_events: list[ChatTraceEvent]
 
 
@@ -245,29 +328,65 @@ def _normalize_provider(value: str | None) -> str:
     return provider if provider in {"stub", "deepseek", "openai"} else "stub"
 
 
+def _require_runtime_provider(value: str) -> str:
+    provider = (value or "").strip().lower()
+    if provider not in {"stub", "deepseek", "openai"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported runtime provider: {value}")
+    return provider
+
+
 def _normalize_thinking(value: str | None) -> str:
     thinking = (value or "disabled").strip().lower()
     return "enabled" if thinking in {"1", "true", "yes", "on", "enabled"} else "disabled"
 
 
+def _normalize_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
 def _runtime_config() -> dict[str, Any]:
     file_config = _read_json_file(_runtime_settings_path())
+    providers = file_config.get("providers") if isinstance(file_config.get("providers"), dict) else {}
+    deepseek_config = providers.get("deepseek") if isinstance(providers.get("deepseek"), dict) else {}
+    openai_config = providers.get("openai") if isinstance(providers.get("openai"), dict) else {}
     return {
         "provider": _normalize_provider(file_config.get("provider") or os.environ.get("AITEAMOS_MODEL_PROVIDER")),
         "deepseek_model": str(
-            file_config.get("deepseek_model")
+            deepseek_config.get("model")
+            or file_config.get("deepseek_model")
             or os.environ.get("AITEAMOS_DEEPSEEK_MODEL")
             or "deepseek-v4-flash"
         ),
         "deepseek_thinking": _normalize_thinking(
-            str(file_config.get("deepseek_thinking") or os.environ.get("AITEAMOS_DEEPSEEK_THINKING") or "disabled")
+            str(
+                deepseek_config.get("thinking")
+                or file_config.get("deepseek_thinking")
+                or os.environ.get("AITEAMOS_DEEPSEEK_THINKING")
+                or "disabled"
+            )
         ),
-        "openai_model": str(file_config.get("openai_model") or os.environ.get("AITEAMOS_OPENAI_MODEL") or "gpt-5-nano"),
-        "fallback_on_error": bool(
+        "openai_model": str(
+            openai_config.get("model")
+            or file_config.get("openai_model")
+            or os.environ.get("AITEAMOS_OPENAI_MODEL")
+            or "gpt-5-nano"
+        ),
+        "fallback_on_error": _normalize_bool(
             file_config.get(
                 "fallback_on_error",
                 os.environ.get("AITEAMOS_RUNTIME_FALLBACK_ON_ERROR", "1").lower() in {"1", "true", "yes", "on"},
-            )
+            ),
+            True,
         ),
     }
 
@@ -280,11 +399,64 @@ def _runtime_secrets() -> dict[str, str]:
     }
 
 
+def _runtime_provider_settings(config: dict[str, Any], secrets: dict[str, str]) -> dict[str, ChatRuntimeProviderSettings]:
+    active_provider = str(config["provider"])
+    deepseek_key_configured = bool(secrets["deepseek_api_key"])
+    openai_key_configured = bool(secrets["openai_api_key"])
+    return {
+        "stub": ChatRuntimeProviderSettings(
+            id="stub",
+            display_name="File stub",
+            kind="local",
+            active=active_provider == "stub",
+            api_key_configured=True,
+            status="active" if active_provider == "stub" else "available",
+        ),
+        "deepseek": ChatRuntimeProviderSettings(
+            id="deepseek",
+            display_name="DeepSeek",
+            kind="llm_api",
+            model=str(config["deepseek_model"]),
+            thinking=str(config["deepseek_thinking"]),
+            active=active_provider == "deepseek",
+            api_key_configured=deepseek_key_configured,
+            status="configured" if deepseek_key_configured else "missing",
+        ),
+        "openai": ChatRuntimeProviderSettings(
+            id="openai",
+            display_name="OpenAI / ChatGPT",
+            kind="llm_api",
+            model=str(config["openai_model"]),
+            active=active_provider == "openai",
+            api_key_configured=openai_key_configured,
+            status="configured" if openai_key_configured else "missing",
+        ),
+    }
+
+
+def _runtime_file_payload(config: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "provider": _normalize_provider(str(config.get("provider"))),
+        "fallback_on_error": bool(config.get("fallback_on_error", True)),
+        "providers": {
+            "deepseek": {
+                "model": str(config.get("deepseek_model") or "deepseek-v4-flash"),
+                "thinking": _normalize_thinking(str(config.get("deepseek_thinking") or "disabled")),
+            },
+            "openai": {
+                "model": str(config.get("openai_model") or "gpt-5-nano"),
+            },
+        },
+        "updated_at": _now(),
+    }
+
+
 def _runtime_settings_response() -> ChatRuntimeSettings:
     config = _runtime_config()
     secrets = _runtime_secrets()
     return ChatRuntimeSettings(
         **config,
+        providers=_runtime_provider_settings(config, secrets),
         api_keys_configured={
             "deepseek": bool(secrets["deepseek_api_key"]),
             "openai": bool(secrets["openai_api_key"]),
@@ -300,6 +472,15 @@ def _require_safe_id(value: str, *, field: str) -> str:
     if not _SAFE_ID_RE.fullmatch(value):
         raise HTTPException(status_code=400, detail=f"Invalid {field}")
     return value
+
+
+def _safe_thread_component(value: str) -> str:
+    component = re.sub(r"[^A-Za-z0-9_.:-]+", "-", value.strip()).strip("-")
+    return component[:80] or "member"
+
+
+def _member_default_thread_id(member_id: str) -> str:
+    return _require_safe_id(f"member-{_safe_thread_component(member_id)}-default", field="thread_id")
 
 
 def _is_team_lead_member_id(value: str | None) -> bool:
@@ -386,8 +567,9 @@ def _fallback_team_lead() -> dict[str, Any]:
 
 def _member_summary(profile: dict[str, Any]) -> ChatMemberSummary:
     runtime = profile.get("runtime") if isinstance(profile.get("runtime"), dict) else {}
+    member_id = str(profile.get("id", ""))
     return ChatMemberSummary(
-        id=str(profile.get("id", "")),
+        id=member_id,
         display_name=str(profile.get("display_name") or profile.get("id") or "Unknown"),
         kind=str(profile.get("kind", "ai")),
         role=str(profile.get("role", "AI Member")),
@@ -395,6 +577,7 @@ def _member_summary(profile: dict[str, Any]) -> ChatMemberSummary:
         skills=[str(skill) for skill in profile.get("skills", [])],
         runtime_mode=str(runtime.get("mode", "external_or_file_stub")),
         preserve_provider_thread=bool(runtime.get("preserve_provider_thread", True)),
+        default_thread_id=_member_default_thread_id(member_id),
     )
 
 
@@ -711,19 +894,31 @@ def _normalize_tool_plan(payload: dict[str, Any], *, source: str) -> ChatToolPla
         "add_skill_to_member": "assign_skill_to_member",
         "remove_skill": "delete_skill",
         "drop_skill": "delete_skill",
+        "query_knowledge": "search_knowledge",
+        "read_docs": "search_knowledge",
+        "search_docs": "search_knowledge",
+        "create_task": "create_work_item",
+        "delegate_task": "create_work_item",
+        "assign_task": "create_work_item",
+        "open_ticket": "create_work_item",
+        "add_work_item_report": "record_work_item_report",
+        "complete_work_item": "record_work_item_report",
+        "list_repositories": "list_code_repositories",
+        "list_repos": "list_code_repositories",
+        "list_code_repos": "list_code_repositories",
+        "show_repositories": "list_code_repositories",
+        "show_code_repositories": "list_code_repositories",
+        "inspect_repository": "inspect_code_repository",
+        "inspect_repo": "inspect_code_repository",
+        "search_repository": "inspect_code_repository",
+        "search_repo": "inspect_code_repository",
+        "read_repository": "inspect_code_repository",
+        "read_repo": "inspect_code_repository",
+        "read_file": "inspect_code_repository",
+        "search_code": "inspect_code_repository",
     }
     tool = tool_aliases.get(raw_tool, raw_tool)
-    if tool not in {
-        "none",
-        "list_members",
-        "create_member",
-        "edit_member_profile",
-        "delete_member",
-        "list_skills",
-        "create_skill",
-        "assign_skill_to_member",
-        "delete_skill",
-    }:
+    if tool not in {"none", *local_chat_tool_ids()}:
         tool = "none"
 
     arguments = payload.get("arguments")
@@ -765,20 +960,10 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
                     "You are AITeamOS Clara's local tool planner. "
                     "Classify the user's message into exactly one local tool call. "
                     "Do not answer the user. Return only a JSON object.\n\n"
-                    "Allowed tools:\n"
-                    "- none\n"
-                    "- list_members\n"
-                    "- create_member\n"
-                    "- edit_member_profile\n"
-                    "- delete_member\n\n"
-                    "- list_skills\n"
-                    "- create_skill\n"
-                    "- assign_skill_to_member\n\n"
-                    "- delete_skill\n\n"
+                    f"Allowed tools:\n{local_chat_tool_prompt()}\n\n"
                     "JSON schema:\n"
                     "{"
-                    "\"tool\":\"none|list_members|create_member|edit_member_profile|delete_member|"
-                    "list_skills|create_skill|assign_skill_to_member|delete_skill\","
+                    f"\"tool\":\"{local_chat_tool_union(include_none=True)}\","
                     "\"arguments\":{},"
                     "\"confidence\":0.0,"
                     "\"reason\":\"short reason\""
@@ -790,11 +975,26 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
                     "Arguments for create_skill: skill_id, title, description, body. "
                     "Arguments for assign_skill_to_member: skill_id or skill_name, target_member_id or target_member_name. "
                     "Arguments for delete_skill: skill_id or skill_name. "
+                    "Arguments for search_knowledge: query. "
+                    "Arguments for create_work_item: title, description, target_member_id or target_member_name, "
+                    "assigned_role, validation_member_id, validation_role, code_repository_ids or code_repository_name. "
+                    "Arguments for record_work_item_report: work_item_id, reporter_member_id, reporter_role, content, "
+                    "report_type, evidence. "
+                    "Arguments for list_code_repositories: none. "
+                    "Arguments for inspect_code_repository: work_item_id, code_repository_id or code_repository_name, "
+                    "query, file_path or file_paths. "
                     "Map PV, verification, regression, and harness triage roles to role='AI PV'. "
                     "Map release work to role='AI Release'. Map QA or harness runner to role='AI QA / Harness Runner'. "
                     "Use kind='ai' for AI employee/member requests and kind='human' only for human user/member requests. "
                     "Choose a tool only when the user intends to inspect or change AITeamOS local member profiles "
-                    "or local SKILL.md assets."
+                    "or local SKILL.md assets. Choose search_knowledge when the user asks Clara to read docs, "
+                    "memories, decisions, or project knowledge. Choose create_work_item when the user asks Clara "
+                    "to delegate or plan work for a member role. Choose list_code_repositories when the user asks "
+                    "what code repositories, repos, GitHub/Gitea repositories, or local project paths are configured. "
+                    "Choose inspect_code_repository when an RD, PV, QA, Architect, or other non-Clara member is asked "
+                    "to inspect, search, read, review, or analyze configured repository files. "
+                    "Choose record_work_item_report when a member "
+                    "or Clara records a result or validation report for an existing work item."
                 ),
             },
             {
@@ -805,6 +1005,9 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
                         "target_member": context.member.model_dump(),
                         "existing_members": members,
                         "existing_skills": skills,
+                        "recent_messages": [
+                            message.model_dump(mode="json") for message in context.recent_messages[-8:]
+                        ],
                     },
                     ensure_ascii=False,
                 ),
@@ -842,6 +1045,30 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
 
 
 def _heuristic_tool_plan(message: str) -> ChatToolPlan:
+    if _is_record_work_item_report_request(message):
+        return ChatToolPlan(
+            tool="record_work_item_report",
+            confidence=0.45,
+            reason="Matched local work-item report fallback.",
+        )
+    if _is_list_code_repositories_request(message):
+        return ChatToolPlan(
+            tool="list_code_repositories",
+            confidence=0.45,
+            reason="Matched local list-code-repositories fallback.",
+        )
+    if _is_inspect_code_repository_request(message):
+        return ChatToolPlan(
+            tool="inspect_code_repository",
+            confidence=0.45,
+            reason="Matched local inspect-code-repository fallback.",
+        )
+    if _is_list_work_items_request(message):
+        return ChatToolPlan(tool="list_work_items", confidence=0.45, reason="Matched local list-work-items fallback.")
+    if _is_create_work_item_request(message):
+        return ChatToolPlan(tool="create_work_item", confidence=0.45, reason="Matched local create-work-item fallback.")
+    if _is_search_knowledge_request(message):
+        return ChatToolPlan(tool="search_knowledge", confidence=0.45, reason="Matched local search-knowledge fallback.")
     if _is_create_skill_request(message):
         return ChatToolPlan(tool="create_skill", confidence=0.45, reason="Matched local create-skill fallback.")
     if _is_assign_skill_request(message):
@@ -1176,6 +1403,89 @@ def _is_delete_skill_request(message: str) -> bool:
     return _extract_existing_skill_id(message) is not None
 
 
+def _is_search_knowledge_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    if "search_knowledge" in normalized:
+        return True
+    if _SEARCH_KNOWLEDGE_EN_RE.search(normalized):
+        return True
+    compact = re.sub(r"\s+", "", normalized)
+    if not any(token in compact for token in ("知识库", "文档", "docs", "doc", "memory", "memories", "记忆", "decision", "决策")):
+        return False
+    return any(token in compact for token in ("搜索", "查找", "查询", "读取", "检索", "看看", "相关"))
+
+
+def _is_create_work_item_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    if "create_work_item" in normalized:
+        return True
+    if _CREATE_WORK_ITEM_EN_RE.search(normalized):
+        return True
+    compact = re.sub(r"\s+", "", normalized)
+    if any(token in compact for token in ("workitem", "工作项", "本地任务", "任务")) and any(
+        token in compact for token in ("创建", "新增", "打开", "分解", "委派", "分配", "派给", "交给")
+    ):
+        return True
+    return any(token in compact for token in ("委派给", "派给", "交给")) and any(
+        token in compact for token in ("alex", "rd", "pv", "architect", "架构", "研发", "验证")
+    )
+
+
+def _is_list_work_items_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    if "list_work_items" in normalized:
+        return True
+    compact = re.sub(r"\s+", "", normalized)
+    if "workitem" in compact or "工作项" in compact:
+        return any(token in compact for token in ("列出", "列表", "清单", "查看", "有哪些", "所有", "list", "show"))
+    return False
+
+
+def _is_record_work_item_report_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    if "record_work_item_report" in normalized:
+        return True
+    if not re.search(r"\bwork-[A-Za-z0-9_.:-]+\b", message):
+        return False
+    if _REPORT_WORK_ITEM_EN_RE.search(normalized):
+        return True
+    compact = re.sub(r"\s+", "", normalized)
+    return any(token in compact for token in ("汇报", "报告", "完成", "验证", "记录", "结果"))
+
+
+def _is_list_code_repositories_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    if "list_code_repositories" in normalized:
+        return True
+    if _LIST_CODE_REPOSITORIES_EN_RE.search(normalized):
+        return True
+    compact = re.sub(r"\s+", "", normalized)
+    has_repo_token = any(token in compact for token in ("代码仓库", "代码库", "仓库")) or bool(
+        re.search(r"\b(repos?|repositories|repository)\b", normalized)
+    )
+    if not has_repo_token:
+        return False
+    return any(token in compact for token in ("列出", "列表", "清单", "查看", "有哪些", "所有", "全部", "配置", "可用"))
+
+
+def _is_inspect_code_repository_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    if "inspect_code_repository" in normalized:
+        return True
+    if _INSPECT_CODE_REPOSITORY_EN_RE.search(normalized):
+        return True
+    compact = re.sub(r"\s+", "", normalized)
+    has_repo_token = any(token in compact for token in ("代码仓库", "代码库", "仓库", "代码", "源码", "文件", "实现")) or bool(
+        re.search(r"\b(codebase|source|files?|paths?|repos?|repositories|repository)\b", normalized)
+    )
+    if not has_repo_token and not re.search(r"\bwork-[A-Za-z0-9_.:-]+\b", message):
+        return False
+    return any(
+        token in compact
+        for token in ("检查", "读取", "搜索", "分析", "查看", "review", "inspect", "search", "read", "check", "analyze", "analyse")
+    )
+
+
 def _is_local_tool_request(message: str) -> bool:
     return (
         _is_create_member_request(message)
@@ -1186,6 +1496,12 @@ def _is_local_tool_request(message: str) -> bool:
         or _is_create_skill_request(message)
         or _is_assign_skill_request(message)
         or _is_delete_skill_request(message)
+        or _is_search_knowledge_request(message)
+        or _is_create_work_item_request(message)
+        or _is_list_work_items_request(message)
+        or _is_record_work_item_report_request(message)
+        or _is_list_code_repositories_request(message)
+        or _is_inspect_code_repository_request(message)
     )
 
 
@@ -1302,6 +1618,47 @@ def _build_list_skills_reply(tool_result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _list_code_repositories_tool_result() -> dict[str, Any]:
+    repositories = list_code_repositories()
+    return {
+        "count": len(repositories),
+        "repositories": [repository.model_dump(mode="json") for repository in repositories],
+        "deep_links": {"code_repositories": "#/settings/code-repositories"},
+    }
+
+
+def _build_list_code_repositories_reply(tool_result: dict[str, Any]) -> str:
+    repositories = tool_result["repositories"]
+    lines = [
+        f"我找到了 {tool_result['count']} 个代码仓库配置。",
+        "",
+        "代码仓库：",
+    ]
+    if not repositories:
+        lines.append("- none")
+    for repository in repositories:
+        branch = repository["current_branch"] or repository["default_branch"] or "-"
+        plane_scope = "/".join(
+            item for item in (repository["plane_workspace_slug"], repository["plane_project_id"]) if item
+        ) or "-"
+        lines.append(
+            f"- {repository['name']} ({repository['id']})；provider={repository['provider']}；"
+            f"status={repository['status']}；branch={branch}；Plane={plane_scope}\n"
+            f"  {repository['location']}"
+        )
+
+    lines.extend([
+        "",
+        "说明：",
+        "- Clara 只使用这些 repo 配置作为 WorkItem context，不直接读取代码。",
+        "- RD/PV Member 会通过 repo tools、MCP connector 或外部 agent executor 读取、修改和验证代码。",
+        "",
+        "查看入口：",
+        f"- Code Repositories: {tool_result['deep_links']['code_repositories']}",
+    ])
+    return "\n".join(lines)
+
+
 def _build_blocked_tool_reply(tool_name: str, reason: str, hint: str) -> str:
     return (
         f"{tool_name} 暂时没有执行。\n\n"
@@ -1339,6 +1696,523 @@ def _persist_local_tool_response(
 
 def _plan_trace_data(plan: ChatToolPlan | None) -> dict[str, Any]:
     return plan.model_dump() if plan is not None else {"source": "unknown"}
+
+
+def _member_from_plan_or_name(plan: ChatToolPlan | None, *names: str) -> ChatMemberSummary | None:
+    for name in names:
+        value = _tool_str_arg(plan, name)
+        if value:
+            found = _find_member_profile(value)
+            if found is not None:
+                return _member_summary(found[1])
+    return None
+
+
+def _member_for_role(role: str | None) -> ChatMemberSummary | None:
+    normalized_role = _normalize_role_value(role or "").lower()
+    members = sorted((_member_summary(profile) for profile in _load_members()), key=_member_sort_key)
+    for member in members:
+        if member.role.lower() == normalized_role:
+            return member
+    for member in members:
+        if normalized_role and normalized_role in member.role.lower():
+            return member
+    return None
+
+
+def _default_work_assignee(message: str) -> tuple[ChatMemberSummary | None, str]:
+    lower = f" {message.lower()} "
+    if any(token in lower for token in (" architect", "architecture", "架构")):
+        return _member_for_role("AI Architect"), "AI Architect"
+    if re.search(r"(?<![a-z0-9])pv(?![a-z0-9])", lower) or any(token in lower for token in ("验证", "validation", "test")):
+        return _member_for_role("AI PV") or _member_for_role("AI QA / Harness Runner"), "AI PV"
+    if any(token in lower for token in ("release", "发布")):
+        return _member_for_role("AI Release"), "AI Release"
+    return _member_for_role("AI RD / Implementer"), "AI RD / Implementer"
+
+
+def _explicit_delegated_member(message: str) -> ChatMemberSummary | None:
+    profiles = sorted((_member_summary(profile) for profile in _load_members()), key=_member_sort_key)
+    for member in profiles:
+        names = [re.escape(member.id), re.escape(member.display_name)]
+        for name in names:
+            if re.search(rf"(?:交给|派给|委派给|assign\s+to|delegate\s+to)\s*{name}\b", message, re.IGNORECASE):
+                return member
+    return None
+
+
+def _extract_work_item_id(message: str, plan: ChatToolPlan | None) -> str | None:
+    explicit = _tool_str_arg(plan, "work_item_id", "ticket_id", "task_id")
+    if explicit:
+        return explicit
+    match = re.search(r"\bwork-[A-Za-z0-9_.:-]+\b", message)
+    return match.group(0) if match else None
+
+
+def _work_item_title(message: str, plan: ChatToolPlan | None) -> str:
+    title = _tool_str_arg(plan, "title", "summary")
+    if title:
+        return title[:120]
+    cleaned = re.sub(r"^(Clara|clara|@Clara|@clara)[,，:\s]*", "", message.strip())
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned[:96] or "AITeamOS delegated work"
+
+
+def _message_mentions_repo_context(message: str) -> bool:
+    lower = message.strip().lower()
+    compact = re.sub(r"\s+", "", lower)
+    if any(token in compact for token in ("代码仓库", "代码库", "仓库")):
+        return True
+    return bool(re.search(r"\b(repos?|repositories|repository|codebase)\b", lower))
+
+
+def _match_repository(value: str, repositories: list[CodeRepository]) -> CodeRepository | None:
+    lookup = value.strip().lower()
+    if not lookup:
+        return None
+    for repository in repositories:
+        if lookup in {repository.id.lower(), repository.name.lower()}:
+            return repository
+    for repository in repositories:
+        location = repository.location.lower()
+        if lookup and (lookup in location or lookup in repository.name.lower()):
+            return repository
+    return None
+
+
+def _code_repository_ids_from_plan_or_message(plan: ChatToolPlan | None, message: str) -> list[str]:
+    repositories = list_code_repositories()
+    enabled_repositories = [repository for repository in repositories if repository.enabled]
+    matched: list[str] = []
+
+    def add_match(value: str) -> None:
+        repository = _match_repository(value, repositories)
+        if repository is not None and repository.id not in matched:
+            matched.append(repository.id)
+
+    for value in _tool_list_arg(plan, "code_repository_ids", "repository_ids", "repo_ids") or []:
+        add_match(value)
+    for key in (
+        "code_repository_id",
+        "repository_id",
+        "repo_id",
+        "code_repository_name",
+        "repository_name",
+        "repo_name",
+    ):
+        value = _tool_str_arg(plan, key)
+        if value:
+            add_match(value)
+
+    if not matched:
+        for repository in enabled_repositories:
+            if repository.id.lower() in message.lower() or repository.name.lower() in message.lower():
+                matched.append(repository.id)
+        # Mentioning the local path or remote URL is also an explicit selection.
+        for repository in enabled_repositories:
+            if repository.id not in matched and repository.location and repository.location.lower() in message.lower():
+                matched.append(repository.id)
+
+    if not matched and _message_mentions_repo_context(message) and len(enabled_repositories) == 1:
+        matched.append(enabled_repositories[0].id)
+
+    return matched
+
+
+def _extract_repo_file_paths(message: str, plan: ChatToolPlan | None) -> list[str]:
+    values = _tool_list_arg(plan, "file_paths", "paths") or []
+    for key in ("file_path", "path"):
+        value = _tool_str_arg(plan, key)
+        if value:
+            values.append(value)
+    values.extend(match.group(0) for match in _FILE_PATH_RE.finditer(message))
+    return _dedupe([value.strip().lstrip("/") for value in values if value.strip()])
+
+
+def _resolve_inspection_repository(
+    *,
+    plan: ChatToolPlan | None,
+    message: str,
+    work_item_id: str | None,
+) -> CodeRepository | None:
+    repositories = list_code_repositories()
+    for key in (
+        "code_repository_id",
+        "repository_id",
+        "repo_id",
+        "code_repository_name",
+        "repository_name",
+        "repo_name",
+    ):
+        value = _tool_str_arg(plan, key)
+        if value:
+            found = _match_repository(value, repositories)
+            if found is not None:
+                return found
+
+    work_item = get_work_item(work_item_id) if work_item_id else None
+    if work_item is not None:
+        for repo_id in work_item.code_repository_ids:
+            found = get_code_repository(repo_id)
+            if found is not None:
+                return found
+
+    for repository in repositories:
+        lower = message.lower()
+        if repository.id.lower() in lower or repository.name.lower() in lower:
+            return repository
+
+    enabled = [repository for repository in repositories if repository.enabled]
+    if len(enabled) == 1 and (_message_mentions_repo_context(message) or work_item is not None):
+        return enabled[0]
+    return None
+
+
+def _inspection_query(context: ChatRunContext, plan: ChatToolPlan | None) -> str:
+    return _tool_str_arg(plan, "query", "q", "search") or context.request.message
+
+
+def _complete_search_knowledge_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
+    query = _tool_str_arg(plan, "query", "q") or context.request.message
+    response = search_knowledge_sync(query, limit=8)
+    lines = [
+        f"我搜索了 Knowledge，query: {query}",
+        "",
+        "结果：",
+    ]
+    if not response.results:
+        lines.append("- 没有找到匹配的 Docs / Decisions / Memories。")
+    for item in response.results:
+        lines.append(
+            f"- [{item.source_type}] {item.title} ({item.source_ref})；score={item.score:.2f}\n"
+            f"  {item.content[:260]}"
+        )
+    lines.extend(["", "入口：", "- Knowledge: #/knowledge/docs"])
+
+    result = {
+        "status": "completed",
+        "detail": "Searched local Knowledge docs, decisions, and approved memories.",
+        "query": query,
+        "results": [item.model_dump(mode="json") for item in response.results],
+        "deep_links": {"knowledge": "#/knowledge/docs"},
+        "plan": _plan_trace_data(plan),
+    }
+    return _persist_local_tool_response(
+        context,
+        tool_name="search_knowledge",
+        reply="\n".join(lines),
+        result=result,
+        completed=True,
+    )
+
+
+def _complete_list_work_items_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
+    items = list_work_items()
+    lines = [f"我找到了 {len(items)} 个本地 Work Items。", ""]
+    if not items:
+        lines.append("- none")
+    for item in items:
+        lines.append(
+            f"- {item.id}: {item.title}；status={item.status}；assigned={item.assigned_member_id or item.assigned_role or '-'}；"
+            f"validation={item.validation_member_id or item.validation_role or '-'}；"
+            f"repos={len(item.code_repository_ids)}；reports={len(item.reports)}"
+        )
+    lines.extend(["", "入口：", "- Work / Tickets: #/work/tickets"])
+    result = {
+        "status": "completed",
+        "detail": "Listed local Work Items.",
+        "work_items": [item.model_dump(mode="json") for item in items],
+        "plan": _plan_trace_data(plan),
+    }
+    return _persist_local_tool_response(
+        context,
+        tool_name="list_work_items",
+        reply="\n".join(lines),
+        result=result,
+        completed=True,
+    )
+
+
+def _complete_list_code_repositories_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
+    tool_result = _list_code_repositories_tool_result()
+    result = {
+        "status": "completed",
+        "detail": "Listed configured code repositories.",
+        **tool_result,
+        "plan": _plan_trace_data(plan),
+    }
+    return _persist_local_tool_response(
+        context,
+        tool_name="list_code_repositories",
+        reply=_build_list_code_repositories_reply(tool_result),
+        result=result,
+        completed=True,
+    )
+
+
+def _inspection_report_content(repository_id: str, query: str, matches: list[dict[str, Any]], files: list[dict[str, Any]]) -> str:
+    lines = [
+        f"Repository inspection completed for {repository_id}.",
+        f"Query: {query}",
+        "",
+        "Evidence:",
+    ]
+    if matches:
+        for match in matches[:8]:
+            lines.append(f"- {match['path']}:{match['line']} {match['excerpt']}")
+    if files:
+        for file in files[:3]:
+            lines.append(f"- read {file['path']} ({len(file['content'])} chars)")
+    if not matches and not files:
+        lines.append("- No matching text files found.")
+    return "\n".join(lines)
+
+
+def _complete_inspect_code_repository_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
+    if context.member.id == TEAM_LEAD_MEMBER_ID:
+        return _persist_local_tool_response(
+            context,
+            tool_name="inspect_code_repository",
+            reply=_build_blocked_tool_reply(
+                "inspect_code_repository",
+                "Clara 是 control-plane manager，不直接读取代码仓库状态。",
+                "请把工作委派给 Alex/RD/PV，例如：Alex，请检查 work-xxx 里的 AITeamOS repo 并写回报告。",
+            ),
+            result={"status": "blocked", "detail": "Clara cannot directly inspect repository state.", "plan": _plan_trace_data(plan)},
+            completed=False,
+        )
+
+    message = context.request.message
+    work_item_id = _extract_work_item_id(message, plan)
+    repository = _resolve_inspection_repository(plan=plan, message=message, work_item_id=work_item_id)
+    if repository is None:
+        return _persist_local_tool_response(
+            context,
+            tool_name="inspect_code_repository",
+            reply=_build_blocked_tool_reply(
+                "inspect_code_repository",
+                "没有识别到可用代码仓库。",
+                "请先在 Settings / Code Repositories 配置 repo，或在消息中包含 repo id / repo name / work item id。",
+            ),
+            result={"status": "blocked", "detail": "Missing repository context.", "plan": _plan_trace_data(plan)},
+            completed=False,
+        )
+
+    query = _inspection_query(context, plan)
+    file_paths = _extract_repo_file_paths(message, plan)
+    try:
+        inspection = inspect_code_repository(repository, query=query, file_paths=file_paths)
+    except ValueError as exc:
+        return _persist_local_tool_response(
+            context,
+            tool_name="inspect_code_repository",
+            reply=_build_blocked_tool_reply(
+                "inspect_code_repository",
+                str(exc),
+                "请确认 repo 是 enabled local repository，并且文件路径位于该 repo 内部。",
+            ),
+            result={
+                "status": "blocked",
+                "detail": str(exc),
+                "repository_id": repository.id,
+                "plan": _plan_trace_data(plan),
+            },
+            completed=False,
+        )
+
+    matches = [match.model_dump(mode="json") for match in inspection.matches]
+    files = [file.model_dump(mode="json") for file in inspection.files]
+    lines = [
+        f"{context.member.display_name} 已检查代码仓库。",
+        "",
+        f"- Repository: {repository.name} ({repository.id})",
+        f"- Status: {inspection.status}",
+        f"- Query: {query}",
+        f"- Matches: {len(matches)}",
+        f"- Files read: {len(files)}",
+        "",
+        "主要证据：",
+    ]
+    if not matches and not files:
+        lines.append("- 未找到匹配的文本文件或可读文件。")
+    for match in matches[:8]:
+        lines.append(f"- {match['path']}:{match['line']} {match['excerpt']}")
+    for file in files[:2]:
+        excerpt = file["content"][:600].strip()
+        lines.append(f"- Read {file['path']}:\n  {excerpt}")
+
+    recorded_item = None
+    if work_item_id and inspection.status == "completed":
+        try:
+            report_content = _inspection_report_content(repository.id, query, matches, files)
+            recorded_item = add_work_item_report(
+                work_item_id,
+                WorkItemReportRequest(
+                    reporter_member_id=context.member.id,
+                    reporter_role=context.member.role,
+                    content=report_content,
+                    evidence=[
+                        f"repo:{repository.id}",
+                        *[f"{match['path']}:{match['line']}" for match in matches[:8]],
+                        *[f"file:{file['path']}" for file in files[:3]],
+                    ],
+                    report_type="repo_inspection",
+                ),
+            )
+            lines.extend(["", f"已写回 WorkItem report: {recorded_item.id}"])
+        except KeyError:
+            lines.extend(["", f"未写回 WorkItem：没有找到 {work_item_id}。"])
+
+    result = {
+        "status": inspection.status,
+        "detail": inspection.detail,
+        "repository": inspection.repository.model_dump(mode="json"),
+        "query": query,
+        "matches": matches,
+        "files": files,
+        "work_item": recorded_item.model_dump(mode="json") if recorded_item is not None else None,
+        "plan": _plan_trace_data(plan),
+    }
+    return _persist_local_tool_response(
+        context,
+        tool_name="inspect_code_repository",
+        reply="\n".join(lines),
+        result=result,
+        completed=inspection.status == "completed",
+    )
+
+
+def _complete_create_work_item_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
+    message = context.request.message
+    assignee = _member_from_plan_or_name(plan, "target_member_id", "target_member_name", "assigned_member_id", "assignee")
+    assigned_role = _tool_str_arg(plan, "assigned_role", "role")
+    if assignee is None:
+        assignee = _explicit_delegated_member(message)
+    if assignee is None:
+        assignee, inferred_role = _default_work_assignee(message)
+        assigned_role = assigned_role or inferred_role
+    else:
+        assigned_role = assigned_role or assignee.role
+
+    validation_member = _member_from_plan_or_name(plan, "validation_member_id", "validation_member_name", "pv_member_id")
+    validation_role = _tool_str_arg(plan, "validation_role") or "AI PV"
+    if validation_member is None and assigned_role != "AI PV":
+        validation_member = _member_for_role("AI PV") or _member_for_role("AI QA / Harness Runner")
+    if validation_member is not None:
+        validation_role = validation_member.role
+
+    code_repository_ids = _code_repository_ids_from_plan_or_message(plan, message)
+    knowledge = search_knowledge_sync(message, limit=5)
+    knowledge_refs = [f"{item.source_type}:{item.id}" for item in knowledge.results]
+    item = create_work_item(
+        WorkItemCreateRequest(
+            title=_work_item_title(message, plan),
+            description=_tool_str_arg(plan, "description", "body") or message,
+            assigned_member_id=assignee.id if assignee else "",
+            assigned_role=assigned_role or "",
+            validation_member_id=validation_member.id if validation_member else "",
+            validation_role=validation_role if validation_member else validation_role,
+            knowledge_refs=knowledge_refs,
+            code_repository_ids=code_repository_ids,
+            source_thread_id=context.thread_id,
+            source_run_id=context.run_id,
+        )
+    )
+
+    lines = [
+        "已创建本地 Work Item。",
+        "",
+        f"- ID: {item.id}",
+        f"- Title: {item.title}",
+        f"- Assigned: {item.assigned_member_id or item.assigned_role or '-'}",
+        f"- Validation: {item.validation_member_id or item.validation_role or '-'}",
+        f"- Knowledge refs: {len(item.knowledge_refs)}",
+        f"- Code repositories: {', '.join(item.code_repository_ids) if item.code_repository_ids else '-'}",
+        "",
+        "下一步：被分派的 Member 应基于这些 Knowledge refs、自己的 Skills/Memory 和必要的 repo 状态执行；PV 负责验证后写回报告。",
+    ]
+    result = {
+        "status": "completed",
+        "detail": "Created a local delegated Work Item.",
+        "work_item": item.model_dump(mode="json"),
+        "knowledge_results": [entry.model_dump(mode="json") for entry in knowledge.results],
+        "plan": _plan_trace_data(plan),
+    }
+    return _persist_local_tool_response(
+        context,
+        tool_name="create_work_item",
+        reply="\n".join(lines),
+        result=result,
+        completed=True,
+    )
+
+
+def _complete_record_work_item_report_tool(
+    context: ChatRunContext,
+    plan: ChatToolPlan | None = None,
+) -> ChatMessageResponse:
+    work_item_id = _extract_work_item_id(context.request.message, plan)
+    if not work_item_id:
+        return _persist_local_tool_response(
+            context,
+            tool_name="record_work_item_report",
+            reply=_build_blocked_tool_reply(
+                "record_work_item_report",
+                "没有识别到 work item id。",
+                "请包含类似 work-xxx 的本地 Work Item ID。",
+            ),
+            result={"status": "blocked", "detail": "Missing work_item_id.", "plan": _plan_trace_data(plan)},
+            completed=False,
+        )
+
+    reporter = _member_from_plan_or_name(plan, "reporter_member_id", "reporter_member_name") or context.member
+    content = _tool_str_arg(plan, "content", "report") or context.request.message
+    report_type = _tool_str_arg(plan, "report_type") or ("validation" if "验证" in context.request.message else "progress")
+    evidence = _tool_list_arg(plan, "evidence") or []
+    try:
+        item = add_work_item_report(
+            work_item_id,
+            WorkItemReportRequest(
+                reporter_member_id=reporter.id,
+                reporter_role=reporter.role,
+                content=content,
+                evidence=evidence,
+                report_type=report_type,
+            ),
+        )
+    except KeyError:
+        return _persist_local_tool_response(
+            context,
+            tool_name="record_work_item_report",
+            reply=_build_blocked_tool_reply(
+                "record_work_item_report",
+                f"没有找到 Work Item: {work_item_id}",
+                "请先让我列出本地 Work Items，或确认 ID 是否正确。",
+            ),
+            result={"status": "blocked", "detail": "Work item not found.", "work_item_id": work_item_id},
+            completed=False,
+        )
+
+    reply = (
+        "已记录 Work Item 报告。\n\n"
+        f"- ID: {item.id}\n"
+        f"- Status: {item.status}\n"
+        f"- Reporter: {reporter.display_name} ({reporter.role})\n"
+        f"- Reports: {len(item.reports)}"
+    )
+    result = {
+        "status": "completed",
+        "detail": "Recorded a local Work Item report.",
+        "work_item": item.model_dump(mode="json"),
+        "plan": _plan_trace_data(plan),
+    }
+    return _persist_local_tool_response(
+        context,
+        tool_name="record_work_item_report",
+        reply=reply,
+        result=result,
+        completed=True,
+    )
 
 
 def _complete_create_member_tool(context: ChatRunContext, plan: ChatToolPlan | None = None) -> ChatMessageResponse:
@@ -1661,6 +2535,7 @@ def _complete_delete_member_tool(context: ChatRunContext, plan: ChatToolPlan | N
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Cannot delete member profile: {member.id}") from exc
     removed_provider_thread_keys = _delete_provider_thread_states(member.id)
+    archived_thread_ids = _archive_member_thread_metadata(member.id)
 
     result = {
         "status": "completed",
@@ -1668,6 +2543,7 @@ def _complete_delete_member_tool(context: ChatRunContext, plan: ChatToolPlan | N
         "member": member.model_dump(),
         "deleted_path": relative_profile_path,
         "provider_thread_keys_removed": removed_provider_thread_keys,
+        "archived_thread_ids": archived_thread_ids,
         "retained_evidence": ["conversations", "traces"],
         "deep_links": {"members": "#/members"},
         "plan": _plan_trace_data(plan),
@@ -1677,6 +2553,7 @@ def _complete_delete_member_tool(context: ChatRunContext, plan: ChatToolPlan | N
         f"- ID: {member.id}\n"
         f"- Profile: {relative_profile_path}\n"
         f"- 清理 provider thread 映射：{len(removed_provider_thread_keys)} 条\n"
+        f"- 归档 chat threads：{len(archived_thread_ids)} 条\n"
         "- 历史 conversation 和 trace 已保留，用于审计。\n"
         "- Members: #/members"
     )
@@ -2076,10 +2953,339 @@ def _ensure_runtime_dirs() -> dict[str, Path]:
     paths = {
         "conversations": base / "conversations",
         "traces": base / "traces",
+        "threads": base / "threads",
     }
     for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
     return paths
+
+
+def _threads_dir() -> Path:
+    return _workspace_dir() / "threads"
+
+
+def _thread_index_path() -> Path:
+    return _threads_dir() / "index.json"
+
+
+def _conversation_path(thread_id: str) -> Path:
+    thread_id = _require_safe_id(thread_id, field="thread_id")
+    return _workspace_dir() / "conversations" / f"{thread_id}.jsonl"
+
+
+def _load_conversation_messages(thread_id: str, *, limit: int | None = None) -> list[ConversationMessage]:
+    path = _conversation_path(thread_id)
+    messages: list[ConversationMessage] = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            messages.append(ConversationMessage.model_validate_json(line))
+    return messages[-limit:] if limit and limit > 0 else messages
+
+
+def _load_thread_index() -> dict[str, Any]:
+    path = _thread_index_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    threads = payload.get("threads") if isinstance(payload.get("threads"), dict) else {}
+    active_by_member = (
+        payload.get("active_by_member")
+        if isinstance(payload.get("active_by_member"), dict)
+        else {}
+    )
+    return {
+        "threads": {str(key): value for key, value in threads.items() if isinstance(value, dict)},
+        "active_by_member": {
+            str(key): str(value)
+            for key, value in active_by_member.items()
+            if isinstance(value, str)
+        },
+    }
+
+
+def _write_thread_index(index: dict[str, Any]) -> None:
+    payload = {
+        "threads": index.get("threads") if isinstance(index.get("threads"), dict) else {},
+        "active_by_member": (
+            index.get("active_by_member")
+            if isinstance(index.get("active_by_member"), dict)
+            else {}
+        ),
+        "updated_at": _now(),
+    }
+    _write_json_file(_thread_index_path(), payload)
+
+
+def _thread_index_saved_path() -> str:
+    return str(_thread_index_path().relative_to(_workspace_root()))
+
+
+def _conversation_saved_path(thread_id: str) -> str:
+    return str(_conversation_path(thread_id).relative_to(_workspace_root()))
+
+
+def _thread_title_from_message(content: str) -> str:
+    text = re.sub(r"\s+", " ", content).strip()
+    if not text:
+        return "New thread"
+    return text[:56] + ("..." if len(text) > 56 else "")
+
+
+def _default_thread_title(member: ChatMemberSummary, thread_id: str) -> str:
+    if thread_id == _member_default_thread_id(member.id):
+        return f"{member.display_name} default"
+    return f"{member.display_name} thread"
+
+
+def _member_by_id(member_id: str) -> ChatMemberSummary | None:
+    lookup = member_id.strip().lower()
+    for profile in _load_members():
+        member = _member_summary(profile)
+        if member.id.lower() == lookup:
+            return member
+    return None
+
+
+def _require_member_summary(member_id: str) -> ChatMemberSummary:
+    member_id = _require_safe_id(member_id, field="member_id")
+    member = _member_by_id(member_id)
+    if member is None:
+        raise HTTPException(status_code=404, detail=f"Member not found: {member_id}")
+    return member
+
+
+def _infer_thread_member_id(thread_id: str, members: list[ChatMemberSummary]) -> str | None:
+    for member in sorted(members, key=lambda item: len(item.id), reverse=True):
+        safe_member = _safe_thread_component(member.id)
+        if thread_id == _member_default_thread_id(member.id) or thread_id.startswith(f"member-{safe_member}-"):
+            return member.id
+    return None
+
+
+def _thread_summary_from_record(thread_id: str, record: dict[str, Any]) -> ChatThreadSummary:
+    return ChatThreadSummary(
+        id=thread_id,
+        member_id=str(record.get("member_id") or ""),
+        title=str(record.get("title") or "New thread"),
+        created_at=str(record.get("created_at") or _now()),
+        updated_at=str(record.get("updated_at") or record.get("last_message_at") or _now()),
+        last_message_at=str(record["last_message_at"]) if record.get("last_message_at") else None,
+        message_count=int(record.get("message_count") or 0),
+        archived=bool(record.get("archived", False)),
+        saved_path=_conversation_saved_path(thread_id),
+    )
+
+
+def _conversation_metadata(thread_id: str, members: list[ChatMemberSummary]) -> dict[str, Any]:
+    messages = _load_conversation_messages(thread_id)
+    first_user = next((message for message in messages if message.role == "user" and message.content.strip()), None)
+    first_assistant = next((message for message in messages if message.member_id), None)
+    created_at = messages[0].timestamp if messages else _now()
+    updated_at = messages[-1].timestamp if messages else created_at
+    member_id = first_assistant.member_id if first_assistant and first_assistant.member_id else None
+    member_id = member_id or _infer_thread_member_id(thread_id, members)
+    return {
+        "member_id": member_id,
+        "title": _thread_title_from_message(first_user.content) if first_user else None,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "last_message_at": updated_at if messages else None,
+        "message_count": len(messages),
+    }
+
+
+def _hydrate_thread_index() -> dict[str, Any]:
+    index = _load_thread_index()
+    threads = index["threads"]
+    active_by_member = index["active_by_member"]
+    members = sorted((_member_summary(profile) for profile in _load_members()), key=_member_sort_key)
+    member_by_id = {member.id: member for member in members}
+    changed = False
+    now = _now()
+
+    for member in members:
+        default_thread_id = _member_default_thread_id(member.id)
+        if default_thread_id not in threads:
+            threads[default_thread_id] = {
+                "id": default_thread_id,
+                "member_id": member.id,
+                "title": _default_thread_title(member, default_thread_id),
+                "created_at": now,
+                "updated_at": now,
+                "last_message_at": None,
+                "message_count": 0,
+                "archived": False,
+            }
+            changed = True
+
+    conversations_dir = _workspace_dir() / "conversations"
+    if conversations_dir.exists():
+        for path in sorted(conversations_dir.glob("*.jsonl")):
+            thread_id = path.stem
+            if not _SAFE_ID_RE.fullmatch(thread_id):
+                continue
+            metadata = _conversation_metadata(thread_id, members)
+            member_id = metadata["member_id"]
+            if not member_id:
+                continue
+            existing = threads.get(thread_id) or {}
+            record = {
+                "id": thread_id,
+                "member_id": str(existing.get("member_id") or member_id),
+                "title": str(existing.get("title") or metadata.get("title") or "New thread"),
+                "created_at": str(existing.get("created_at") or metadata["created_at"]),
+                "updated_at": str(metadata["updated_at"] or existing.get("updated_at") or now),
+                "last_message_at": metadata.get("last_message_at") or existing.get("last_message_at"),
+                "message_count": int(metadata.get("message_count") or existing.get("message_count") or 0),
+                "archived": bool(existing.get("archived", False)),
+            }
+            if threads.get(thread_id) != record:
+                threads[thread_id] = record
+                changed = True
+
+    for member in members:
+        member_threads = [
+            _thread_summary_from_record(thread_id, record)
+            for thread_id, record in threads.items()
+            if record.get("member_id") == member.id and not bool(record.get("archived", False))
+        ]
+        if not member_threads:
+            continue
+        active_thread_id = active_by_member.get(member.id)
+        if active_thread_id not in {thread.id for thread in member_threads}:
+            latest = max(member_threads, key=lambda thread: (thread.last_message_at or thread.updated_at, thread.id))
+            active_by_member[member.id] = latest.id
+            changed = True
+
+    for member_id, active_thread_id in list(active_by_member.items()):
+        record = threads.get(active_thread_id)
+        if member_id not in member_by_id or not record or record.get("member_id") != member_id:
+            active_by_member.pop(member_id, None)
+            changed = True
+
+    if changed:
+        _write_thread_index(index)
+    return index
+
+
+def _upsert_thread_metadata(
+    *,
+    member: ChatMemberSummary,
+    thread_id: str,
+    title: str | None = None,
+    set_active: bool = False,
+) -> ChatThreadSummary:
+    thread_id = _require_safe_id(thread_id, field="thread_id")
+    index = _hydrate_thread_index()
+    threads = index["threads"]
+    record = dict(threads.get(thread_id) or {})
+    now = _now()
+    record.setdefault("id", thread_id)
+    record["member_id"] = str(record.get("member_id") or member.id)
+    record.setdefault("created_at", now)
+    record["updated_at"] = now
+    record.setdefault("last_message_at", None)
+    record.setdefault("message_count", 0)
+    record.setdefault("archived", False)
+
+    next_title = (title or "").strip()
+    if next_title:
+        record["title"] = _thread_title_from_message(next_title)
+    else:
+        record.setdefault("title", _default_thread_title(member, thread_id))
+
+    threads[thread_id] = record
+    if set_active:
+        index["active_by_member"][member.id] = thread_id
+    _write_thread_index(index)
+    return _thread_summary_from_record(thread_id, record)
+
+
+def _record_chat_thread_turn(context: ChatRunContext, *, last_message_at: str) -> ChatThreadSummary:
+    index = _hydrate_thread_index()
+    threads = index["threads"]
+    record = dict(threads.get(context.thread_id) or {})
+    now = _now()
+    existing_title = str(record.get("title") or "").strip()
+    title = existing_title
+    if not title or title == _default_thread_title(context.member, context.thread_id):
+        title = _thread_title_from_message(context.request.message)
+
+    messages = _load_conversation_messages(context.thread_id)
+    created_at = str(record.get("created_at") or (messages[0].timestamp if messages else now))
+    record.update({
+        "id": context.thread_id,
+        "member_id": context.member.id,
+        "title": title,
+        "created_at": created_at,
+        "updated_at": last_message_at,
+        "last_message_at": last_message_at,
+        "message_count": len(messages),
+        "archived": False,
+    })
+    threads[context.thread_id] = record
+    index["active_by_member"][context.member.id] = context.thread_id
+    _write_thread_index(index)
+    return _thread_summary_from_record(context.thread_id, record)
+
+
+def _thread_summary(thread_id: str) -> ChatThreadSummary | None:
+    thread_id = _require_safe_id(thread_id, field="thread_id")
+    index = _hydrate_thread_index()
+    record = index["threads"].get(thread_id)
+    return _thread_summary_from_record(thread_id, record) if isinstance(record, dict) else None
+
+
+def _list_member_threads(member_id: str) -> ChatThreadListResponse:
+    member = _require_member_summary(member_id)
+    index = _hydrate_thread_index()
+    threads = [
+        _thread_summary_from_record(thread_id, record)
+        for thread_id, record in index["threads"].items()
+        if record.get("member_id") == member.id and not bool(record.get("archived", False))
+    ]
+    threads.sort(key=lambda thread: (thread.last_message_at or thread.updated_at, thread.id), reverse=True)
+    active_thread_id = index["active_by_member"].get(member.id) or _member_default_thread_id(member.id)
+    if active_thread_id not in {thread.id for thread in threads} and threads:
+        active_thread_id = threads[0].id
+    return ChatThreadListResponse(member_id=member.id, active_thread_id=active_thread_id, threads=threads)
+
+
+def _activate_thread_metadata(thread_id: str, member_id: str | None = None) -> ChatThreadSummary:
+    thread_id = _require_safe_id(thread_id, field="thread_id")
+    summary = _thread_summary(thread_id)
+    if summary is None:
+        if not member_id:
+            raise HTTPException(status_code=404, detail=f"Thread not found: {thread_id}")
+        member = _require_member_summary(member_id)
+        return _upsert_thread_metadata(member=member, thread_id=thread_id, set_active=True)
+
+    member = _require_member_summary(member_id or summary.member_id)
+    if summary.member_id != member.id:
+        raise HTTPException(status_code=400, detail="Thread does not belong to the requested member")
+    return _upsert_thread_metadata(member=member, thread_id=thread_id, title=summary.title, set_active=True)
+
+
+def _archive_member_thread_metadata(member_id: str) -> list[str]:
+    index = _hydrate_thread_index()
+    removed: list[str] = []
+    now = _now()
+    for thread_id, record in index["threads"].items():
+        if record.get("member_id") != member_id:
+            continue
+        record["archived"] = True
+        record["updated_at"] = now
+        removed.append(thread_id)
+    index["active_by_member"].pop(member_id, None)
+    if removed:
+        _write_thread_index(index)
+    return removed
 
 
 def _provider_thread_id(member_id: str, thread_id: str) -> str:
@@ -2250,24 +3456,6 @@ def _find_skill(skill_id_or_name: str) -> ChatSkillSummary | None:
     return _skill_summary(path) if path.exists() else None
 
 
-def _memory_context(member_id: str) -> list[str]:
-    memories_dir = _workspace_dir() / "memories"
-    if not memories_dir.exists():
-        return []
-
-    snippets: list[str] = []
-    for path in sorted(memories_dir.rglob("*.md"))[:5]:
-        try:
-            first_line = next(
-                (line.strip("# ").strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()),
-                path.stem,
-            )
-        except OSError:
-            first_line = path.stem
-        snippets.append(f"{member_id}:{path.relative_to(memories_dir)}:{first_line}")
-    return snippets
-
-
 def _openai_enabled() -> bool:
     return _model_provider() == "openai"
 
@@ -2372,6 +3560,18 @@ def _extract_openai_text(payload: dict[str, Any]) -> str:
     return "\n".join(chunks).strip()
 
 
+def _chat_completion_history(messages: list[ConversationMessage]) -> list[dict[str, str]]:
+    history: list[dict[str, str]] = []
+    for message in messages:
+        if message.role not in {"user", "assistant"}:
+            continue
+        content = message.content.strip()
+        if not content:
+            continue
+        history.append({"role": message.role, "content": content})
+    return history
+
+
 async def _call_openai_agent(
     *,
     member_profile: dict[str, Any],
@@ -2455,6 +3655,7 @@ async def _call_deepseek_agent(
     jira_keys: list[str],
     skills: list[str],
     memory_snippets: list[str],
+    recent_messages: list[ConversationMessage],
     provider_state: dict[str, Any],
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
     api_key = _runtime_secrets()["deepseek_api_key"]
@@ -2474,6 +3675,7 @@ async def _call_deepseek_agent(
                     memory_snippets=memory_snippets,
                 ),
             },
+            *_chat_completion_history(recent_messages),
             {"role": "user", "content": message},
         ],
         "stream": False,
@@ -2550,6 +3752,7 @@ async def _stream_deepseek_agent(
                     memory_snippets=context.memories,
                 ),
             },
+            *_chat_completion_history(context.recent_messages),
             {"role": "user", "content": context.request.message},
         ],
         "stream": True,
@@ -2689,15 +3892,25 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
     )
     member = _member_summary(selected)
 
-    thread_id = request.thread_id or f"thread-{uuid4().hex[:12]}"
+    thread_id = request.thread_id or _member_default_thread_id(member.id)
     thread_id = _require_safe_id(thread_id, field="thread_id")
     run_id = f"run-{uuid4().hex[:12]}"
     jira_keys = _extract_jira_keys(request.message, request.jira_key)
     runtime_dirs = _ensure_runtime_dirs()
+    recent_messages = _load_conversation_messages(thread_id, limit=12)
     provider_state = _provider_thread_state(member.id, thread_id)
     provider_thread_id = str(provider_state.get("provider_thread_id") or _provider_thread_id(member.id, thread_id))
     skills = _skill_titles(member.skills)
-    memories = _memory_context(member.id)
+    memories = recall_memory_snippets(
+        member_id=member.id,
+        query=request.message,
+        jira_keys=jira_keys,
+    )
+    for snippet in knowledge_snippets(request.message, limit=3):
+        if snippet.startswith("[memory:"):
+            continue
+        if snippet not in memories:
+            memories.append(snippet)
 
     trace_events = [
         ChatTraceEvent(event="message.received", detail="User message accepted."),
@@ -2708,8 +3921,8 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
         ),
         ChatTraceEvent(
             event="context.loaded",
-            detail="Loaded file-backed member, skill, and memory context.",
-            data={"skills": skills, "memory_count": len(memories)},
+            detail="Loaded file-backed member, skill, and approved memory context.",
+            data={"skills": skills, "memory_count": len(memories), "recent_message_count": len(recent_messages)},
         ),
         ChatTraceEvent(
             event="provider_thread.resolved",
@@ -2741,6 +3954,7 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
         provider_thread_id=provider_thread_id,
         skills=skills,
         memories=memories,
+        recent_messages=recent_messages,
         trace_events=trace_events,
     )
 
@@ -2766,20 +3980,56 @@ def _persist_chat_response(
     conversation_path = context.runtime_dirs["conversations"] / f"{context.thread_id}.jsonl"
     trace_path = context.runtime_dirs["traces"] / f"{context.run_id}.jsonl"
 
+    user_timestamp = _now()
+    assistant_timestamp = _now()
     _append_jsonl(conversation_path, {
-        "timestamp": _now(),
+        "timestamp": user_timestamp,
         "role": "user",
         "content": context.request.message,
         "member_id": None,
         "run_id": context.run_id,
     })
     _append_jsonl(conversation_path, {
-        "timestamp": _now(),
+        "timestamp": assistant_timestamp,
         "role": "assistant",
         "content": reply,
         "member_id": context.member.id,
         "run_id": context.run_id,
     })
+    thread_summary = _record_chat_thread_turn(context, last_message_at=assistant_timestamp)
+
+    memory_candidate = None
+    try:
+        memory_candidate = propose_memory_from_chat_turn(
+            run_id=context.run_id,
+            thread_id=context.thread_id,
+            member_id=context.member.id,
+            member_display_name=context.member.display_name,
+            user_message=context.request.message,
+            assistant_reply=reply,
+            jira_keys=context.jira_keys,
+            trace_path=str(trace_path.relative_to(_workspace_root())),
+        )
+        if memory_candidate is not None:
+            trace_events.append(
+                ChatTraceEvent(
+                    event="memory.candidate.proposed",
+                    detail="Proposed a memory candidate from this chat turn.",
+                    data={
+                        "candidate_id": memory_candidate.id,
+                        "scope": f"{memory_candidate.scope_kind}:{memory_candidate.scope_ref}",
+                        "confidence": memory_candidate.confidence,
+                    },
+                )
+            )
+    except Exception as exc:
+        trace_events.append(
+            ChatTraceEvent(
+                event="memory.candidate.failed",
+                detail="Memory candidate extraction failed; chat response was still persisted.",
+                data={"error": str(exc)[:300]},
+            )
+        )
 
     for event in trace_events:
         _append_jsonl(trace_path, {
@@ -2801,7 +4051,14 @@ def _persist_chat_response(
         saved_paths={
             "conversation": str(conversation_path.relative_to(_workspace_root())),
             "trace": str(trace_path.relative_to(_workspace_root())),
+            "threads": _thread_index_saved_path(),
+            "thread": thread_summary.saved_path,
             "provider_threads": str((_workspace_dir() / "provider_threads.json").relative_to(_workspace_root())),
+            **(
+                {"memory_candidate": f".aiteamos/memory/candidates.json#{memory_candidate.id}"}
+                if memory_candidate is not None
+                else {}
+            ),
         },
     )
 
@@ -2819,6 +4076,18 @@ def _stub_reply(context: ChatRunContext) -> str:
 
 async def _maybe_complete_local_tool(context: ChatRunContext) -> ChatMessageResponse | None:
     plan = await _plan_local_tool_intent(context)
+    if plan.tool == "search_knowledge":
+        return _complete_search_knowledge_tool(context, plan)
+    if plan.tool == "create_work_item":
+        return _complete_create_work_item_tool(context, plan)
+    if plan.tool == "record_work_item_report":
+        return _complete_record_work_item_report_tool(context, plan)
+    if plan.tool == "list_work_items":
+        return _complete_list_work_items_tool(context, plan)
+    if plan.tool == "list_code_repositories":
+        return _complete_list_code_repositories_tool(context, plan)
+    if plan.tool == "inspect_code_repository":
+        return _complete_inspect_code_repository_tool(context, plan)
     if plan.tool == "create_member":
         return _complete_create_member_tool(context, plan)
     if plan.tool == "edit_member_profile":
@@ -2904,9 +4173,8 @@ async def update_chat_runtime(request: ChatRuntimeSettingsRequest) -> ChatRuntim
         "deepseek_thinking": _normalize_thinking(request.deepseek_thinking),
         "openai_model": request.openai_model.strip() or "gpt-5-nano",
         "fallback_on_error": request.fallback_on_error,
-        "updated_at": _now(),
     }
-    _write_json_file(_runtime_settings_path(), runtime_config)
+    _write_json_file(_runtime_settings_path(), _runtime_file_payload(runtime_config))
 
     secrets = _read_json_file(_secrets_path())
     if request.deepseek_api_key is not None and request.deepseek_api_key.strip():
@@ -2919,17 +4187,72 @@ async def update_chat_runtime(request: ChatRuntimeSettingsRequest) -> ChatRuntim
     return _runtime_settings_response()
 
 
+@router.put("/runtime/providers/{provider_id}", response_model=ChatRuntimeSettings)
+async def update_chat_runtime_provider(
+    provider_id: str,
+    request: ChatRuntimeProviderUpdateRequest,
+) -> ChatRuntimeSettings:
+    provider = _require_runtime_provider(provider_id)
+    current = _runtime_config()
+    next_config = dict(current)
+
+    if request.activate:
+        next_config["provider"] = provider
+
+    if provider == "deepseek":
+        if request.model is not None:
+            next_config["deepseek_model"] = request.model.strip() or "deepseek-v4-flash"
+        if request.thinking is not None:
+            next_config["deepseek_thinking"] = _normalize_thinking(request.thinking)
+    elif provider == "openai" and request.model is not None:
+        next_config["openai_model"] = request.model.strip() or "gpt-5-nano"
+
+    _write_json_file(_runtime_settings_path(), _runtime_file_payload(next_config))
+
+    secrets = _read_json_file(_secrets_path())
+    if provider == "deepseek" and request.api_key is not None and request.api_key.strip():
+        secrets["deepseek_api_key"] = request.api_key.strip()
+    if provider == "openai" and request.api_key is not None and request.api_key.strip():
+        secrets["openai_api_key"] = request.api_key.strip()
+    if secrets:
+        _write_json_file(_secrets_path(), secrets)
+
+    return _runtime_settings_response()
+
+
+@router.get("/threads", response_model=ChatThreadListResponse)
+async def list_chat_threads(member_id: str) -> ChatThreadListResponse:
+    return _list_member_threads(member_id)
+
+
+@router.post("/threads", response_model=ChatThreadSummary)
+async def create_chat_thread(request: ChatThreadCreateRequest) -> ChatThreadSummary:
+    member = _require_member_summary(request.member_id)
+    thread_id = _require_safe_id(
+        f"member-{_safe_thread_component(member.id)}-{uuid4().hex[:12]}",
+        field="thread_id",
+    )
+    return _upsert_thread_metadata(
+        member=member,
+        thread_id=thread_id,
+        title=request.title or f"New chat with {member.display_name}",
+        set_active=True,
+    )
+
+
+@router.post("/threads/{thread_id}/activate", response_model=ChatThreadSummary)
+async def activate_chat_thread(thread_id: str, request: ChatThreadActivateRequest) -> ChatThreadSummary:
+    return _activate_thread_metadata(thread_id, request.member_id)
+
+
 @router.get("/threads/{thread_id}", response_model=ConversationResponse)
 async def get_chat_thread(thread_id: str) -> ConversationResponse:
     thread_id = _require_safe_id(thread_id, field="thread_id")
-    path = _workspace_dir() / "conversations" / f"{thread_id}.jsonl"
-    messages: list[ConversationMessage] = []
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            messages.append(ConversationMessage.model_validate_json(line))
-    return ConversationResponse(thread_id=thread_id, messages=messages)
+    return ConversationResponse(
+        thread_id=thread_id,
+        messages=_load_conversation_messages(thread_id),
+        thread=_thread_summary(thread_id),
+    )
 
 
 def _message_content_to_text(content: Any) -> str:
@@ -2994,6 +4317,36 @@ async def _run_aiteamos_chat_graph_node(
 
 
 _agui_chat_agent: LangGraphAgent | None = None
+_agui_chat_agent_workspace: Path | None = None
+_agui_checkpoint_connection: sqlite3.Connection | None = None
+_agui_checkpoint_status: dict[str, Any] = {"mode": "uninitialized"}
+
+
+def _langgraph_checkpoint_path() -> Path:
+    return _workspace_dir() / "langgraph" / "checkpoints.sqlite"
+
+
+def _build_langgraph_checkpointer() -> Any:
+    global _agui_checkpoint_connection, _agui_checkpoint_status
+    if SqliteSaver is None:
+        _agui_checkpoint_status = {
+            "mode": "memory_fallback",
+            "detail": "langgraph-checkpoint-sqlite is not installed",
+        }
+        return InMemorySaver()
+
+    path = _langgraph_checkpoint_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if _agui_checkpoint_connection is not None:
+        _agui_checkpoint_connection.close()
+    _agui_checkpoint_connection = sqlite3.connect(path, check_same_thread=False)
+    saver = SqliteSaver(_agui_checkpoint_connection)
+    saver.setup()
+    _agui_checkpoint_status = {
+        "mode": "sqlite",
+        "path": str(path.relative_to(_workspace_root())),
+    }
+    return saver
 
 
 def _build_agui_chat_agent() -> LangGraphAgent:
@@ -3001,7 +4354,7 @@ def _build_agui_chat_agent() -> LangGraphAgent:
     builder.add_node("aiteamos_chat", _run_aiteamos_chat_graph_node)
     builder.add_edge(START, "aiteamos_chat")
     builder.add_edge("aiteamos_chat", END)
-    graph = builder.compile(checkpointer=InMemorySaver())
+    graph = builder.compile(checkpointer=_build_langgraph_checkpointer())
     return LangGraphAgent(
         name="AITeamOS Clara",
         description="AG-UI/LangGraph runtime for the file-backed AITeamOS Chat Workbench.",
@@ -3010,9 +4363,11 @@ def _build_agui_chat_agent() -> LangGraphAgent:
 
 
 def _get_agui_chat_agent() -> LangGraphAgent:
-    global _agui_chat_agent
-    if _agui_chat_agent is None:
+    global _agui_chat_agent, _agui_chat_agent_workspace
+    workspace = _workspace_root()
+    if _agui_chat_agent is None or _agui_chat_agent_workspace != workspace:
         _agui_chat_agent = _build_agui_chat_agent()
+        _agui_chat_agent_workspace = workspace
     return _agui_chat_agent
 
 
@@ -3055,7 +4410,11 @@ async def stream_agui_chat_agent(input_data: RunAgentInput, request: Request) ->
 @router.get("/agent/health")
 async def agui_chat_agent_health() -> dict[str, Any]:
     agent = _get_agui_chat_agent()
-    return {"status": "ok", "agent": {"name": agent.name}}
+    return {
+        "status": "ok",
+        "agent": {"name": agent.name},
+        "checkpoint": _agui_checkpoint_status,
+    }
 
 
 @router.post("/messages", response_model=ChatMessageResponse)
@@ -3075,6 +4434,7 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
                 jira_keys=context.jira_keys,
                 skills=context.skills,
                 memory_snippets=context.memories,
+                recent_messages=context.recent_messages,
                 provider_state=context.provider_state,
             )
             completed_event = ChatTraceEvent(
@@ -3161,12 +4521,79 @@ def _agui_message_payload(message: Any) -> dict[str, Any]:
     return {}
 
 
-def _latest_agui_user_message_text(messages: list[Any]) -> str:
+def _latest_agui_user_message_payload(messages: list[Any]) -> dict[str, Any] | None:
     for message in reversed(messages):
         payload = _agui_message_payload(message)
         if payload.get("role") == "user":
-            return _message_content_to_text(payload.get("content"))
-    return ""
+            return payload
+    return None
+
+
+def _latest_agui_user_message_text(messages: list[Any]) -> str:
+    payload = _latest_agui_user_message_payload(messages)
+    if payload is None:
+        return ""
+    return _message_content_to_text(payload.get("content"))
+
+
+def _checkpoint_id_from_config(config: RunnableConfig | dict[str, Any]) -> str | None:
+    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+    checkpoint_id = configurable.get("checkpoint_id") if isinstance(configurable, dict) else None
+    return str(checkpoint_id) if checkpoint_id else None
+
+
+async def _persist_agui_chat_checkpoint(
+    input_data: RunAgentInput,
+    *,
+    final_response: ChatMessageResponse | None,
+    assistant_message_id: str,
+    assistant_text: str,
+) -> dict[str, Any]:
+    if final_response is None:
+        return {"status": "skipped", "reason": "no_final_response"}
+
+    user_payload = _latest_agui_user_message_payload(list(input_data.messages or []))
+    user_text = _message_content_to_text(user_payload.get("content")) if user_payload else ""
+    if not user_text:
+        return {"status": "skipped", "reason": "no_user_message"}
+
+    state = _agui_state(input_data)
+    values: AiteamosChatGraphState = {
+        "messages": [
+            HumanMessage(
+                content=user_text,
+                id=str(user_payload.get("id") or f"{input_data.run_id}-user"),
+            ),
+            AIMessage(
+                content=assistant_text,
+                id=assistant_message_id,
+                response_metadata={"aiteamos": final_response.model_dump(mode="json")},
+            ),
+        ],
+        "target_member_id": final_response.target_member.id,
+        "jira_key": str(state.get("jira_key")) if state.get("jira_key") else None,
+        "aiteamos_chat_response": final_response.model_dump(mode="json"),
+    }
+    config: RunnableConfig = {"configurable": {"thread_id": input_data.thread_id}}
+
+    try:
+        graph = _get_agui_chat_agent().graph
+        next_config = graph.update_state(config, values, as_node="aiteamos_chat")
+        snapshot = graph.get_state(next_config)
+    except Exception as exc:  # Keep chat usable if checkpoint persistence fails.
+        return {
+            "status": "error",
+            "detail": str(exc),
+            "backend": _agui_checkpoint_status,
+        }
+
+    return {
+        "status": "persisted",
+        "thread_id": input_data.thread_id,
+        "checkpoint_id": _checkpoint_id_from_config(next_config),
+        "next": list(snapshot.next),
+        "backend": _agui_checkpoint_status,
+    }
 
 
 def _agui_state(input_data: RunAgentInput) -> dict[str, Any]:
@@ -3241,6 +4668,12 @@ async def _stream_agui_chat_events(input_data: RunAgentInput) -> AsyncIterator[A
         snapshot = _agui_state(input_data)
         if final_response is not None:
             snapshot["aiteamos_chat_response"] = final_response.model_dump(mode="json")
+            snapshot["langgraph_checkpoint"] = await _persist_agui_chat_checkpoint(
+                input_data,
+                final_response=final_response,
+                assistant_message_id=assistant_message_id,
+                assistant_text=accumulated,
+            )
         yield StateSnapshotEvent(snapshot=snapshot)
 
         messages = [_agui_message_payload(message) for message in input_data.messages or []]

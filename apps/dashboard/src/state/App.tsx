@@ -7,9 +7,11 @@ import { parseHash, navigateTo, NAV_ITEMS, type RouteState } from "../components
 import { Toaster } from "../components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { ChatPage } from "../pages/chat";
+import { KnowledgePage } from "../pages/knowledge";
 import { MembersPage } from "../pages/members";
-import { MemoryPage } from "../pages/memory";
+import { SettingsPage } from "../pages/settings";
 import { SkillsPage } from "../pages/skills";
+import { WorkPage } from "../pages/work";
 
 function NotFoundPage() {
   return (
@@ -30,12 +32,18 @@ function PageBody({ route }: { route: RouteState }) {
   switch (route.page) {
     case "chat":
       return <ChatPage />;
+    case "work":
+      return <WorkPage selectedSection={route.id} />;
     case "members":
       return <MembersPage selectedId={route.id} />;
     case "skills":
       return <SkillsPage selectedId={route.id} />;
+    case "knowledge":
+      return <KnowledgePage selectedSection={route.id} />;
     case "memory":
-      return <MemoryPage />;
+      return <KnowledgePage selectedSection="memories" />;
+    case "settings":
+      return <SettingsPage selectedSection={route.id} />;
     default:
       return <NotFoundPage />;
   }
@@ -52,7 +60,7 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const currentPage = NAV_ITEMS.find((n) => n.key === route.page);
+  const currentPage = NAV_ITEMS.find((n) => n.key === (route.page === "memory" ? "knowledge" : route.page));
 
   return (
     <div className="flex h-screen bg-background">
@@ -75,21 +83,43 @@ export function App() {
             const Icon = item.icon;
             const isActive = route.page === item.key;
             return (
-              <button
-                key={item.key}
-                aria-current={isActive ? "page" : undefined}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                  "hover:bg-accent hover:text-accent-foreground",
-                  isActive
-                    ? "bg-accent text-accent-foreground border-l-2 border-primary"
-                    : "text-muted-foreground"
+              <div key={item.key}>
+                <button
+                  aria-current={isActive ? "page" : undefined}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    "hover:bg-accent hover:text-accent-foreground",
+                    isActive
+                      ? "bg-accent text-accent-foreground border-l-2 border-primary"
+                      : "text-muted-foreground"
+                  )}
+                  onClick={() => navigateTo(item.key, item.children?.[0]?.key)}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </button>
+                {item.children && isActive && (
+                  <div className="mt-1 space-y-1 pl-7">
+                    {item.children.map((child) => {
+                      const childActive = route.id === child.key || (!route.id && child.key === item.children?.[0]?.key);
+                      return (
+                        <button
+                          key={child.key}
+                          className={cn(
+                            "w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors",
+                            childActive
+                              ? "bg-background text-foreground"
+                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                          )}
+                          onClick={() => navigateTo(item.key, child.key)}
+                        >
+                          {child.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
-                onClick={() => navigateTo(item.key)}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </button>
+              </div>
             );
           })}
         </nav>

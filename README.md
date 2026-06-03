@@ -104,11 +104,69 @@ AITeamOS/
 
 ## 快速开始
 
+### P0 一键启动（推荐）
+
+当前 file-first 路线只要求本地文件、FastAPI、Dashboard，以及作为 Graphiti 后端的 Neo4j。Graphiti/Neo4j 属于 AITeamOS 内部运行依赖，用户只需要在 Settings 中配置必要的 key 和连接信息。
+
+```bash
+./scripts/dev-up.sh
+```
+
+这个脚本会：
+
+- 启动 `docker/docker-compose.yml` 中的 `neo4j` 服务
+- 创建 `.venv` 并安装后端依赖，包括 Graphiti
+- 初始化 `.aiteamos/graphiti.json` 和 `.aiteamos/secrets.local.json` 的本地默认项
+- 启动 FastAPI: http://127.0.0.1:8000
+- 启动 Dashboard: http://127.0.0.1:5173
+
+进入 Dashboard 后，在 `Settings / Knowledge Backend` 中配置 Graphiti 使用的 OpenAI key。也可以在 `Settings / Runtimes` 配置 OpenAI key，Graphiti 会优先复用该 key，除非 Knowledge Backend 配置了专用 key。
+
+### 外部 WorkItem / Docs 系统
+
+AITeamOS 不内置用户可见的 Jira/Confluence 替代品。默认选型是 Plane：Plane Work Item 映射为 WorkItem / ticket，Plane Page 映射为 Docs。AI Member 通过 `Settings / MCP Connectors` 中配置的 connector capability 访问外部系统，例如 `work_items.search`、`work_items.create`、`work_items.comment`、`work_items.transition`、`knowledge.docs.search` 和 `knowledge.docs.read`。
+
+P0 仍使用本地 file-backed WorkItems 和 Docs 来验证 Clara-led flow；后续优先接 Plane connector。AITeamOS 暂不实现 Redmine、Jira/Confluence 或 OpenProject connector，除非未来需要兼容更广泛的 ticket 系统生态。
+
+Dashboard 中的 `Work / Tickets` 是 AI 团队运行视图：展示 Plane 连接状态、本地 P0 WorkItems、负责人、验证状态、report 数量和 Plane 深链接。完整 ticket 编辑、项目规划、权限和文档编辑仍在 Plane 中完成。`Knowledge / Docs` 是统一知识入口：本地 Markdown 作为 AITeamOS 自身文档源，Plane Pages 作为外部项目文档源。
+
+`Settings / Capabilities` 是只读能力目录，用来查看 AITeamOS Kernel local tools、MCP connectors/capabilities 和 planned Agent Executors。它把边界保持清楚：Knowledge 是事实，Skill 是方法，Tool 是动作，MCP 是外部动作/资源接入层，Agent Executor 是成熟 agent runtime。普通工作仍从 Chat 发起，不从 Capabilities 页面点选执行。
+
+代码仓库在 `Settings / Code Repositories` 中配置。AITeamOS 只记录 Plane workspace/project 到 repo source 的薄映射，支持本地路径、GitHub、Gitea、GitLab 和 generic Git URL。本地路径会做轻量 `.git` 检查；远端仓库的 API/MCP 访问由后续 provider connector 或 agent executor 负责。
+
+Chat 中 Clara 可以列出这些仓库，并在创建本地 WorkItem 时把 `code_repository_ids` 写入上下文，供 RD/PV Member 后续通过 repo tools 或外部 agent executor 获取代码事实。
+
+P0 的 repo tool 只支持配置过的本地仓库：非 Clara Member 可以搜索/读取有界文本文件，并在消息包含 WorkItem id 时把 repo evidence 写回 WorkItem report。GitHub/Gitea/GitLab 等远端仓库在 P0 只保存配置，真实读取由后续 provider connector、MCP server 或 agent executor 承接。
+
+### 可选：Plane 本地服务
+
+开发机可以通过 Docker 启动 Plane。AITeamOS 不以 submodule/vendor 形式引入 Plane 源码；`scripts/plane-up.sh` 会下载固定 Plane release 的官方 setup 脚本，并把 Plane 运行文件放到 `.aiteamos/plane/`。
+
+```bash
+AITEAMOS_WITH_PLANE=1 ./scripts/dev-up.sh
+```
+
+也可以只启动或管理 Plane：
+
+```bash
+./scripts/plane-up.sh up
+./scripts/plane-up.sh stop
+./scripts/plane-up.sh logs
+```
+
+默认本地端点：
+
+- Plane: http://localhost:8082
+
+启动后，在 Plane 中创建 API key，然后到 `Settings / MCP Connectors` 配置 Plane API base URL、API key、workspace slug 和默认 project。AITeamOS 与 Plane 通信始终通过 connector/API 层完成，不把 Plane 的完整产品模型复制进 AITeamOS Kernel。
+
+### Legacy DDD Stack
+
 ### 环境要求
 
 - Python 3.11+
 - Node.js 18+
-- Docker（用于 PostgreSQL）
+- Docker + Docker Compose（用于 AITeamOS 内部运行依赖，例如 Neo4j）
 
 ### 1. 启动 PostgreSQL
 

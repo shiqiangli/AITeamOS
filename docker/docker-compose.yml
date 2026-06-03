@@ -1,9 +1,34 @@
 # AITeamOS 开发环境 Docker Compose
 # 启动: cd docker && docker compose up -d
 #
-# 服务: PostgreSQL 15 (pgvector) + Kafka (KRaft) + MinIO + Temporal
+# P0 file-first core service: Neo4j for Graphiti.
+# Legacy services below are kept for later post-file-first milestones.
 
 services:
+  # --------------------------------------------------------------------------
+  # Neo4j 5.26 for Graphiti temporal knowledge graph
+  # --------------------------------------------------------------------------
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: aiteamos-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${AITEAMOS_NEO4J_PASSWORD:-aiteamos_dev_password}
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - neo4jdata:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "cypher-shell -u neo4j -p ${AITEAMOS_NEO4J_PASSWORD:-aiteamos_dev_password} 'RETURN 1' || exit 1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
   # --------------------------------------------------------------------------
   # PostgreSQL 15 with pgvector extension
   # --------------------------------------------------------------------------
@@ -116,5 +141,6 @@ services:
         condition: service_healthy
 
 volumes:
+  neo4jdata:
   pgdata:
   miniodata:

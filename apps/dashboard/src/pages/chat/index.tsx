@@ -1,50 +1,35 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HttpAgent } from "@ag-ui/client";
 import {
   AssistantRuntimeProvider,
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  type ThreadHistoryAdapter,
+  type ThreadMessage,
   useAuiState,
 } from "@assistant-ui/react";
 import { useAgUiRuntime } from "@assistant-ui/react-ag-ui";
-import { Activity, Bot, FileText, GitBranch, KeyRound, RefreshCcw, Save, Send, User } from "lucide-react";
+import { Activity, Bot, GitBranch, KeyRound, MessageSquare, Plus, Send, User } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Select } from "../../components/ui/select";
-import { ErrorState, LoadingState, Status } from "../../components/shared";
+import { ErrorState, LoadingState, Status, navigateTo } from "../../components/shared";
 import {
+  activateChatThread,
+  createChatThread,
+  getChatThread,
   getChatRuntime,
+  listChatThreads,
   listChatMembers,
-  updateChatRuntime,
+  type ConversationMessage,
   type ChatMemberSummary,
   type ChatMessageResponse,
   type ChatRuntimeSettings,
+  type ChatThreadSummary,
   type ChatTraceEvent,
 } from "../../api/chat";
 import { cn } from "@/lib/utils";
-
-type RuntimeForm = {
-  provider: string;
-  deepseekModel: string;
-  deepseekThinking: string;
-  openaiModel: string;
-  fallbackOnError: boolean;
-  deepseekApiKey: string;
-  openaiApiKey: string;
-};
-
-function runtimeToForm(runtime: ChatRuntimeSettings): RuntimeForm {
-  return {
-    provider: runtime.provider,
-    deepseekModel: runtime.deepseek_model,
-    deepseekThinking: runtime.deepseek_thinking,
-    openaiModel: runtime.openai_model,
-    fallbackOnError: runtime.fallback_on_error,
-    deepseekApiKey: "",
-    openaiApiKey: "",
-  };
-}
 
 function hasMemberProfileMutation(events: ChatTraceEvent[]): boolean {
   return events.some((event) => (
@@ -56,9 +41,92 @@ function hasMemberProfileMutation(events: ChatTraceEvent[]): boolean {
   ));
 }
 
-function createThreadId(): string {
-  const random = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2);
-  return `thread-${random}`;
+const ACTIVE_MEMBER_STORAGE_KEY = "aiteamos.chat.activeMemberId";
+
+function readTextStorage(key: string): string {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeTextStorage(key: string, value: string): void {
+  try {
+    globalThis.localStorage?.setItem(key, value);
+  } catch {
+    // Local storage is optional; file-backed backend history remains canonical.
+  }
+}
+
+function safeThreadComponent(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.:-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "member";
+}
+
+function defaultThreadIdForMember(member: ChatMemberSummary | null): string {
+  if (!member) return "member-clara-default";
+  return member.default_thread_id || `member-${safeThreadComponent(member.id)}-default`;
+}
+
+function messageIdForConversation(message: ConversationMessage, index: number): string {
+  return safeThreadComponent(`${message.run_id || "message"}-${message.role}-${index}`);
+}
+
+function parseConversationDate(value: string): Date {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function toThreadMessage(message: ConversationMessage, index: number): ThreadMessage | null {
+  if (message.role !== "user" && message.role !== "assistant") return null;
+  const common = {
+    id: messageIdForConversation(message, index),
+    createdAt: parseConversationDate(message.timestamp),
+    content: [{ type: "text" as const, text: message.content }],
+    metadata: {
+      custom: {
+        aiteamos: {
+          member_id: message.member_id,
+          run_id: message.run_id,
+        },
+      },
+    },
+  };
+
+  if (message.role === "user") {
+    return {
+      ...common,
+      role: "user",
+      attachments: [],
+    };
+  }
+
+  return {
+    ...common,
+    role: "assistant",
+    status: { type: "complete", reason: "stop" },
+    metadata: {
+      unstable_state: null,
+      unstable_annotations: [],
+      unstable_data: [],
+      steps: [],
+      custom: common.metadata.custom,
+    },
+  };
+}
+
+function conversationToHistory(messages: ConversationMessage[]): Awaited<ReturnType<ThreadHistoryAdapter["load"]>> {
+  const threadMessages = messages
+    .map(toThreadMessage)
+    .filter((message): message is ThreadMessage => Boolean(message));
+
+  return {
+    headId: threadMessages.length > 0 ? threadMessages[threadMessages.length - 1]!.id : null,
+    messages: threadMessages.map((message, index) => ({
+      parentId: index > 0 ? threadMessages[index - 1]!.id : null,
+      message,
+    })),
+  };
 }
 
 function buildAgentUrl(targetMemberId: string, jiraKey: string): string {
@@ -111,10 +179,31 @@ function AiteamosAgUiRuntimeProvider({
     }),
     [jiraKey, selectedMemberId, threadId],
   );
+  const history = useMemo<ThreadHistoryAdapter>(() => ({
+    async load() {
+      const thread = await getChatThread(threadId);
+      return conversationToHistory(thread.messages);
+    },
+    async append() {
+      // The FastAPI AG-UI endpoint persists the canonical file-backed transcript.
+    },
+  }), [threadId]);
   const runtime = useAgUiRuntime({
     agent,
     showThinking: false,
     onError,
+    adapters: {
+      history,
+      threadList: {
+        threadId,
+        async onSwitchToThread(nextThreadId) {
+          const thread = await getChatThread(nextThreadId);
+          return {
+            messages: conversationToHistory(thread.messages).messages.map((item) => item.message),
+          };
+        },
+      },
+    },
   });
 
   return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
@@ -201,30 +290,45 @@ function AiteamosThread({ selectedMember }: { selectedMember: ChatMemberSummary 
 
 export function ChatPage() {
   const [members, setMembers] = useState<ChatMemberSummary[]>([]);
-  const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [selectedMemberId, setSelectedMemberId] = useState(() => readTextStorage(ACTIVE_MEMBER_STORAGE_KEY));
   const [jiraKey, setJiraKey] = useState("");
-  const [threadId, setThreadId] = useState(createThreadId);
+  const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
+  const [threadId, setThreadId] = useState("");
   const [providerThreadId, setProviderThreadId] = useState<string | null>(null);
   const [traceEvents, setTraceEvents] = useState<ChatTraceEvent[]>([]);
   const [savedPaths, setSavedPaths] = useState<Record<string, string>>({});
   const [runtime, setRuntime] = useState<ChatRuntimeSettings | null>(null);
-  const [runtimeForm, setRuntimeForm] = useState<RuntimeForm>({
-    provider: "stub",
-    deepseekModel: "deepseek-v4-flash",
-    deepseekThinking: "disabled",
-    openaiModel: "gpt-5-nano",
-    fallbackOnError: true,
-    deepseekApiKey: "",
-    openaiApiKey: "",
-  });
   const [loading, setLoading] = useState(true);
-  const [savingRuntime, setSavingRuntime] = useState(false);
+  const [threadsLoading, setThreadsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selectedMember = useMemo(
     () => members.find((member) => member.id === selectedMemberId) ?? members[0] ?? null,
     [members, selectedMemberId],
   );
+  const activeThreadId = threadId || defaultThreadIdForMember(selectedMember);
+
+  const loadThreadsForMember = useCallback(async (
+    member: ChatMemberSummary | null,
+    preferredThreadId?: string,
+  ) => {
+    if (!member) return "";
+    setThreadsLoading(true);
+    try {
+      const response = await listChatThreads(member.id);
+      setThreads(response.threads);
+      const availableIds = new Set(response.threads.map((thread) => thread.id));
+      const nextThreadId = (
+        preferredThreadId && availableIds.has(preferredThreadId)
+          ? preferredThreadId
+          : response.active_thread_id || response.threads[0]?.id || defaultThreadIdForMember(member)
+      );
+      setThreadId(nextThreadId);
+      return nextThreadId;
+    } finally {
+      setThreadsLoading(false);
+    }
+  }, []);
 
   const loadWorkbench = useCallback(async () => {
     setLoading(true);
@@ -233,15 +337,23 @@ export function ChatPage() {
       const [loaded, loadedRuntime] = await Promise.all([listChatMembers(), getChatRuntime()]);
       setMembers(loaded);
       setRuntime(loadedRuntime);
-      setRuntimeForm(runtimeToForm(loadedRuntime));
-      const preferred = loaded.find((member) => member.id === "clara") ?? loaded[0];
-      setSelectedMemberId((current) => current || preferred?.id || "");
+      const storedMemberId = readTextStorage(ACTIVE_MEMBER_STORAGE_KEY);
+      const preferred = (
+        loaded.find((member) => member.id === storedMemberId)
+        ?? loaded.find((member) => member.id === "clara")
+        ?? loaded[0]
+        ?? null
+      );
+      const nextMemberId = preferred?.id ?? "";
+      setSelectedMemberId(nextMemberId);
+      if (nextMemberId) writeTextStorage(ACTIVE_MEMBER_STORAGE_KEY, nextMemberId);
+      await loadThreadsForMember(preferred);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load chat workbench");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadThreadsForMember]);
 
   useEffect(() => {
     loadWorkbench();
@@ -252,6 +364,11 @@ export function ChatPage() {
     setProviderThreadId(response.provider_thread_id);
     setTraceEvents(response.trace_events);
     setSavedPaths(response.saved_paths);
+    writeTextStorage(ACTIVE_MEMBER_STORAGE_KEY, response.target_member.id);
+    void loadThreadsForMember(response.target_member, response.thread_id)
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to reload threads");
+      });
 
     if (hasMemberProfileMutation(response.trace_events)) {
       void listChatMembers()
@@ -260,37 +377,49 @@ export function ChatPage() {
           setError(err instanceof Error ? err.message : "Failed to reload members");
         });
     }
-  }, []);
+  }, [loadThreadsForMember]);
 
-  function resetThread() {
-    setThreadId(createThreadId());
+  async function resetThread() {
+    if (!selectedMember) return;
+    setError(null);
+    try {
+      const thread = await createChatThread(selectedMember.id);
+      await loadThreadsForMember(selectedMember, thread.id);
+      setProviderThreadId(null);
+      setTraceEvents([]);
+      setSavedPaths({});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create thread");
+    }
+  }
+
+  async function selectMember(nextMemberId: string) {
+    const nextMember = members.find((member) => member.id === nextMemberId) ?? null;
+    setSelectedMemberId(nextMemberId);
+    writeTextStorage(ACTIVE_MEMBER_STORAGE_KEY, nextMemberId);
+    setThreadId(defaultThreadIdForMember(nextMember));
     setProviderThreadId(null);
     setTraceEvents([]);
     setSavedPaths({});
-  }
-
-  async function handleRuntimeSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (savingRuntime) return;
-
-    setSavingRuntime(true);
     setError(null);
     try {
-      const updated = await updateChatRuntime({
-        provider: runtimeForm.provider,
-        deepseek_model: runtimeForm.deepseekModel,
-        deepseek_thinking: runtimeForm.deepseekThinking,
-        openai_model: runtimeForm.openaiModel,
-        fallback_on_error: runtimeForm.fallbackOnError,
-        deepseek_api_key: runtimeForm.deepseekApiKey.trim() || undefined,
-        openai_api_key: runtimeForm.openaiApiKey.trim() || undefined,
-      });
-      setRuntime(updated);
-      setRuntimeForm(runtimeToForm(updated));
+      await loadThreadsForMember(nextMember);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save runtime settings");
-    } finally {
-      setSavingRuntime(false);
+      setError(err instanceof Error ? err.message : "Failed to load member threads");
+    }
+  }
+
+  async function switchThread(nextThread: ChatThreadSummary) {
+    if (!selectedMember || nextThread.id === activeThreadId) return;
+    setError(null);
+    try {
+      await activateChatThread(nextThread.id, selectedMember.id);
+      await loadThreadsForMember(selectedMember, nextThread.id);
+      setProviderThreadId(null);
+      setTraceEvents([]);
+      setSavedPaths({});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to switch thread");
     }
   }
 
@@ -298,11 +427,11 @@ export function ChatPage() {
 
   return (
     <AiteamosAgUiRuntimeProvider
-      key={threadId}
+      key={activeThreadId}
       jiraKey={jiraKey}
       onError={(err) => setError(err.message)}
       selectedMemberId={selectedMember?.id ?? ""}
-      threadId={threadId}
+      threadId={activeThreadId}
     >
       <ChatStateBridge onResponse={handleAgentResponse} />
       <div className="grid min-h-[calc(100vh-11rem)] gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -313,7 +442,7 @@ export function ChatPage() {
               <Select
                 aria-label="Target member"
                 value={selectedMember?.id ?? ""}
-                onChange={(event) => setSelectedMemberId(event.target.value)}
+                onChange={(event) => void selectMember(event.target.value)}
               >
                 {members.map((member) => (
                   <option key={member.id} value={member.id}>
@@ -332,8 +461,8 @@ export function ChatPage() {
                 className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </div>
-            <Button type="button" variant="outline" size="icon" onClick={resetThread} title="New thread">
-              <RefreshCcw className="h-4 w-4" />
+            <Button type="button" variant="outline" size="icon" onClick={() => void resetThread()} title="New thread">
+              <Plus className="h-4 w-4" />
             </Button>
           </div>
 
@@ -348,101 +477,27 @@ export function ChatPage() {
 
         <aside className="space-y-4">
           <section className="rounded-md border bg-background p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <KeyRound className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold">Runtime</h3>
-            </div>
-            <form onSubmit={handleRuntimeSubmit} className="space-y-3">
-              <label className="block space-y-1">
-                <span className="text-xs uppercase text-muted-foreground">Provider</span>
-                <Select
-                  aria-label="Runtime provider"
-                  value={runtimeForm.provider}
-                  onChange={(event) => setRuntimeForm((current) => ({ ...current, provider: event.target.value }))}
-                >
-                  <option value="stub">File stub</option>
-                  <option value="deepseek">DeepSeek</option>
-                  <option value="openai">OpenAI</option>
-                </Select>
-              </label>
-
-              {runtimeForm.provider === "deepseek" && (
-                <>
-                  <label className="block space-y-1">
-                    <span className="text-xs uppercase text-muted-foreground">DeepSeek model</span>
-                    <input
-                      aria-label="DeepSeek model"
-                      value={runtimeForm.deepseekModel}
-                      onChange={(event) => setRuntimeForm((current) => ({ ...current, deepseekModel: event.target.value }))}
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                  </label>
-                  <label className="block space-y-1">
-                    <span className="text-xs uppercase text-muted-foreground">Thinking</span>
-                    <Select
-                      aria-label="DeepSeek thinking"
-                      value={runtimeForm.deepseekThinking}
-                      onChange={(event) => setRuntimeForm((current) => ({ ...current, deepseekThinking: event.target.value }))}
-                    >
-                      <option value="disabled">Disabled</option>
-                      <option value="enabled">Enabled</option>
-                    </Select>
-                  </label>
-                  <label className="block space-y-1">
-                    <span className="text-xs uppercase text-muted-foreground">DeepSeek API key</span>
-                    <input
-                      aria-label="DeepSeek API key"
-                      type="password"
-                      value={runtimeForm.deepseekApiKey}
-                      onChange={(event) => setRuntimeForm((current) => ({ ...current, deepseekApiKey: event.target.value }))}
-                      placeholder={runtime?.api_keys_configured.deepseek ? "Configured" : "Not configured"}
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                  </label>
-                </>
-              )}
-
-              {runtimeForm.provider === "openai" && (
-                <>
-                  <label className="block space-y-1">
-                    <span className="text-xs uppercase text-muted-foreground">OpenAI model</span>
-                    <input
-                      aria-label="OpenAI model"
-                      value={runtimeForm.openaiModel}
-                      onChange={(event) => setRuntimeForm((current) => ({ ...current, openaiModel: event.target.value }))}
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                  </label>
-                  <label className="block space-y-1">
-                    <span className="text-xs uppercase text-muted-foreground">OpenAI API key</span>
-                    <input
-                      aria-label="OpenAI API key"
-                      type="password"
-                      value={runtimeForm.openaiApiKey}
-                      onChange={(event) => setRuntimeForm((current) => ({ ...current, openaiApiKey: event.target.value }))}
-                      placeholder={runtime?.api_keys_configured.openai ? "Configured" : "Not configured"}
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    />
-                  </label>
-                </>
-              )}
-
-              <label className="flex items-center justify-between gap-3 text-sm">
-                <span>Fallback</span>
-                <input
-                  aria-label="Fallback on error"
-                  type="checkbox"
-                  checked={runtimeForm.fallbackOnError}
-                  onChange={(event) => setRuntimeForm((current) => ({ ...current, fallbackOnError: event.target.checked }))}
-                  className="h-4 w-4"
-                />
-              </label>
-
-              <Button type="submit" className="w-full" disabled={savingRuntime}>
-                <Save className="h-4 w-4" />
-                {savingRuntime ? "Saving" : "Save runtime"}
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <KeyRound className="h-4 w-4 text-muted-foreground" />
+                <h3 className="text-sm font-semibold">Runtime</h3>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("settings", "runtimes")}>
+                Settings
               </Button>
-            </form>
+            </div>
+            <div className="space-y-3">
+              <Status label="Provider" value={runtime?.provider ?? "-"} />
+              <Status label="Fallback" value={runtime?.fallback_on_error ? "on" : "off"} />
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={runtime?.api_keys_configured.deepseek ? "success" : "outline"}>
+                  DeepSeek {runtime?.api_keys_configured.deepseek ? "key set" : "missing"}
+                </Badge>
+                <Badge variant={runtime?.api_keys_configured.openai ? "success" : "outline"}>
+                  OpenAI {runtime?.api_keys_configured.openai ? "key set" : "missing"}
+                </Badge>
+              </div>
+            </div>
           </section>
 
           <section className="rounded-md border bg-background p-4">
@@ -469,12 +524,47 @@ export function ChatPage() {
 
           <section className="rounded-md border bg-background p-4">
             <div className="mb-3 flex items-center gap-2">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold">Thread</h3>
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold">Threads</h3>
             </div>
             <div className="space-y-3">
-              <Status label="Thread" value={threadId} />
+              <Status label="Thread" value={activeThreadId} />
               <Status label="Provider" value={providerThreadId ?? "-"} />
+              {threadsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading threads...</p>
+              ) : threads.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No threads.</p>
+              ) : (
+                <div className="space-y-2">
+                  {threads.map((thread) => {
+                    const isActive = thread.id === activeThreadId;
+                    const updated = new Date(thread.last_message_at ?? thread.updated_at);
+                    const updatedLabel = Number.isNaN(updated.getTime())
+                      ? ""
+                      : updated.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                    return (
+                      <button
+                        key={thread.id}
+                        type="button"
+                        onClick={() => void switchThread(thread)}
+                        className={cn(
+                          "w-full rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                          isActive ? "border-primary bg-primary/10" : "hover:bg-muted",
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="line-clamp-2 font-medium">{thread.title}</span>
+                          {isActive && <Badge variant="secondary">Active</Badge>}
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <span>{thread.message_count} messages</span>
+                          <span>{updatedLabel}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {Object.entries(savedPaths).map(([key, value]) => (
                 <div key={key} className="min-w-0">
                   <div className="text-xs uppercase text-muted-foreground">{key}</div>

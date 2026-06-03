@@ -67,6 +67,15 @@ htmlcov/
 .aiteamos/runs/*/*.tmp
 .aiteamos/conversations/
 .aiteamos/traces/
+.aiteamos/threads/
+.aiteamos/langgraph/
+.aiteamos/memory/
+.aiteamos/knowledge/
+.aiteamos/work_items/
+.aiteamos/connectors/
+.aiteamos/plane/
+.aiteamos/mcp_connectors.json
+.aiteamos/graphiti.json
 .aiteamos/provider_threads.json
 .aiteamos/runtime.json
 .aiteamos/secrets.local.json
