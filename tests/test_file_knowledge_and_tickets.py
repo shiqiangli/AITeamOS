@@ -170,6 +170,17 @@ def test_ticket_routes_create_and_record_reports(tmp_path, monkeypatch):
     assert forbidden.status_code == 400
     assert "cannot create pv Tickets" in forbidden.json()["detail"]
 
+    unassigned = client.post(
+        "/api/v1/tickets",
+        json={
+            "title": "Detached work record",
+            "description": "A Ticket without an assignee would bypass Clara-led flow.",
+            "ticket_type": "rd",
+        },
+    )
+    assert unassigned.status_code == 400
+    assert "requires an assignee" in unassigned.json()["detail"]
+
     status = client.get("/api/v1/tickets/status")
     assert status.status_code == 200
     assert status.json()["status"] == "ready"

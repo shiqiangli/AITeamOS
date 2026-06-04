@@ -1,8 +1,8 @@
 """
-AITeamOS API Gateway — FastAPI Application Entry Point (file-first P0).
+AITeamOS API Gateway — FastAPI Application Entry Point (file-first 1.0).
 
-Simplified: no database, no DDD container. The Employee Chat Workbench
-runs against local .aiteamos assets only.
+The API runs against local .aiteamos files for Chat, Tickets, Employees,
+Assets, Settings, Memory, and System Status.
 """
 
 from __future__ import annotations
@@ -32,11 +32,11 @@ def _resolve_cors_origins() -> list[str]:
 
 
 def create_app() -> FastAPI:
-    """FastAPI application factory (file-first P0)."""
+    """FastAPI application factory for the file-first 1.0 service."""
 
     app = FastAPI(
         title="AITeamOS API",
-        description="Agent Team OS — file-backed Employee Chat Workbench REST API",
+        description="AITeamOS — file-backed AI-team operating system REST API",
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",

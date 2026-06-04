@@ -56,7 +56,7 @@ Use Chat to start work.
 Typical flow:
 
 1. Ask Clara to create or advance a Ticket.
-2. Clara assigns the Ticket to an Employee.
+2. Clara assigns the Ticket to an Employee; later assignee changes hand the Ticket to another Employee.
 3. The Employee reports progress or evidence.
 4. Clara requests PV validation when needed.
 5. Clara summarizes the result for the human.
@@ -93,6 +93,8 @@ Ticket ids are namespaced. Examples:
 - `arch-0001`
 
 Only matching roles can create their namespace. Clara can create all namespaces.
+
+Normal active Tickets have an assignee. If ownership changes, the assignee change is the work handoff.
 
 ## 5. Employees
 

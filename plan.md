@@ -11,6 +11,7 @@ Implemented baseline:
 
 - Clara-led Chat can route work and persist conversations/traces.
 - Local Ticket Backend stores append-only Ticket event ledgers.
+- Ticket flow is driven by assignee, status, report, evidence, and validation records.
 - Employee detail is a workforce record with Work Ledger, Capabilities, Governance, and AI Engine configuration.
 - Assets is unified around Knowledge, Capabilities, and Review Queue.
 - Settings is aligned to AI Engines, Tool Connectors, Code Repositories, Ticket Backend, and Memory Backend.

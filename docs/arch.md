@@ -4,7 +4,7 @@ Version: 1.0.0
 
 ## 1. Architecture Principle
 
-AITeamOS 1.0 is a file-first greenfield system. The architecture favors inspectable local facts over premature platform infrastructure.
+AITeamOS 1.0 is a file-first greenfield system for Clara-led Ticket flow. The architecture favors inspectable local facts over premature platform infrastructure.
 
 The system is organized around:
 
@@ -56,7 +56,6 @@ The Dashboard is a React/Vite application. The API is FastAPI with Pydantic mode
   engine_threads.json
   code_repositories.json
   tool_connectors.json
-  mcp_connectors.json
   memory/
     candidates.json
 ```
@@ -77,6 +76,7 @@ Ticket service:
 
 - owns `TicketAdapter`
 - implements local file backend
+- enforces an assignee for active local Tickets
 - reconstructs Ticket state from append-only events
 - exposes Ticket events, Employee work ledger, Ticket assets, backend settings, and backend status
 
@@ -124,6 +124,7 @@ The local backend must support:
 
 - namespace sequence allocation
 - role-based namespace authority
+- assignment events for created Tickets and later handoffs
 - event append
 - state projection
 - report append

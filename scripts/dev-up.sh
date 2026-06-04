@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${AITEAMOS_VENV_DIR:-$ROOT_DIR/.venv}"
-NEO4J_PASSWORD="${AITEAMOS_NEO4J_PASSWORD:-aiteamos_dev_password}"
+NEO4J_PASSWORD="${AITEAMOS_NEO4J_PASSWORD:?Set AITEAMOS_NEO4J_PASSWORD before starting AITeamOS local services.}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is required to start AITeamOS local services." >&2
@@ -35,18 +35,16 @@ if [[ "${AITEAMOS_WITH_PLANE:-0}" == "1" ]]; then
 fi
 
 echo "Preparing local Graphiti settings..."
-"$PYTHON_BIN" - "$ROOT_DIR" "$NEO4J_PASSWORD" <<'PY'
+"$PYTHON_BIN" - "$ROOT_DIR" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-password = sys.argv[2]
 workspace = root / ".aiteamos"
 workspace.mkdir(parents=True, exist_ok=True)
 
 settings_path = workspace / "graphiti.json"
-secrets_path = workspace / "secrets.local.json"
 
 def read_object(path: Path) -> dict:
     if not path.exists():
@@ -65,13 +63,9 @@ if not settings:
         "uri": "bolt://localhost:7687",
         "user": "neo4j",
         "group_id": "aiteamos",
-        "llm_provider": "openai",
+        "llm_ai_engine": "openai",
     }
     settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-secrets = read_object(secrets_path)
-secrets.setdefault("graphiti_neo4j_password", password)
-secrets_path.write_text(json.dumps(secrets, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
 
 if [[ ! -d "$VENV_DIR" ]]; then
@@ -93,6 +87,7 @@ if [[ "${AITEAMOS_SKIP_INSTALL:-0}" != "1" ]]; then
 fi
 
 export AITEAMOS_WORKSPACE_DIR="${AITEAMOS_WORKSPACE_DIR:-$ROOT_DIR}"
+export AITEAMOS_GRAPHITI_PASSWORD="${AITEAMOS_GRAPHITI_PASSWORD:-$NEO4J_PASSWORD}"
 
 echo "Starting AITeamOS API at http://127.0.0.1:8000"
 "$PY" -m uvicorn aiteamos_api.main:app --host 127.0.0.1 --port 8000 --reload &

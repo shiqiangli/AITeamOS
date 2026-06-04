@@ -1,8 +1,5 @@
 """
-API Gateway — Composition Root (simplified for file-first P0).
-
-Only wires the file-backed Employee Chat Workbench routes.
-All DDD bounded contexts have been removed per PRODUCT_DIRECTION.md.
+API Gateway composition root for the file-first 1.0 services.
 """
 
 from __future__ import annotations
@@ -27,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def register_routes(app: FastAPI) -> None:
-    """Register the file-backed P0 API routes."""
+    """Register the file-backed 1.0 API routes."""
     app.include_router(asset_routes.router)
     app.include_router(capability_routes.router)
     app.include_router(chat_routes.router)

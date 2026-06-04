@@ -3,8 +3,20 @@ import json
 from fastapi.testclient import TestClient
 
 from aiteamos_api.main import create_app
+
+
 def test_tool_connector_registry_is_file_backed(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(tmp_path))
+    registry_file = tmp_path / ".aiteamos" / "tool_connectors.json"
+    registry_file.parent.mkdir(parents=True)
+    registry_file.write_text(
+        json.dumps(
+            [
+                {"id": "redmine", "name": "Redmine", "status": "planned"},
+            ]
+        ),
+        encoding="utf-8",
+    )
     client = TestClient(create_app())
 
     response = client.get("/api/v1/tool-connectors/connectors")
@@ -20,7 +32,6 @@ def test_tool_connector_registry_is_file_backed(tmp_path, monkeypatch):
     assert generic["required_settings"] == ["server_command_or_url"]
     assert next(connector for connector in connectors if connector["id"] == "github")["configured"] is False
 
-    registry_file = tmp_path / ".aiteamos" / "tool_connectors.json"
     assert registry_file.exists()
 
     updated = client.put(
@@ -29,12 +40,14 @@ def test_tool_connector_registry_is_file_backed(tmp_path, monkeypatch):
     )
     assert updated.status_code == 200
     assert updated.json()["status"] == "ready"
-    assert updated.json()["server"]["api_token"] == "***"
+    assert "api_token" not in updated.json()["server"]
+    assert "secret" not in json.dumps(updated.json())
 
     saved = json.loads(registry_file.read_text(encoding="utf-8"))
     github = next(connector for connector in saved if connector["id"] == "github")
     assert github["enabled"] is True
-    assert github["server"]["api_token"] == "***"
+    assert "api_token" not in github["server"]
+    assert "secret" not in json.dumps(saved)
 
     status = client.get("/api/v1/tool-connectors/status")
     assert status.status_code == 200

@@ -1,26 +1,24 @@
 # Docker
 
-Development environment orchestration.
+Development environment orchestration for the file-first AITeamOS 1.0 baseline.
 
 ## Services
 
-- **Neo4j 5.26** for Graphiti temporal knowledge graph
-- **PostgreSQL 15** with pgvector and Apache AGE extensions
-- **Kafka** (KRaft mode, no ZooKeeper)
-- **MinIO** (S3-compatible object storage for snapshots)
-- **Temporal** server and UI
+- **Neo4j 5.26** for the optional Graphiti temporal knowledge graph backend
 
 ## Running
 
-For the current file-first AITeamOS flow, start only Neo4j:
+Start Neo4j:
 
 ```bash
+export AITEAMOS_NEO4J_PASSWORD="<choose-a-local-password>"
 docker compose up -d neo4j
 ```
 
 The repository-level one-command dev launcher wraps this for you:
 
 ```bash
+export AITEAMOS_NEO4J_PASSWORD="<choose-a-local-password>"
 ../scripts/dev-up.sh
 ```
 
@@ -34,6 +32,7 @@ by the repository-level script.
 Start Plane together with AITeamOS:
 
 ```bash
+export AITEAMOS_NEO4J_PASSWORD="<choose-a-local-password>"
 AITEAMOS_WITH_PLANE=1 ../scripts/dev-up.sh
 ```
 
@@ -53,16 +52,9 @@ Defaults:
 | Plane URL | `${AITEAMOS_PLANE_URL:-http://localhost:8082}` |
 | Plane install dir | `${AITEAMOS_PLANE_DIR:-.aiteamos/plane}` |
 
-After Plane starts, create an API key in Plane and configure `Settings / MCP
-Connectors / Plane` with the API base URL, API key, workspace slug, and optional
-default project id.
-
-Legacy services are kept in this compose file for later milestones.
-
-```bash
-cd docker
-docker compose up -d
-```
+After Plane starts, create an API key in Plane and configure it through
+`Settings / Ticket Backend`. Keep the API key in an environment variable; do not
+store it in local JSON config.
 
 ## Neo4j
 
@@ -72,4 +64,4 @@ docker compose up -d
 | Browser | http://localhost:7474 |
 | Bolt URI | bolt://localhost:7687 |
 | User | neo4j |
-| Password | `${AITEAMOS_NEO4J_PASSWORD:-aiteamos_dev_password}` |
+| Password | `${AITEAMOS_NEO4J_PASSWORD}` required |

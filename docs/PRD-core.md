@@ -5,9 +5,9 @@ Status: Active greenfield requirements
 
 ## 1. Product Goal
 
-AITeamOS 1.0 should let a human give work to Clara, have Clara create and move Tickets, delegate to Employees, collect reports and validation, and show all work as traceable records.
+AITeamOS 1.0 should let a human give work to Clara through Chat, have Clara create and move Tickets, delegate to Employees through assignee changes, collect reports and validation, and show all work as traceable records.
 
-The product is Ticket-first and Employee-led. It does not introduce a separate user-visible work module outside Tickets.
+The product is Ticket-flow-first and Clara-led. It does not introduce a separate user-visible work module outside Tickets.
 
 ## 2. Primary Users
 
@@ -72,6 +72,7 @@ AI Engine:
 ### Tickets
 
 - Clara can create local Tickets.
+- Active Tickets must have `assigned_employee_id` or `assigned_role`; unassigned records are not normal Ticket flow.
 - Namespace creation rules must be enforced:
   - Clara / manager can create any namespace.
   - RD can create `rd-*`.

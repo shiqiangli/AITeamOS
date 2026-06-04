@@ -6,7 +6,7 @@ const tickets = [
   {
     id: "ticket-implement-plane-sync-123abc",
     title: "Implement Plane sync",
-    description: "Connect local Tickets to the Plane connector boundary.",
+    description: "Connect local Tickets to the Plane Ticket Backend boundary.",
     status: "reported",
     assigned_employee_id: "alex",
     assigned_role: "",

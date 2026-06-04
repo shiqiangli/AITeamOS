@@ -18,7 +18,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
-_LEGACY_UNCONFIGURED_CONNECTORS = {"redmine", "ticket", "confluence"}
 
 
 class ToolConnector(BaseModel):
@@ -211,7 +210,7 @@ def _load_connectors() -> list[ToolConnector]:
             connector = ToolConnector.model_validate(row)
         except ValueError:
             continue
-        if connector.id in _LEGACY_UNCONFIGURED_CONNECTORS and not connector.enabled and not connector.configured:
+        if connector.id not in defaults:
             continue
         merged[connector.id] = connector
     connectors = list(merged.values())
@@ -253,8 +252,7 @@ def update_tool_connector(connector_id: str, request: ToolConnectorUpdateRequest
     if "server" in update:
         server = dict(update["server"])
         for secret_key in ("api_key", "api_token", "token", "password"):
-            if secret_key in server:
-                server[secret_key] = "***"
+            server.pop(secret_key, None)
         update["server"] = server
     connector = connector.model_copy(update={**update, "updated_at": _now()})
     index[normalized] = connector

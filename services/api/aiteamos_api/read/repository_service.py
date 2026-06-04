@@ -1,6 +1,6 @@
 """File-backed code repository registry.
 
-AITeamOS only needs a thin map from Ticket/project scope to code repository
+AITeamOS only needs a thin map from Ticket and evidence scope to code repository
 locations. Full repository intelligence should live behind repo tools,
 Tool Connectors, or AI Engines.
 """
@@ -186,7 +186,7 @@ def _local_path(location: str) -> Path:
 
 def _repository_root(repository: CodeRepository) -> Path:
     if repository.provider != "local":
-        raise ValueError("Only local repositories can be inspected without a provider connector.")
+        raise ValueError("Only local repositories can be inspected without a Tool Connector or AI Engine handoff.")
     root = _local_path(repository.location)
     if not root.exists() or not root.is_dir():
         raise ValueError(f"Local repository is not available: {root}")
@@ -354,7 +354,7 @@ def _with_health(item: CodeRepository) -> CodeRepository:
     return item.model_copy(
         update={
             "status": "configured",
-            "detail": "Remote repository location is recorded. API/MCP connectivity is handled by provider connectors.",
+            "detail": "Remote repository location is recorded. API/MCP connectivity is handled by Tool Connectors or AI Engine handoff.",
             "git_detected": True,
             "current_branch": item.default_branch,
         }
@@ -452,7 +452,7 @@ def inspect_code_repository(
             repository=repository,
             query=query,
             status="blocked",
-            detail="Remote repositories require a provider connector or agent executor before code inspection.",
+            detail="Remote repositories require a Tool Connector or AI Engine handoff before code inspection.",
         )
 
     root = _repository_root(repository)

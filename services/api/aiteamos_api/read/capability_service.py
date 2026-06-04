@@ -122,7 +122,7 @@ _LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
         permissions=["employees:delete"],
         arguments=["target_employee_id", "target_employee_name"],
         produces=["trace_event"],
-        boundary="Deletes only the local employee profile, not external accounts or provider state.",
+        boundary="Deletes only the local employee profile, not external accounts or AI Engine state.",
         deep_link="#/employees",
     ),
     CapabilityRecord(
@@ -285,7 +285,7 @@ _LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
         status="ready",
         enabled=True,
         configured=True,
-        description="List configured repository mappings for Plane project context.",
+        description="List configured repository mappings for Ticket evidence context.",
         owner_scope="Clara and authorized employees",
         permissions=["repositories:read"],
         produces=["chat_result", "trace_event"],

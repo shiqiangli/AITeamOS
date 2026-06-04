@@ -1,8 +1,7 @@
 # AITeamOS 开发环境 Docker Compose
 # 启动: cd docker && docker compose up -d
 #
-# P0 file-first core service: Neo4j for Graphiti.
-# Legacy services below are kept for later post-file-first milestones.
+# File-first 1.0 service: Neo4j for the optional Graphiti Memory backend.
 
 services:
   # --------------------------------------------------------------------------
@@ -15,7 +14,7 @@ services:
       - "7474:7474"
       - "7687:7687"
     environment:
-      NEO4J_AUTH: neo4j/${AITEAMOS_NEO4J_PASSWORD:-aiteamos_dev_password}
+      NEO4J_AUTH: neo4j/${AITEAMOS_NEO4J_PASSWORD:?Set AITEAMOS_NEO4J_PASSWORD before starting Neo4j}
       NEO4J_PLUGINS: '["apoc"]'
     volumes:
       - neo4jdata:/data
@@ -23,124 +22,11 @@ services:
       test:
         [
           "CMD-SHELL",
-          "cypher-shell -u neo4j -p ${AITEAMOS_NEO4J_PASSWORD:-aiteamos_dev_password} 'RETURN 1' || exit 1",
+          "cypher-shell -u neo4j -p ${AITEAMOS_NEO4J_PASSWORD:?Set AITEAMOS_NEO4J_PASSWORD before starting Neo4j} 'RETURN 1' || exit 1",
         ]
       interval: 10s
       timeout: 10s
       retries: 10
 
-  # --------------------------------------------------------------------------
-  # PostgreSQL 15 with pgvector extension
-  # --------------------------------------------------------------------------
-  postgres:
-    image: pgvector/pgvector:pg15
-    container_name: aiteamos-postgres
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: aiteamos
-      POSTGRES_USER: aiteamos
-      POSTGRES_PASSWORD: dev_password
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./init-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aiteamos -d aiteamos"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # --------------------------------------------------------------------------
-  # Kafka (KRaft mode — no ZooKeeper)
-  # --------------------------------------------------------------------------
-  kafka:
-    image: bitnami/kafka:3.7
-    container_name: aiteamos-kafka
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_CFG_NODE_ID: "0"
-      KAFKA_CFG_PROCESS_ROLES: controller,broker
-      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
-      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
-    healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-
-  # --------------------------------------------------------------------------
-  # MinIO (S3-compatible object storage for Context Snapshots)
-  # --------------------------------------------------------------------------
-  minio:
-    image: minio/minio:latest
-    container_name: aiteamos-minio
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: aiteamos
-      MINIO_ROOT_PASSWORD: dev_password
-    command: server /data --console-address ":9001"
-    volumes:
-      - miniodata:/data
-
-  # --------------------------------------------------------------------------
-  # Temporal Server (Saga orchestration)
-  # --------------------------------------------------------------------------
-  temporal:
-    image: temporalio/auto-setup:latest
-    container_name: aiteamos-temporal
-    ports:
-      - "7233:7233"
-    environment:
-      - DB=postgresql
-      - DB_PORT=5432
-      - POSTGRES_USER=aiteamos
-      - POSTGRES_PWD=dev_password
-      - POSTGRES_SEEDS=postgres
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  # --------------------------------------------------------------------------
-  # Temporal UI
-  # --------------------------------------------------------------------------
-  temporal-ui:
-    image: temporalio/ui:latest
-    container_name: aiteamos-temporal-ui
-    ports:
-      - "8233:8080"
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-    depends_on:
-      - temporal
-
-  # --------------------------------------------------------------------------
-  # Worker (Outbox Relay + Projection Runner)
-  # --------------------------------------------------------------------------
-  worker:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.worker
-    container_name: aiteamos-worker
-    environment:
-      DATABASE_URL: postgresql://aiteamos:dev_password@postgres:5432/aiteamos
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      LOG_LEVEL: INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-
 volumes:
   neo4jdata:
-  pgdata:
-  miniodata:

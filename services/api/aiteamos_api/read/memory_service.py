@@ -316,7 +316,6 @@ def _graphiti_config() -> dict[str, str]:
     graph_database = str(settings.get("graph_database") or "neo4j").strip().lower() or "neo4j"
     llm_ai_engine = _normalize_graphiti_ai_engine(
         settings.get("llm_ai_engine")
-        or settings.get("llm_provider")
         or os.environ.get("AITEAMOS_GRAPHITI_AI_ENGINE")
         or "openai"
     )
@@ -762,24 +761,6 @@ async def search_memory(
     )
 
 
-def _legacy_memory_snippets(employee_id: str, limit: int) -> list[str]:
-    memories_dir = _workspace_dir() / "memories"
-    if not memories_dir.exists():
-        return []
-
-    snippets: list[str] = []
-    for path in sorted(memories_dir.rglob("*.md"))[:limit]:
-        try:
-            first_line = next(
-                (line.strip("# ").strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()),
-                path.stem,
-            )
-        except OSError:
-            first_line = path.stem
-        snippets.append(f"{employee_id}:{path.relative_to(memories_dir)}:{first_line}")
-    return snippets
-
-
 def recall_memory_snippets(
     *,
     employee_id: str,
@@ -801,9 +782,6 @@ def recall_memory_snippets(
         )
         if len(snippets) >= limit:
             break
-
-    if len(snippets) < limit:
-        snippets.extend(_legacy_memory_snippets(employee_id, limit - len(snippets)))
     return snippets[:limit]
 
 

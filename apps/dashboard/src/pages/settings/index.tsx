@@ -856,7 +856,7 @@ function CodeRepositoriesSection({
 
         {repositories.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-            No repositories configured. Add the local path or Git URL for a Plane project.
+            No repositories configured. Add the local path or Git URL for Ticket evidence.
           </div>
         ) : (
           <div className="divide-y">

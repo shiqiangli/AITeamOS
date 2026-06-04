@@ -171,7 +171,7 @@ AI_ENGINE_CATALOG: dict[str, dict[str, Any]] = {
     "qoder": {
         "display_name": "Qoder",
         "kind": "agent_platform",
-        "description": "Qoder agent platform handoff target for deeper engineering tasks.",
+        "description": "Qoder agent platform handoff target for deeper Ticket work.",
         "support_status": "planned",
         "auth_kind": "platform_login",
         "capabilities": ["coding_agent", "repo_edit", "execution_handoff"],

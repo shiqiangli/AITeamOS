@@ -4,7 +4,7 @@ Version: 1.0.0
 
 ## 1. Interaction Thesis
 
-AITeamOS should feel like an AI team workbench, not a CRUD admin console.
+AITeamOS should feel like a Ticket-flow operating surface for an AI team, not a CRUD admin console.
 
 Chat is the main operation surface. Entity pages are inspection, audit, configuration, and review surfaces.
 
@@ -25,13 +25,14 @@ Default route opens Chat.
 
 System Status is top-level and read-only. It is not a Settings subpage.
 
-## 3. Chat Workbench
+## 3. Chat
 
 Chat supports:
 
 - Clara as default Employee
 - explicit Employee selection
 - Ticket key binding
+- current Ticket assignee visibility
 - AI Engine visibility
 - thread history
 - run metadata
@@ -54,7 +55,7 @@ Tickets is the work cockpit.
 The page should prioritize:
 
 - queue/state scanning
-- owner and validator
+- assignee transitions and validator
 - latest report
 - event timeline
 - evidence and linked assets

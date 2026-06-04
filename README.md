@@ -2,14 +2,14 @@
 
 Version: 1.0.0
 
-AITeamOS is a file-first AI-team operating system. It helps a human delegate work to Clara and AI Employees, then inspect the work through Tickets, employee ledgers, traceable assets, Settings, and System Status.
+AITeamOS is a file-first, Ticket-flow-centered AI team operating system. It helps a human delegate work through Chat to Clara and AI Employees, then inspect the work through Tickets, employee ledgers, traceable assets, Settings, and System Status.
 
 The current product is greenfield. It uses the AITeamOS model directly and does not keep legacy CRUD pages, old execution-configuration pages, or compatibility routes.
 
 ## What Works In 1.0
 
 - Chat with Clara or a selected Employee.
-- Clara can create local Tickets, assign work, request validation, and summarize progress.
+- Clara can create local Tickets with an assignee, route work through assignee changes, request validation, and summarize progress.
 - Tickets are stored as append-only local event ledgers.
 - Employee details show a workforce record: mission, current Tickets, historical Tickets, reports, validations, blocked records, handoffs, skills, tools, governance, and default AI Engine.
 - Assets has a unified entry for Knowledge, Capabilities, and Review Queue.
@@ -56,7 +56,6 @@ AITeamOS stores P0 state under `.aiteamos/`:
 - `.aiteamos/engine_threads.json`
 - `.aiteamos/code_repositories.json`
 - `.aiteamos/tool_connectors.json`
-- `.aiteamos/mcp_connectors.json`
 - `.aiteamos/memory/candidates.json`
 
 Sensitive values are not written into these config files. API keys and passwords are provided through environment variables and checked from System Status.
@@ -64,6 +63,7 @@ Sensitive values are not written into these config files. API keys and passwords
 ## Quick Start
 
 ```bash
+export AITEAMOS_NEO4J_PASSWORD="<choose-a-local-password>"
 ./scripts/dev-up.sh
 ```
 

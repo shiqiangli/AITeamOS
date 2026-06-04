@@ -519,9 +519,9 @@ function EmployeeSelect({
   );
 }
 
-/* ─── Thread Library ──────────────────────────────────────────────────────── */
+/* ─── Thread History ──────────────────────────────────────────────────────── */
 
-function ThreadLibrary({
+function ThreadHistory({
   activeThreadId,
   deletingThreadId,
   openThreadIds,
@@ -562,10 +562,10 @@ function ThreadLibrary({
       <div className="border-b p-3">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold">Thread Library</h3>
+            <h3 className="truncate text-sm font-semibold">Thread History</h3>
             <p className="text-xs text-muted-foreground">All history, recent first</p>
           </div>
-          <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose} title="Collapse library">
+          <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose} title="Collapse thread history">
             <PanelLeftClose className="h-4 w-4" />
           </Button>
         </div>
@@ -664,7 +664,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
   const [threadId, setThreadId] = useState("");
   const [openThreadIds, setOpenThreadIds] = useState<string[]>([]);
-  const [threadLibraryOpen, setThreadLibraryOpen] = useState(false);
+  const [threadHistoryOpen, setThreadHistoryOpen] = useState(false);
   const [threadQuery, setThreadQuery] = useState("");
   const [engineThreadId, setEngineThreadId] = useState<string | null>(null);
   const [traceEvents, setTraceEvents] = useState<ChatTraceEvent[]>([]);
@@ -725,7 +725,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
     } finally { setThreadsLoading(false); }
   }, []);
 
-  const loadWorkbench = useCallback(async () => {
+  const loadChatSurface = useCallback(async () => {
     setLoading(true); setError(null);
     try {
       const [loaded, loadedAiEngines, loadedCapabilities] = await Promise.all([
@@ -753,11 +753,11 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
       if (nextId) writeTextStorage(ACTIVE_EMPLOYEE_STORAGE_KEY, nextId);
       await loadThreadsForEmployee(preferred);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load chat workbench");
+      setError(err instanceof Error ? err.message : "Failed to load Chat");
     } finally { setLoading(false); }
   }, [loadThreadsForEmployee, normalizedRouteTarget]);
 
-  useEffect(() => { loadWorkbench(); }, [loadWorkbench]);
+  useEffect(() => { loadChatSurface(); }, [loadChatSurface]);
 
   const handleAgentResponse = useCallback((response: ChatMessageResponse) => {
     setThreadId(response.thread_id);
@@ -905,17 +905,17 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
       <ChatStateBridge onResponse={handleAgentResponse} />
       <div className="h-[calc(100vh-8rem)] overflow-hidden rounded-md border bg-background">
         <Group orientation="horizontal" id="aiteamos-chat-layout">
-          {threadLibraryOpen && (
+          {threadHistoryOpen && (
             <>
               <Panel defaultSize="18rem" minSize="14rem" maxSize="28rem">
-                <ThreadLibrary
+                <ThreadHistory
                   activeThreadId={activeThreadId}
                   deletingThreadId={deletingThreadId}
                   openThreadIds={openThreadIds}
                   query={threadQuery}
                   threads={threads}
                   threadsLoading={threadsLoading}
-                  onClose={() => setThreadLibraryOpen(false)}
+                  onClose={() => setThreadHistoryOpen(false)}
                   onCreateThread={() => void resetThread()}
                   onDeleteThread={(thread) => void handleDeleteThread(thread)}
                   onOpenThread={(thread) => void switchThread(thread)}
@@ -934,16 +934,16 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 shrink-0"
-                  onClick={() => setThreadLibraryOpen((open) => !open)}
-                  title={threadLibraryOpen ? "Hide thread library" : "Show thread library"}
+                  onClick={() => setThreadHistoryOpen((open) => !open)}
+                  title={threadHistoryOpen ? "Hide thread history" : "Show thread history"}
                 >
-                  {threadLibraryOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+                  {threadHistoryOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
                 </Button>
                 <div className="flex h-full min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-hidden" role="tablist" aria-label="Chat threads">
                   {threadsLoading && openThreads.length === 0 ? (
                     <span className="px-2 text-xs text-muted-foreground">Loading...</span>
                   ) : openThreads.length === 0 ? (
-                    <span className="px-2 text-xs text-muted-foreground">Open a thread from the library.</span>
+                    <span className="px-2 text-xs text-muted-foreground">Open a thread from history.</span>
                   ) : (
                     openThreads.map((thread) => {
                       const isActive = thread.id === activeThreadId;
@@ -1003,7 +1003,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
 
               {error && (
                 <div className="border-b p-3">
-                  <ErrorState message={error} onRetry={loadWorkbench} />
+                  <ErrorState message={error} onRetry={loadChatSurface} />
                 </div>
               )}
 

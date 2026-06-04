@@ -214,13 +214,13 @@ SUPPORTED_BACKENDS = [
         id="plane",
         label="Plane",
         status="planned",
-        description="Future Plane-backed source of truth through the Plane connector.",
+        description="Future Plane-backed Ticket/Docs fact source through the Ticket Backend adapter.",
     ),
     TicketBackendMode(
         id="jira",
         label="Jira",
         status="planned",
-        description="Future Jira-backed source of truth if AITeamOS needs enterprise compatibility.",
+        description="Future Jira-backed source of truth for enterprise Ticket integration after the Plane path is stable.",
     ),
 ]
 
@@ -484,75 +484,6 @@ class LocalFileTicketAdapter:
         self._write_counters(counters)
         return f"{namespace}-{next_number:04d}"
 
-    def _legacy_index_rows(self) -> list[dict[str, Any]]:
-        if not self.index_path.exists():
-            return []
-        try:
-            payload = json.loads(self.index_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return []
-        return payload if isinstance(payload, list) else []
-
-    def _migrate_legacy_index_if_needed(self) -> None:
-        if self._event_files():
-            return
-        rows = self._legacy_index_rows()
-        if not rows:
-            return
-        for row in rows:
-            try:
-                ticket = Ticket.model_validate(row)
-            except ValueError:
-                continue
-            namespace = _normalize_namespace(ticket.ticket_type) or "ops"
-            ticket_id = ticket.id if LOCAL_TICKET_ID_RE.fullmatch(ticket.id) else self._next_ticket_id(namespace)
-            actor_id = CLARA_SYSTEM_EMPLOYEE_ID
-            actor_role = CLARA_SYSTEM_ROLE
-            created = _event(
-                ticket_id,
-                "created",
-                actor_id=actor_id,
-                actor_role=actor_role,
-                at=ticket.created_at,
-                data={
-                    "title": ticket.title,
-                    "description": ticket.description,
-                    "status": ticket.status,
-                    "ticket_type": namespace,
-                    "knowledge_refs": ticket.knowledge_refs,
-                    "code_repository_ids": ticket.code_repository_ids,
-                    "source_thread_id": ticket.source_thread_id,
-                    "source_run_id": ticket.source_run_id,
-                },
-            )
-            events = [created]
-            if ticket.assigned_employee_id or ticket.assigned_role:
-                events.append(
-                    _event(
-                        ticket_id,
-                        "assigned",
-                        actor_id=actor_id,
-                        actor_role=actor_role,
-                        at=ticket.created_at,
-                        data={
-                            "assigned_employee_id": ticket.assigned_employee_id,
-                            "assigned_role": ticket.assigned_role,
-                        },
-                    )
-                )
-            for report in ticket.reports:
-                events.append(
-                    _event(
-                        ticket_id,
-                        "reported",
-                        actor_id=report.reporter_employee_id,
-                        actor_role=report.reporter_role,
-                        at=report.created_at,
-                        data={"report": report.model_dump(mode="json")},
-                    )
-                )
-            self._append_events(self._ticket_file(namespace, ticket_id), events)
-
     def _write_index(self, items: list[Ticket]) -> None:
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
         self.index_path.write_text(
@@ -625,7 +556,6 @@ class LocalFileTicketAdapter:
         return Ticket.model_validate(state)
 
     def _load_items(self) -> list[Ticket]:
-        self._migrate_legacy_index_if_needed()
         items = [
             ticket
             for ticket in (self._project_ticket(self._read_events_from_file(path), path) for path in self._event_files())
@@ -645,10 +575,14 @@ class LocalFileTicketAdapter:
         actor_role = _resolve_actor_role(actor_id, request.actor_role)
         namespace = _infer_ticket_namespace(request, actor_role)
         _ensure_namespace_authority(namespace, actor_employee_id=actor_id, actor_role=actor_role)
+        assigned_employee_id = request.assigned_employee_id.strip()
+        assigned_role = request.assigned_role.strip()
+        if not (assigned_employee_id or assigned_role):
+            raise ValueError("Ticket requires an assignee Employee or assigned role.")
 
         timestamp = _now()
         item_id = self._next_ticket_id(namespace)
-        initial_status = "assigned" if (request.assigned_employee_id.strip() or request.assigned_role.strip()) else "open"
+        initial_status = "assigned"
         events = [
             _event(
                 item_id,
@@ -668,20 +602,19 @@ class LocalFileTicketAdapter:
                 },
             )
         ]
-        if request.assigned_employee_id.strip() or request.assigned_role.strip():
-            events.append(
-                _event(
-                    item_id,
-                    "assigned",
-                    actor_id=actor_id,
-                    actor_role=actor_role,
-                    at=timestamp,
-                    data={
-                        "assigned_employee_id": request.assigned_employee_id.strip(),
-                        "assigned_role": request.assigned_role.strip(),
-                    },
-                )
+        events.append(
+            _event(
+                item_id,
+                "assigned",
+                actor_id=actor_id,
+                actor_role=actor_role,
+                at=timestamp,
+                data={
+                    "assigned_employee_id": assigned_employee_id,
+                    "assigned_role": assigned_role,
+                },
             )
+        )
         if request.validation_employee_id.strip() or request.validation_role.strip():
             events.append(
                 _event(

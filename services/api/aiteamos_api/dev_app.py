@@ -1,4 +1,4 @@
-"""Development FastAPI app — file-first P0 Employee Chat Workbench.
+"""Development FastAPI app for the file-first AITeamOS API.
 
 Run with:
     uvicorn aiteamos_api.dev_app:app --reload

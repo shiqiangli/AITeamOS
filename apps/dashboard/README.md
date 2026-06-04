@@ -2,6 +2,10 @@
 
 React + Vite frontend for AITeamOS 1.0.
 
+## Product Baseline
+
+The Dashboard opens on Chat because Clara-led Ticket flow is the main operating loop. Tickets carry assignee, status, reports, evidence, validation, and generated assets; Employees are workforce records around those Tickets, not standalone agent cards.
+
 ## Stack
 
 - React + TypeScript

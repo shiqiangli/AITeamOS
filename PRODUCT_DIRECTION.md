@@ -2,7 +2,7 @@
 
 Version: 1.0.0
 
-AITeamOS is an AI-team operating system. It lets a human delegate work to Clara and a set of AI Employees, then inspect the work through Tickets, employee work records, assets, and system status.
+AITeamOS is a Ticket-flow-centered AI team operating system. A human delegates work through Chat to Clara and AI Employees, while Tickets carry ownership, validation, reports, evidence, and reusable assets across the flow.
 
 This is a greenfield product direction. It does not preserve legacy CRUD modules, compatibility routes, or old execution-configuration naming.
 
@@ -37,7 +37,7 @@ Clara is the user-facing manager. Clara can create any Ticket namespace, delegat
 
 Employees are workforce records. They are not just personas or chat identities. Their detail view should expose mission, current Tickets, historical Tickets, reports, validations, blocked records, handoffs, skills, tools, knowledge scope, permissions, connector visibility, and default AI Engine.
 
-Tickets are the accountability ledger. Every meaningful action should append a Ticket event such as `created`, `assigned`, `status_changed`, `reported`, `validated`, `blocked`, or `asset_linked`.
+Tickets are the accountability ledger. Every active Ticket has an assignee; changing assignee is the routing primitive between AI Employees. Every meaningful action should append a Ticket event such as `created`, `assigned`, `status_changed`, `reported`, `validated`, `blocked`, or `asset_linked`.
 
 Assets are traceable reusable team resources. Assets include Knowledge, Skills, Built-in Tools, MCP Tools, Decisions, Reports, Evidence, and review candidates. Every asset should carry provenance where possible: source Ticket, source Employee, status, scopes, created time, and updated time.
 
@@ -134,7 +134,7 @@ Not included as first-class 1.0 products:
 
 - A user-visible work system separate from Tickets.
 - Department / Project CRUD as primary navigation.
-- A generic agent IDE or coding workbench.
+- A generic agent IDE or coding surface.
 - A separate execution-configuration product layer outside AI Engines.
 - Compatibility routes for renamed APIs.
 

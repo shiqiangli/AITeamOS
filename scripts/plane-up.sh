@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
 PLANE_VERSION="${AITEAMOS_PLANE_VERSION:-v1.3.1}"
 PLANE_DIR="${AITEAMOS_PLANE_DIR:-$ROOT_DIR/.aiteamos/plane}"
 PLANE_HTTP_PORT="${AITEAMOS_PLANE_HTTP_PORT:-8082}"
@@ -52,37 +51,6 @@ configure_plane_env() {
   upsert_env "APP_RELEASE" "$PLANE_VERSION" "$env_file"
 }
 
-initialize_aiteamos_connector() {
-  "$PYTHON_BIN" - "$ROOT_DIR" "$PLANE_URL" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-plane_url = sys.argv[2]
-workspace = root / ".aiteamos"
-settings_dir = workspace / "connectors"
-settings_dir.mkdir(parents=True, exist_ok=True)
-settings_path = settings_dir / "plane.json"
-
-def read_object(path: Path) -> dict:
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-settings = read_object(settings_path)
-settings.setdefault("enabled", True)
-settings.setdefault("workspace_slug", "")
-settings.setdefault("project_id", "")
-settings.setdefault("base_url", plane_url)
-settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-PY
-}
-
 install_plane() {
   download_setup
   if [[ ! -f "$PLANE_DIR/plane-app/docker-compose.yaml" || "${AITEAMOS_PLANE_REINSTALL:-0}" == "1" ]]; then
@@ -90,14 +58,13 @@ install_plane() {
     (cd "$PLANE_DIR" && APP_RELEASE="$PLANE_VERSION" bash ./setup.sh install)
   fi
   configure_plane_env
-  initialize_aiteamos_connector
 }
 
 start_plane() {
   install_plane
   echo "Starting Plane at $PLANE_URL..."
   (cd "$PLANE_DIR" && APP_RELEASE="$PLANE_VERSION" bash ./setup.sh start)
-  initialize_aiteamos_connector
+  echo "Plane is available at $PLANE_URL. Configure it from AITeamOS Settings / Ticket Backend."
 }
 
 run_setup_action() {
@@ -121,7 +88,6 @@ case "$ACTION" in
     ;;
   restart)
     run_setup_action restart
-    initialize_aiteamos_connector
     ;;
   logs)
     shift || true

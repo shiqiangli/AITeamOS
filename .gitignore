@@ -62,7 +62,7 @@ htmlcov/
 .aiteamos/artifacts/cache/
 .aiteamos/artifacts/worktrees/
 .aiteamos/runs/*/artifacts/
-.aiteamos/runs/*/raw-provider-response*
+.aiteamos/runs/*/raw-ai-engine-response*
 .aiteamos/runs/*/*.log
 .aiteamos/runs/*/*.tmp
 .aiteamos/conversations/
@@ -71,7 +71,6 @@ htmlcov/
 .aiteamos/langgraph/
 .aiteamos/memory/
 .aiteamos/knowledge/
-.aiteamos/work_items/
 .aiteamos/connectors/
 .aiteamos/plane/
 .aiteamos/tickets/
@@ -79,6 +78,5 @@ htmlcov/
 .aiteamos/engine_threads.json
 .aiteamos/tool_connectors.json
 .aiteamos/code_repositories.json
-.aiteamos/mcp_connectors.json
 .aiteamos/graphiti.json
 .aiteamos/secrets.local.json

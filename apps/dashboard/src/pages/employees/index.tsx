@@ -693,10 +693,10 @@ function EmployeeDrawer({
             <section className="rounded-md border p-4">
               <div className="mb-3 flex items-center gap-2">
                 <FolderGit2 className="h-4 w-4 text-muted-foreground" />
-                <h4 className="text-sm font-semibold">Project Access</h4>
+                <h4 className="text-sm font-semibold">Ticket Scope</h4>
               </div>
               <InfoRow label="Default thread" value={employee.default_thread_id || "-"} />
-              <InfoRow label="Project scopes" value="via assigned Tickets" />
+              <InfoRow label="Ticket scopes" value="via assigned Tickets" />
               <InfoRow label="Repository scopes" value="via Ticket code refs" />
             </section>
 

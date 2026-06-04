@@ -82,8 +82,8 @@ _CREATE_SKILL_EN_RE = re.compile(r"\b(create|add|new|setup|set up)\b.*\bskill\b"
 _ASSIGN_SKILL_EN_RE = re.compile(r"\b(assign|add|give|attach)\b.*\bskill\b.*\b(to|for)\b")
 _DELETE_SKILL_EN_RE = re.compile(r"\b(delete|remove|drop)\b.*\bskill\b")
 _SEARCH_KNOWLEDGE_EN_RE = re.compile(r"\b(search|find|lookup|read|query)\b.*\b(knowledge|docs?|documents?|memories|decisions)\b")
-_CREATE_TICKET_EN_RE = re.compile(r"\b(create|open|plan|delegate|assign)\b.*\b(task|ticket)\b")
-_REPORT_TICKET_EN_RE = re.compile(r"\b(report|record|complete|finish|validate)\b.*\b(task|ticket)\b")
+_CREATE_TICKET_EN_RE = re.compile(r"\b(create|open|plan|delegate|assign)\b.*\bticket\b")
+_REPORT_TICKET_EN_RE = re.compile(r"\b(report|record|complete|finish|validate)\b.*\bticket\b")
 _LIST_CODE_REPOSITORIES_EN_RE = re.compile(
     r"\b(list|show|display|view)\b.*\b(code\s+)?(repos?|repositories)\b|"
     r"\b(code\s+)?(repos?|repositories)\b.*\b(list|show|all|available)\b"
@@ -125,7 +125,7 @@ _ROLE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("AI Team OS Manager", ("clara", "ai team os", "os manager", "系统管理", "团队运营")),
 )
 _ROLE_DEFAULT_SKILLS: dict[str, list[str]] = {
-    "AI Team OS Manager": ["task-specification", "agent-topology-design", "technical-decision", "validation-strategy"],
+    "AI Team OS Manager": ["ticket-specification", "employee-ticket-flow-design", "technical-decision", "validation-strategy"],
     "AI Architect": ["system-architecture-design", "architecture-review", "technical-decision"],
     "AI PV": ["test-engineering", "validation-strategy"],
     "AI Release": ["resource-planning", "validation-strategy"],
@@ -554,8 +554,6 @@ def _ai_engine_records(config: dict[str, Any], secrets: dict[str, str]) -> dict[
         api_key_configured = _secret_configured(engine_id, engine_config)
         if support_status == "planned":
             config_status = "planned"
-        elif support_status == "deprecated":
-            config_status = "deprecated"
         elif api_key_configured:
             config_status = "configured"
         else:
@@ -565,7 +563,6 @@ def _ai_engine_records(config: dict[str, Any], secrets: dict[str, str]) -> dict[
             "configured": "Ready for Chat selection.",
             "missing_secret": "Configuration is saved, but the referenced API key environment variable is missing.",
             "planned": "Catalog entry is visible for planning, but the adapter is not enabled yet.",
-            "deprecated": "Catalog entry is retained for existing installations but cannot be newly configured.",
         }.get(config_status, "Status has not been checked.")
         records[engine_id] = ChatAiEngineRecord(
             id=engine_id,
@@ -760,15 +757,15 @@ def _default_clara_profile() -> dict[str, Any]:
         "kind": "ai",
         "role": CLARA_SYSTEM_ROLE,
         "summary": (
-            "User-facing AI Team OS Manager for team assets, Tickets, delegation, "
-            "validation, and final reporting."
+            "User-facing AI Team OS Manager for Ticket flow, delegation, validation, "
+            "assets, and final reporting."
         ),
         "personality": "Calm, concise, explicit about blockers, and careful with handoffs.",
         "responsibilities": [
-            "Manage AITeamOS control-plane assets such as employees, skills, memories, Knowledge access, capabilities, and Tickets.",
-            "Understand human goals, constraints, and required outcomes.",
-            "Delegate technical Tickets to the right AI Employee or executor.",
-            "Track progress, request validation, and summarize evidence, blockers, and next actions.",
+            "Understand human goals and turn them into traceable Tickets with owner, validator, context, and acceptance criteria.",
+            "Route Tickets to the right AI Employee, request handoffs or PV validation, and keep the Ticket event ledger current.",
+            "Summarize reports, evidence, decisions, blockers, and next actions back to the human.",
+            "Govern Ticket-flow assets such as Skills, Memories, Decisions, Reports, Evidence, Knowledge access, and Capabilities.",
         ],
         "skills": _default_skills_for_role(CLARA_SYSTEM_ROLE),
         "ai_engine": {
@@ -1127,9 +1124,6 @@ def _normalize_tool_plan(payload: dict[str, Any], *, source: str) -> ChatToolPla
         "query_knowledge": "search_knowledge",
         "read_docs": "search_knowledge",
         "search_docs": "search_knowledge",
-        "create_task": "create_ticket",
-        "delegate_task": "create_ticket",
-        "assign_task": "create_ticket",
         "open_ticket": "create_ticket",
         "add_ticket_report": "record_ticket_report",
         "complete_ticket": "record_ticket_report",
@@ -1218,9 +1212,9 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
                     "Use kind='ai' for AI employee/employee requests and kind='human' only for human user/employee requests. "
                     "Choose a tool only when the user intends to inspect or change AITeamOS local employee profiles "
                     "or local SKILL.md assets. Choose search_knowledge when the user asks Clara to read docs, "
-                    "memories, decisions, or project knowledge. Choose create_ticket when the user asks Clara "
+                    "memories, decisions, or team knowledge. Choose create_ticket when the user asks Clara "
                     "to delegate or plan a Ticket for a employee role. Choose list_code_repositories when the user asks "
-                    "what code repositories, repos, GitHub/Gitea repositories, or local project paths are configured. "
+                    "what code repositories, repos, GitHub/Gitea repositories, or local repository paths are configured. "
                     "Choose inspect_code_repository when an RD, PV, QA, Architect, or other non-Clara employee is asked "
                     "to inspect, search, read, review, or analyze configured repository files. "
                     "Choose record_ticket_report when a employee "
@@ -1372,7 +1366,7 @@ def _default_summary(display_name: str, role: str, responsibility: str | None) -
     if role == "AI QA / Harness Runner":
         return "QA-focused AI Employee for test execution, harness evidence, and validation reporting."
     if role == "AI Memory Curator":
-        return "Memory-focused AI Employee for extracting reusable project knowledge from execution traces."
+        return "Memory-focused AI Employee for extracting reusable team knowledge from Ticket traces."
     if role == "AI RD / Implementer":
         return "Implementation-focused AI Employee for code changes, bug fixing, and engineering handoff reports."
     return f"File-backed {role} profile."
@@ -1387,7 +1381,7 @@ def _default_responsibilities(role: str, responsibility: str | None) -> list[str
         "AI Architect": ["Review architecture boundaries and tradeoffs.", "Escalate unclear system decisions."],
         "AI QA / Harness Runner": ["Run or interpret validation evidence.", "Report pass/fail signals clearly."],
         "AI Memory Curator": ["Extract memory candidates from traces.", "Keep reusable knowledge scoped and evidence-backed."],
-        "AI RD / Implementer": ["Investigate bounded engineering tasks.", "Implement changes and report verification results."],
+        "AI RD / Implementer": ["Investigate bounded engineering Tickets.", "Implement changes and report verification results."],
     }
     return defaults.get(role, ["Handle delegated AITeamOS Tickets within profile boundaries."])
 
@@ -1438,7 +1432,7 @@ def _build_employee_profile(
         "personality": "Concise, evidence-driven, and explicit about blockers.",
         "responsibilities": _default_responsibilities(role, responsibility),
         "skills": skills,
-        "memory_scopes": ["global", "aiteamos"] if role == CLARA_SYSTEM_ROLE else ["project", f"employee:{employee_id}"],
+        "memory_scopes": ["global", "aiteamos"] if role == CLARA_SYSTEM_ROLE else ["aiteamos", f"employee:{employee_id}"],
         "ai_engine": {
             "mode": ai_engine_mode,
             "engine_identity": employee_id,
@@ -1810,8 +1804,8 @@ def _list_skills_tool_result() -> dict[str, Any]:
         "count": len(skills),
         "skills": [skill.model_dump() for skill in skills],
         "deep_links": {
-            "skills": "#/assets/skills",
-            **{f"skill:{skill.id}": f"#/assets/skills/{skill.id}" for skill in skills},
+            "skills": "#/assets/capabilities/skills",
+            **{f"skill:{skill.id}": f"#/assets/capabilities/skills/{skill.id}" for skill in skills},
         },
     }
 
@@ -1874,7 +1868,7 @@ def _build_list_code_repositories_reply(tool_result: dict[str, Any]) -> str:
             item for item in (repository["plane_workspace_slug"], repository["plane_project_id"]) if item
         ) or "-"
         lines.append(
-            f"- {repository['name']} ({repository['id']})；provider={repository['provider']}；"
+            f"- {repository['name']} ({repository['id']})；source={repository['provider']}；"
             f"status={repository['status']}；branch={branch}；Plane={plane_scope}\n"
             f"  {repository['location']}"
         )
@@ -1974,7 +1968,7 @@ def _explicit_delegated_employee(message: str) -> ChatEmployeeSummary | None:
 
 
 def _extract_ticket_id(message: str, plan: ChatToolPlan | None) -> str | None:
-    explicit = _tool_str_arg(plan, "ticket_id", "id", "task_id")
+    explicit = _tool_str_arg(plan, "ticket_id", "id")
     if explicit:
         return explicit
     match = _LOCAL_TICKET_ID_RE.search(message)
@@ -2850,10 +2844,10 @@ def _default_skill_body(skill_id: str, title: str, description: str) -> str:
         f"# {title}\n\n"
         f"> {description or f'AITeamOS reusable skill: {skill_id}.'}\n\n"
         "## When To Use\n\n"
-        "- Use this skill when the task matches the description above.\n\n"
+        "- Use this skill when Ticket work matches the description above.\n\n"
         "## Procedure\n\n"
         "1. Clarify the goal, constraints, and expected evidence.\n"
-        "2. Apply the relevant project context and tools.\n"
+        "2. Apply the relevant product context and tools.\n"
         "3. Report outcome, evidence, blockers, and next actions.\n"
     )
 
@@ -2893,13 +2887,13 @@ def _complete_create_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
             "reason": "skill_already_exists",
             "detail": f"Skill already exists: {existing.id}",
             "skill": existing.model_dump(),
-            "deep_links": {"skill": f"#/assets/skills/{existing.id}", "skills": "#/assets/skills"},
+            "deep_links": {"skill": f"#/assets/capabilities/skills/{existing.id}", "skills": "#/assets/capabilities/skills"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有创建新 Skill，因为 {existing.title} 已经存在。\n\n"
             f"- Skill: {existing.title} ({existing.id})\n"
-            f"- 查看：#/assets/skills/{existing.id}\n\n"
+            f"- 查看：#/assets/capabilities/skills/{existing.id}\n\n"
             "如果要分配它，可以说：Clara，请把 "
             f"{existing.id} 分配给 Alex。"
         )
@@ -2927,7 +2921,7 @@ def _complete_create_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         "detail": f"Created skill: {skill.id}",
         "skill": skill.model_dump(),
         "saved_path": str(skill_path.relative_to(_workspace_root())),
-        "deep_links": {"skill": f"#/assets/skills/{skill.id}", "skills": "#/assets/skills"},
+        "deep_links": {"skill": f"#/assets/capabilities/skills/{skill.id}", "skills": "#/assets/capabilities/skills"},
         "plan": _plan_trace_data(plan),
     }
     reply = (
@@ -2935,7 +2929,7 @@ def _complete_create_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         f"- ID: {skill.id}\n"
         f"- Description: {skill.description or 'none'}\n"
         f"- Profile: {result['saved_path']}\n"
-        f"- 查看：#/assets/skills/{skill.id}\n\n"
+        f"- 查看：#/assets/capabilities/skills/{skill.id}\n\n"
         "下一步可以把它分配给一个或多个 Employees。"
     )
     return _persist_local_tool_response(
@@ -3007,13 +3001,13 @@ def _complete_assign_skill_to_employee_tool(
             "status": "blocked",
             "reason": "skill_not_found",
             "detail": f"Skill not found: {skill_lookup}",
-            "deep_links": {"skills": "#/assets/skills"},
+            "deep_links": {"skills": "#/assets/capabilities/skills"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有找到 Skill {skill_lookup}，所以没有分配。\n\n"
             "你可以先让我列出所有 Skills，或先创建这个 Skill。\n"
-            "- Skills: #/assets/skills"
+            "- Skills: #/assets/capabilities/skills"
         )
         return _persist_local_tool_response(
             context,
@@ -3059,9 +3053,9 @@ def _complete_assign_skill_to_employee_tool(
         "employee": employee.model_dump(),
         "saved_path": str(profile_path.relative_to(_workspace_root())),
         "deep_links": {
-            "skill": f"#/assets/skills/{skill.id}",
+            "skill": f"#/assets/capabilities/skills/{skill.id}",
             "employee": f"#/employees/{employee.id}",
-            "skills": "#/assets/skills",
+            "skills": "#/assets/capabilities/skills",
             "employees": "#/employees",
         },
         "plan": _plan_trace_data(plan),
@@ -3072,7 +3066,7 @@ def _complete_assign_skill_to_employee_tool(
         f"- Employee: {employee.display_name} ({employee.id})\n"
         f"- Employee skills: {', '.join(employee.skills) if employee.skills else 'none'}\n"
         f"- Profile: {result['saved_path']}\n"
-        f"- 查看 Skill：#/assets/skills/{skill.id}\n"
+        f"- 查看 Skill：#/assets/capabilities/skills/{skill.id}\n"
         f"- 查看 Employee：#/employees/{employee.id}"
     )
     return _persist_local_tool_response(
@@ -3118,13 +3112,13 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
             "status": "blocked",
             "reason": "skill_not_found",
             "detail": f"Skill not found: {skill_lookup}",
-            "deep_links": {"skills": "#/assets/skills"},
+            "deep_links": {"skills": "#/assets/capabilities/skills"},
             "plan": _plan_trace_data(plan),
         }
         reply = (
             f"没有找到 Skill {skill_lookup}，所以没有删除任何文件。\n\n"
             "你可以先让我列出所有 Skills。\n"
-            "- Skills: #/assets/skills"
+            "- Skills: #/assets/capabilities/skills"
         )
         return _persist_local_tool_response(
             context,
@@ -3163,7 +3157,7 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         "deleted_path": relative_skill_dir,
         "unassigned_employees": unassigned_employees,
         "retained_evidence": ["conversations", "traces"],
-        "deep_links": {"skills": "#/assets/skills", "employees": "#/employees"},
+        "deep_links": {"skills": "#/assets/capabilities/skills", "employees": "#/employees"},
         "plan": _plan_trace_data(plan),
     }
     unassigned_text = ", ".join(unassigned_employees) if unassigned_employees else "none"
@@ -3173,7 +3167,7 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatToolPlan | No
         f"- Deleted: {relative_skill_dir}\n"
         f"- 已从成员移除：{unassigned_text}\n"
         "- 历史 conversation 和 trace 已保留，用于审计。\n"
-        "- Skills: #/assets/skills"
+        "- Skills: #/assets/capabilities/skills"
     )
     return _persist_local_tool_response(
         context,
@@ -4739,15 +4733,15 @@ async def delete_chat_thread(thread_id: str) -> dict[str, Any]:
         pass
 
     # Clean up AI Engine thread mapping
-    provider_path = _workspace_dir() / "engine_threads.json"
-    if provider_path.exists():
+    engine_thread_path = _workspace_dir() / "engine_threads.json"
+    if engine_thread_path.exists():
         try:
-            mapping = json.loads(provider_path.read_text(encoding="utf-8"))
+            mapping = json.loads(engine_thread_path.read_text(encoding="utf-8"))
             keys_to_remove = [k for k, v in mapping.items() if k.endswith(f"-{thread_id[:8]}") or k == f"{employee_id}:{thread_id}"]
             for key in keys_to_remove:
                 del mapping[key]
             if keys_to_remove:
-                provider_path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
+                engine_thread_path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -4870,7 +4864,7 @@ def _build_agui_chat_agent() -> LangGraphAgent:
     graph = builder.compile(checkpointer=_build_langgraph_checkpointer())
     return LangGraphAgent(
         name="AITeamOS Clara",
-        description="AG-UI/LangGraph bridge for the file-backed AITeamOS Chat Workbench.",
+        description="AG-UI/LangGraph bridge for file-backed AITeamOS Chat.",
         graph=graph,
     )
 

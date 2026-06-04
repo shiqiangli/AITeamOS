@@ -29,7 +29,7 @@ AITeamOS 应被理解为：
 ```text
 Human goal
   -> Clara 创建或选择 Ticket
-  -> Ticket 承载目标、上下文、负责人、验证人、关联 docs、repos 和验收条件
+  -> Ticket 必须带 assignee，并承载目标、上下文、负责人、验证人、关联 docs、repos 和验收条件
   -> AI Employees 通过接手、汇报、交接和请求验证来协作推进
   -> AI Engine 和 Tool execution 产出 evidence 和 trace
   -> Reports、Decisions、Memory candidates、Docs updates 和 Skill candidates 进入 Ticket Asset Graph
@@ -49,13 +49,15 @@ Ticket 是最主要的工作对象。
 
 - 用户目标和验收条件
 - 当前阶段和下一步期望动作
-- 当前 owner Employee
+- 当前 assignee / owner Employee
 - validator 或 PV Employee
 - 关联代码仓库和 evidence
 - 关联 Docs 和 Decisions
 - reports 和 handoff records
 - trace events 和 AI Engine runs
 - 由本次工作产生的 Memory candidates 和 approved Memories
+
+Ticket 的流转通过 assignee、status、report、evidence 和 validation events 表达。活跃 Ticket 不应是无 assignee 的孤立记录；assignee 变化就是 Clara 在 AI Employees 之间路由工作的主要方式。
 
 Plane 可以作为外部 Ticket / Docs 事实源，但 AITeamOS 拥有对这项工作的 AI-team 解释层。
 
