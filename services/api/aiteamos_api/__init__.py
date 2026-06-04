@@ -1,6 +1,3 @@
 """
-AITeamOS API Gateway.
-
-Unified REST API entry point with CQRS read/write route separation,
-authentication middleware, and dependency injection composition root.
+AITeamOS API Gateway — file-first 1.0 service package.
 """

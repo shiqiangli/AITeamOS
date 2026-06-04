@@ -1,1 +1,0 @@
-"""API Gateway — Write-Side Routes (CQRS command side)."""

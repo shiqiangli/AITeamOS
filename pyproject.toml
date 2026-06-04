@@ -1,68 +1,40 @@
 [project]
 name = "aiteamos"
 version = "1.0.0"
-description = "AITeamOS - Experience-driven Cognitive Operating System"
+description = "AITeamOS - AI Team OS (file-first 1.0)"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
   "pydantic>=2.7",
-  "asyncpg>=0.29",
-  "aiokafka>=0.10",
-  "litellm>=1.40",
-  "pgvector>=0.3",
   "PyYAML>=6.0",
   "httpx>=0.27",
+  "langgraph>=1.2,<2",
+  "langgraph-checkpoint-sqlite>=3.1,<4",
+  "ag-ui-langgraph[fastapi]>=0.0.37,<0.1",
 ]
 
 [project.optional-dependencies]
+graphiti = [
+  "graphiti-core>=0.20,<1",
+]
 dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
   "httpx>=0.27",
 ]
-temporal = [
-  "temporalio>=1.6",
-]
 
 [tool.setuptools.packages.find]
 include = [
-  "aiteamos_shared*",
-  "aiteamos_knowledge*",
-  "aiteamos_capability*",
-  "aiteamos_workforce*",
-  "aiteamos_execution*",
-  "aiteamos_validation*",
-  "aiteamos_governance*",
   "aiteamos_api*",
-  "aiteamos_worker*",
-  "aiteamos_saga*",
 ]
 where = [
-  "packages/shared_kernel",
-  "packages/knowledge",
-  "packages/capability",
-  "packages/workforce",
-  "packages/execution",
-  "packages/validation",
-  "packages/governance",
   "services/api",
-  "services/worker",
-  "services/saga",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = [
-  "packages/shared_kernel",
-  "packages/knowledge",
-  "packages/capability",
-  "packages/workforce",
-  "packages/execution",
-  "packages/validation",
-  "packages/governance",
   "services/api",
-  "services/worker",
-  "services/saga",
 ]

@@ -10,6 +10,9 @@
     "test": "vitest run --environment jsdom src"
   },
   "dependencies": {
+    "@ag-ui/client": "^0.0.54",
+    "@assistant-ui/react": "^0.14.13",
+    "@assistant-ui/react-ag-ui": "^0.0.34",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-separator": "^1.1.8",
     "@radix-ui/react-tabs": "^1.1.13",
@@ -22,6 +25,7 @@
     "postcss": "^8.5.15",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-resizable-panels": "^4.11.2",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.6.3",
