@@ -97,7 +97,7 @@ export interface ChatAiEngineConfigField {
   id: string;
   label: string;
   kind: string;
-  value?: string | boolean | null;
+  value?: string | boolean | number | null;
   placeholder: string;
   options: string[];
   required: boolean;
@@ -118,6 +118,8 @@ export interface ChatAiEngineRecord {
   api_key_env?: string | null;
   model?: string | null;
   thinking?: string | null;
+  context_window?: number | null;
+  max_tokens?: number | null;
   enabled: boolean;
   editable: boolean;
   active: boolean;
@@ -143,6 +145,8 @@ export interface ChatAiEngineSettingsRequest {
 export interface ChatAiEngineUpdateRequest {
   model?: string | null;
   thinking?: string | null;
+  context_window?: number | null;
+  max_tokens?: number | null;
   base_url?: string | null;
   api_key_env?: string | null;
   enabled?: boolean | null;

@@ -77,6 +77,8 @@ type AiEngineForm = {
 type AiEngineDraft = {
   model: string;
   thinking: string;
+  context_window: string;
+  max_tokens: string;
   base_url: string;
   api_key_env: string;
   enabled: boolean;
@@ -154,6 +156,8 @@ function aiEnginesToDrafts(aiEngines: ChatAiEngineSettings): Record<string, AiEn
       {
         model: String(aiEngineFieldValue(engine, "model")),
         thinking: String(aiEngineFieldValue(engine, "thinking")),
+        context_window: String(aiEngineFieldValue(engine, "context_window")),
+        max_tokens: String(aiEngineFieldValue(engine, "max_tokens")),
         base_url: String(aiEngineFieldValue(engine, "base_url")),
         api_key_env: String(aiEngineFieldValue(engine, "api_key_env")),
         enabled: Boolean(aiEngineFieldValue(engine, "enabled")),
@@ -349,6 +353,8 @@ function updateAiEngineDraft(
     const currentDraft = current[engineId] ?? {
       model: "",
       thinking: "",
+      context_window: "",
+      max_tokens: "",
       base_url: "",
       api_key_env: "",
       enabled: true,
@@ -367,6 +373,8 @@ function aiEngineUpdatePayload(draft: AiEngineDraft | undefined): ChatAiEngineUp
   return {
     model: draft?.model ?? "",
     thinking: draft?.thinking ?? "",
+    context_window: draft?.context_window ? Number(draft.context_window) : null,
+    max_tokens: draft?.max_tokens ? Number(draft.max_tokens) : null,
     base_url: draft?.base_url ?? "",
     api_key_env: draft?.api_key_env ?? "",
     enabled: draft?.enabled ?? true,
@@ -427,6 +435,7 @@ function AiEngineFieldControl({
       <span className="text-xs uppercase text-muted-foreground">{field.label}</span>
       <input
         aria-label={field.label}
+        type={field.kind === "number" ? "number" : "text"}
         value={String(value ?? "")}
         disabled={disabled}
         onChange={(event) => onChange(fieldId, event.target.value)}
@@ -1438,12 +1447,16 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     const draft = selectedAiEngine ? aiEngineDrafts[selectedAiEngine.id] ?? {
       model: selectedAiEngine.model ?? "",
       thinking: selectedAiEngine.thinking ?? "",
+      context_window: selectedAiEngine.context_window ? String(selectedAiEngine.context_window) : "",
+      max_tokens: selectedAiEngine.max_tokens ? String(selectedAiEngine.max_tokens) : "",
       base_url: selectedAiEngine.base_url ?? "",
       api_key_env: selectedAiEngine.api_key_env ?? "",
       enabled: selectedAiEngine.enabled,
     } : {
       model: "",
       thinking: "",
+      context_window: "",
+      max_tokens: "",
       base_url: "",
       api_key_env: "",
       enabled: true,

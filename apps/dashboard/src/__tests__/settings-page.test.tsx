@@ -42,6 +42,8 @@ const aiEngines = {
       api_key_env: "DEEPSEEK_API_KEY",
       model: "deepseek-v4-flash",
       thinking: "disabled",
+      context_window: 1000000,
+      max_tokens: 384000,
       enabled: true,
       editable: true,
       active: true,
@@ -54,6 +56,8 @@ const aiEngines = {
       config_fields: [
         { id: "model", label: "Default model", kind: "text", value: "deepseek-v4-flash", placeholder: "", options: [], required: true, secret: false, read_only: false, help: "" },
         { id: "thinking", label: "Thinking", kind: "select", value: "disabled", placeholder: "", options: ["disabled", "enabled"], required: false, secret: false, read_only: false, help: "" },
+        { id: "context_window", label: "Context window", kind: "number", value: 1000000, placeholder: "1000000", options: [], required: false, secret: false, read_only: false, help: "Model context length used by AITeamOS context loading; DeepSeek V4 supports 1M." },
+        { id: "max_tokens", label: "Max output tokens", kind: "number", value: 384000, placeholder: "384000", options: [], required: false, secret: false, read_only: false, help: "Sent as DeepSeek max_tokens. DeepSeek V4 max output is 384K." },
         { id: "base_url", label: "Base URL", kind: "text", value: "https://api.deepseek.com", placeholder: "", options: [], required: true, secret: false, read_only: false, help: "" },
         { id: "api_key_env", label: "API key env", kind: "text", value: "DEEPSEEK_API_KEY", placeholder: "", options: [], required: true, secret: true, read_only: false, help: "" },
       ],
@@ -386,6 +390,8 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Engine Catalog")).toBeTruthy();
     expect(screen.getAllByText("DeepSeek").length).toBeGreaterThan(0);
     expect(screen.getByText("Save engine")).toBeTruthy();
+    expect(screen.getByLabelText("Context window")).toBeTruthy();
+    expect(screen.getByLabelText("Max output tokens")).toBeTruthy();
     expect(screen.getByLabelText("API key env")).toBeTruthy();
   });
 

@@ -213,6 +213,10 @@ def test_chat_ai_engine_settings_are_file_backed(tmp_path, monkeypatch):
     assert initial.status_code == 200
     assert initial.json()["active_engine"] == "stub"
     assert initial.json()["api_keys_configured"]["deepseek"] is False
+    assert initial.json()["deepseek_thinking"] == "enabled"
+    assert initial.json()["engines"]["deepseek"]["thinking"] == "enabled"
+    assert initial.json()["engines"]["deepseek"]["context_window"] == 1000000
+    assert initial.json()["engines"]["deepseek"]["max_tokens"] == 384000
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "secret-test-key")
     updated = client.put(
@@ -235,6 +239,9 @@ def test_chat_ai_engine_settings_are_file_backed(tmp_path, monkeypatch):
     saved = json.loads(ai_engines_file.read_text())
     assert saved["active_engine"] == "deepseek"
     assert saved["engines"]["deepseek"]["model"] == "deepseek-v4-flash"
+    assert saved["engines"]["deepseek"]["thinking"] == "disabled"
+    assert saved["engines"]["deepseek"]["context_window"] == 1000000
+    assert saved["engines"]["deepseek"]["max_tokens"] == 384000
     assert not (workspace / ".aiteamos" / "secrets.local.json").exists()
 
 
@@ -263,6 +270,31 @@ def test_chat_ai_engine_settings_can_be_updated_independently(tmp_path, monkeypa
     assert saved["active_engine"] == "openai"
     assert saved["engines"]["openai"]["model"] == "gpt-5-mini"
     assert not (workspace / ".aiteamos" / "secrets.local.json").exists()
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test-key")
+    updated_deepseek = client.put(
+        "/api/v1/chat/ai-engines/deepseek",
+        json={
+            "context_window": 200000,
+            "max_tokens": 8192,
+            "thinking": "enabled",
+            "activate": True,
+        },
+    )
+    assert updated_deepseek.status_code == 200
+    deepseek_payload = updated_deepseek.json()
+    deepseek = deepseek_payload["engines"]["deepseek"]
+    assert deepseek_payload["active_engine"] == "deepseek"
+    assert deepseek["context_window"] == 200000
+    assert deepseek["max_tokens"] == 8192
+    assert deepseek["thinking"] == "enabled"
+    assert "deepseek-test-key" not in json.dumps(deepseek_payload)
+
+    saved = json.loads(ai_engines_file.read_text(encoding="utf-8"))
+    assert saved["active_engine"] == "deepseek"
+    assert saved["engines"]["deepseek"]["context_window"] == 200000
+    assert saved["engines"]["deepseek"]["max_tokens"] == 8192
+    assert saved["engines"]["deepseek"]["thinking"] == "enabled"
 
 
 def test_employee_default_ai_engine_settings_are_file_backed(tmp_path, monkeypatch):
@@ -517,6 +549,7 @@ ai_engine:
     assert calls[0]["url"] == "https://api.deepseek.com/chat/completions"
     assert calls[0]["json"]["stream"] is True
     assert calls[0]["json"]["stream_options"] == {"include_usage": True}
+    assert calls[0]["json"]["max_tokens"] == 384000
     assert 'event: delta\ndata: {"text": "我是 "}' in body
     assert 'event: delta\ndata: {"text": "Clara"}' in body
     assert "ai_engine.deepseek.stream_completed" in body
@@ -1423,7 +1456,8 @@ handoff_rules:
                         "message": {
                             "role": "assistant",
                             "content": "我是 AITeamOS 的 Clara。",
-                        }
+                        },
+                        "finish_reason": "stop",
                     }
                 ],
                 "usage": {"prompt_tokens": 12, "completion_tokens": 8},
@@ -1463,6 +1497,7 @@ handoff_rules:
     assert calls[0]["url"] == "https://api.deepseek.com/chat/completions"
     assert calls[0]["json"]["model"] == "deepseek-v4-flash"
     assert calls[0]["json"]["thinking"] == {"type": "disabled"}
+    assert calls[0]["json"]["max_tokens"] == 384000
     assert calls[0]["json"]["messages"][0]["role"] == "system"
     assert "Role: AI Team OS Manager" in calls[0]["json"]["messages"][0]["content"]
     assert calls[0]["json"]["messages"][1:4] == [

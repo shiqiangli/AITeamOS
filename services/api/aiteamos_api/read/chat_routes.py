@@ -229,7 +229,7 @@ class ChatAiEngineConfigField(BaseModel):
     id: str
     label: str
     kind: str = "text"
-    value: str | bool | None = None
+    value: str | bool | int | None = None
     placeholder: str = ""
     options: list[str] = Field(default_factory=list)
     required: bool = False
@@ -250,6 +250,8 @@ class ChatAiEngineRecord(BaseModel):
     api_key_env: str | None = None
     model: str | None = None
     thinking: str | None = None
+    context_window: int | None = None
+    max_tokens: int | None = None
     enabled: bool = True
     editable: bool = True
     active: bool = False
@@ -267,6 +269,8 @@ class ChatAiEngineRecord(BaseModel):
 class ChatAiEngineUpdateRequest(BaseModel):
     model: str | None = None
     thinking: str | None = None
+    context_window: int | None = None
+    max_tokens: int | None = None
     base_url: str | None = None
     api_key_env: str | None = None
     enabled: bool | None = None
@@ -276,7 +280,7 @@ class ChatAiEngineUpdateRequest(BaseModel):
 class ChatAiEngineSettings(BaseModel):
     active_engine: str = "stub"
     deepseek_model: str = "deepseek-v4-flash"
-    deepseek_thinking: str = "disabled"
+    deepseek_thinking: str = "enabled"
     openai_model: str = "gpt-5-nano"
     fallback_on_error: bool = True
     engines: dict[str, ChatAiEngineRecord] = Field(default_factory=dict)
@@ -288,7 +292,7 @@ class ChatAiEngineSettings(BaseModel):
 class ChatAiEngineSettingsRequest(BaseModel):
     active_engine: str = "stub"
     deepseek_model: str = "deepseek-v4-flash"
-    deepseek_thinking: str = "disabled"
+    deepseek_thinking: str = "enabled"
     openai_model: str = "gpt-5-nano"
     fallback_on_error: bool = True
 
@@ -396,7 +400,7 @@ def _require_ai_engine(value: str) -> str:
 
 
 def _normalize_thinking(value: str | None) -> str:
-    thinking = (value or "disabled").strip().lower()
+    thinking = (value or "enabled").strip().lower()
     return "enabled" if thinking in {"1", "true", "yes", "on", "enabled"} else "disabled"
 
 
@@ -412,6 +416,14 @@ def _normalize_bool(value: Any, default: bool) -> bool:
         if normalized in {"0", "false", "no", "off"}:
             return False
     return bool(value)
+
+
+def _normalize_int_setting(value: Any, *, default: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(min_value, min(parsed, max_value))
 
 
 def _engine_file_config(engine_id: str, file_config: dict[str, Any]) -> dict[str, Any]:
@@ -450,7 +462,7 @@ def _engine_config(engine_id: str, file_config: dict[str, Any]) -> dict[str, Any
         or catalog.get("default_api_key_env")
         or ""
     )
-    return {
+    config = {
         **engine_file_config,
         "model": str(model),
         "thinking": _normalize_thinking(str(thinking)) if engine_id == "deepseek" else str(thinking),
@@ -458,6 +470,30 @@ def _engine_config(engine_id: str, file_config: dict[str, Any]) -> dict[str, Any
         "api_key_env": str(api_key_env),
         "enabled": _normalize_bool(engine_file_config.get("enabled"), True),
     }
+    if engine_id == "deepseek":
+        default_context_window = int(catalog.get("default_context_window") or 1_000_000)
+        default_max_tokens = int(catalog.get("default_max_tokens") or 384_000)
+        context_window = _normalize_int_setting(
+            engine_file_config.get("context_window")
+            or file_config.get("deepseek_context_window")
+            or os.environ.get("AITEAMOS_DEEPSEEK_CONTEXT_WINDOW")
+            or default_context_window,
+            default=default_context_window,
+            min_value=1024,
+            max_value=default_context_window,
+        )
+        max_tokens = _normalize_int_setting(
+            engine_file_config.get("max_tokens")
+            or file_config.get("deepseek_max_tokens")
+            or os.environ.get("AITEAMOS_DEEPSEEK_MAX_TOKENS")
+            or default_max_tokens,
+            default=default_max_tokens,
+            min_value=64,
+            max_value=default_max_tokens,
+        )
+        config["context_window"] = context_window
+        config["max_tokens"] = min(max_tokens, context_window)
+    return config
 
 
 def _ai_engine_config() -> dict[str, Any]:
@@ -469,7 +505,7 @@ def _ai_engine_config() -> dict[str, Any]:
     return {
         "active_engine": _normalize_ai_engine(file_config.get("active_engine") or os.environ.get("AITEAMOS_AI_ENGINE")),
         "deepseek_model": str(engine_configs["deepseek"]["model"] or "deepseek-v4-flash"),
-        "deepseek_thinking": _normalize_thinking(str(engine_configs["deepseek"]["thinking"] or "disabled")),
+        "deepseek_thinking": _normalize_thinking(str(engine_configs["deepseek"]["thinking"] or "enabled")),
         "openai_model": str(engine_configs["openai"]["model"] or "gpt-5-nano"),
         "fallback_on_error": _normalize_bool(
             file_config.get(
@@ -576,6 +612,8 @@ def _ai_engine_records(config: dict[str, Any], secrets: dict[str, str]) -> dict[
             api_key_env=str(engine_config.get("api_key_env") or "") or None,
             model=str(engine_config.get("model") or "") or None,
             thinking=str(engine_config.get("thinking") or "") or None,
+            context_window=int(engine_config["context_window"]) if engine_config.get("context_window") is not None else None,
+            max_tokens=int(engine_config["max_tokens"]) if engine_config.get("max_tokens") is not None else None,
             enabled=bool(engine_config.get("enabled", True)),
             editable=editable,
             active=active_engine == engine_id,
@@ -599,7 +637,7 @@ def _ai_engine_file_payload(config: dict[str, Any]) -> dict[str, Any]:
         engine_configs["deepseek"] = {
             **dict(engine_configs.get("deepseek") or {}),
             "model": str(config.get("deepseek_model") or "deepseek-v4-flash"),
-            "thinking": _normalize_thinking(str(config.get("deepseek_thinking") or "disabled")),
+            "thinking": _normalize_thinking(str(config.get("deepseek_thinking") or "enabled")),
         }
         engine_configs["openai"] = {
             **dict(engine_configs.get("openai") or {}),
@@ -612,7 +650,7 @@ def _ai_engine_file_payload(config: dict[str, Any]) -> dict[str, Any]:
             continue
         engine_config = engine_configs.get(engine_id) if isinstance(engine_configs.get(engine_id), dict) else {}
         persisted: dict[str, Any] = {}
-        for key in ("model", "thinking", "base_url", "api_key_env", "enabled", "command", "workspace", "profile"):
+        for key in ("model", "thinking", "context_window", "max_tokens", "base_url", "api_key_env", "enabled", "command", "workspace", "profile"):
             value = engine_config.get(key)
             if value is not None and value != "":
                 persisted[key] = value
@@ -3782,11 +3820,17 @@ def _deepseek_base_url() -> str:
 
 
 def _deepseek_max_tokens() -> int:
-    raw_value = os.environ.get("AITEAMOS_DEEPSEEK_MAX_TOKENS", "700")
-    try:
-        return max(64, min(int(raw_value), 4096))
-    except ValueError:
-        return 700
+    config = _ai_engine_config()
+    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
+    deepseek_config = engine_configs.get("deepseek") if isinstance(engine_configs.get("deepseek"), dict) else {}
+    return int(deepseek_config.get("max_tokens") or 384_000)
+
+
+def _deepseek_context_window() -> int:
+    config = _ai_engine_config()
+    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
+    deepseek_config = engine_configs.get("deepseek") if isinstance(engine_configs.get("deepseek"), dict) else {}
+    return int(deepseek_config.get("context_window") or 1_000_000)
 
 
 def _deepseek_thinking_type() -> str:
@@ -3997,7 +4041,9 @@ async def _call_deepseek_agent(
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
         raise HTTPException(status_code=502, detail="DeepSeek AI Engine returned no choices")
-    message_payload = choices[0].get("message") if isinstance(choices[0], dict) else None
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    finish_reason = choice.get("finish_reason") if isinstance(choice.get("finish_reason"), str) else None
+    message_payload = choice.get("message") if isinstance(choice, dict) else None
     reply = message_payload.get("content") if isinstance(message_payload, dict) else None
     if not isinstance(reply, str) or not reply.strip():
         raise HTTPException(status_code=502, detail="DeepSeek AI Engine returned no text output")
@@ -4022,7 +4068,10 @@ async def _call_deepseek_agent(
         "response_id": response_id,
         "assumed_agent_session": True,
         "usage": payload.get("usage"),
+        "finish_reason": finish_reason,
         "thinking": _deepseek_thinking_type(),
+        "context_window": _deepseek_context_window(),
+        "max_tokens": _deepseek_max_tokens(),
     }
     return reply.strip(), next_state, metadata
 
@@ -4059,6 +4108,7 @@ async def _stream_deepseek_agent(
     response_id = f"deepseek-{uuid4().hex[:12]}"
     model = _deepseek_model()
     usage: Any = None
+    finish_reason: str | None = None
     reply_parts: list[str] = []
 
     async with httpx.AsyncClient(timeout=60) as client:
@@ -4099,7 +4149,11 @@ async def _stream_deepseek_agent(
                 choices = payload.get("choices")
                 if not isinstance(choices, list) or not choices:
                     continue
-                delta = choices[0].get("delta") if isinstance(choices[0], dict) else None
+                choice = choices[0] if isinstance(choices[0], dict) else {}
+                reason = choice.get("finish_reason")
+                if isinstance(reason, str):
+                    finish_reason = reason
+                delta = choice.get("delta") if isinstance(choice, dict) else None
                 text = delta.get("content") if isinstance(delta, dict) else None
                 if isinstance(text, str) and text:
                     reply_parts.append(text)
@@ -4125,7 +4179,10 @@ async def _stream_deepseek_agent(
         "response_id": response_id,
         "assumed_agent_session": True,
         "usage": usage,
+        "finish_reason": finish_reason,
         "thinking": _deepseek_thinking_type(),
+        "context_window": _deepseek_context_window(),
+        "max_tokens": _deepseek_max_tokens(),
         "native_stream": True,
     }
     final_response = _persist_chat_response(
@@ -4661,6 +4718,24 @@ async def update_chat_ai_engine(
         engine_config["model"] = request.model.strip() or str(AI_ENGINE_CATALOG[engine].get("default_model") or "")
     if request.thinking is not None and engine == "deepseek":
         engine_config["thinking"] = _normalize_thinking(request.thinking)
+    if request.context_window is not None and engine == "deepseek":
+        engine_config["context_window"] = _normalize_int_setting(
+            request.context_window,
+            default=int(AI_ENGINE_CATALOG[engine].get("default_context_window") or 1_000_000),
+            min_value=1024,
+            max_value=int(AI_ENGINE_CATALOG[engine].get("default_context_window") or 1_000_000),
+        )
+    if request.max_tokens is not None and engine == "deepseek":
+        context_window = int(engine_config.get("context_window") or AI_ENGINE_CATALOG[engine].get("default_context_window") or 1_000_000)
+        engine_config["max_tokens"] = min(
+            _normalize_int_setting(
+                request.max_tokens,
+                default=int(AI_ENGINE_CATALOG[engine].get("default_max_tokens") or 384_000),
+                min_value=64,
+                max_value=int(AI_ENGINE_CATALOG[engine].get("default_max_tokens") or 384_000),
+            ),
+            context_window,
+        )
     if request.base_url is not None:
         engine_config["base_url"] = request.base_url.strip() or str(AI_ENGINE_CATALOG[engine].get("default_base_url") or "")
     if request.api_key_env is not None:
@@ -4668,11 +4743,29 @@ async def update_chat_ai_engine(
     if request.enabled is not None:
         engine_config["enabled"] = bool(request.enabled)
 
+    if engine == "deepseek":
+        context_window = _normalize_int_setting(
+            engine_config.get("context_window"),
+            default=int(AI_ENGINE_CATALOG[engine].get("default_context_window") or 1_000_000),
+            min_value=1024,
+            max_value=int(AI_ENGINE_CATALOG[engine].get("default_context_window") or 1_000_000),
+        )
+        engine_config["context_window"] = context_window
+        engine_config["max_tokens"] = min(
+            _normalize_int_setting(
+                engine_config.get("max_tokens"),
+                default=int(AI_ENGINE_CATALOG[engine].get("default_max_tokens") or 384_000),
+                min_value=64,
+                max_value=int(AI_ENGINE_CATALOG[engine].get("default_max_tokens") or 384_000),
+            ),
+            context_window,
+        )
+
     engine_configs[engine] = engine_config
     next_config["engine_configs"] = engine_configs
     if engine == "deepseek":
         next_config["deepseek_model"] = str(engine_config.get("model") or "deepseek-v4-flash")
-        next_config["deepseek_thinking"] = _normalize_thinking(str(engine_config.get("thinking") or "disabled"))
+        next_config["deepseek_thinking"] = _normalize_thinking(str(engine_config.get("thinking") or "enabled"))
     elif engine == "openai":
         next_config["openai_model"] = str(engine_config.get("model") or "gpt-5-nano")
 

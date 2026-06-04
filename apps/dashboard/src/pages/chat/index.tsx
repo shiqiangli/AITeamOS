@@ -14,6 +14,7 @@ import { Panel, Group, Separator } from "react-resizable-panels";
 import {
   Activity,
   Bot,
+  Check,
   ChevronDown,
   GitBranch,
   PanelLeftClose,
@@ -23,6 +24,7 @@ import {
   Plus,
   Search,
   Send,
+  SlidersHorizontal,
   Trash2,
   User,
   X,
@@ -45,6 +47,7 @@ import {
   type ChatMessageResponse,
   type ChatAiEngineRecord,
   type ChatAiEngineSettings,
+  type ChatAiEngineUpdateRequest,
   type ChatThreadSummary,
   type ChatTraceEvent,
 } from "../../api/chat";
@@ -207,6 +210,35 @@ function metadataText(value: unknown): string {
   return typeof value === "string" && value.trim() ? value : "-";
 }
 
+const DEEPSEEK_CONTEXT_PRESETS = [200000, 400000, 1000000];
+const DEEPSEEK_MAX_OUTPUT_PRESETS = [64000, 128000, 384000];
+
+function compactTokens(value?: number | string | null): string {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return "-";
+  if (parsed >= 1000000 && parsed % 1000000 === 0) return `${parsed / 1000000}M`;
+  if (parsed >= 1000 && parsed % 1000 === 0) return `${parsed / 1000}K`;
+  return parsed.toLocaleString();
+}
+
+function aiEngineNumberDraft(value?: number | null, fallback = 0): string {
+  return String(value || fallback || "");
+}
+
+function deepSeekDraftFromEngine(engine: ChatAiEngineRecord) {
+  return {
+    model: engine.model ?? "deepseek-v4-flash",
+    thinking: engine.thinking ?? "enabled",
+    context_window: aiEngineNumberDraft(engine.context_window, 1000000),
+    max_tokens: aiEngineNumberDraft(engine.max_tokens, 384000),
+  };
+}
+
+function draftNumber(value: string, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function dataPreview(value: unknown): string {
   if (!value || typeof value !== "object") return "";
   const json = JSON.stringify(value);
@@ -295,6 +327,214 @@ function AssistantMessage() {
   );
 }
 
+function DeepSeekQuickConfig({
+  engine,
+  saving,
+  onSave,
+}: {
+  engine: ChatAiEngineRecord;
+  saving: boolean;
+  onSave: (payload: ChatAiEngineUpdateRequest) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(() => deepSeekDraftFromEngine(engine));
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setDraft(deepSeekDraftFromEngine(engine));
+  }, [engine.context_window, engine.id, engine.max_tokens, engine.model, engine.thinking]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
+
+  const contextWindow = draftNumber(draft.context_window, engine.context_window ?? 1000000);
+  const maxTokens = draftNumber(draft.max_tokens, engine.max_tokens ?? 384000);
+  const modelOptions = engine.model_options.length > 0 ? engine.model_options : [draft.model];
+  const thinkingOptions = engine.thinking_options.length > 0 ? engine.thinking_options : ["enabled", "disabled"];
+
+  function setContextWindow(value: number) {
+    setDraft((current) => ({
+      ...current,
+      context_window: String(value),
+      max_tokens: String(Math.min(draftNumber(current.max_tokens, engine.max_tokens ?? 384000), value)),
+    }));
+  }
+
+  function setMaxTokens(value: number) {
+    setDraft((current) => ({
+      ...current,
+      max_tokens: String(Math.min(value, draftNumber(current.context_window, engine.context_window ?? 1000000))),
+    }));
+  }
+
+  async function save() {
+    await onSave({
+      model: draft.model,
+      thinking: draft.thinking,
+      context_window: contextWindow,
+      max_tokens: Math.min(maxTokens, contextWindow),
+    });
+    setOpen(false);
+  }
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="h-9 w-9"
+        aria-label="DeepSeek settings"
+        title="DeepSeek settings"
+        onClick={() => setOpen((value) => !value)}
+        disabled={saving}
+      >
+        <SlidersHorizontal className="h-4 w-4" />
+      </Button>
+
+      {open && (
+        <div className="absolute bottom-full right-0 z-50 mb-2 w-[20rem] max-w-[calc(100vw-2rem)] rounded-md border bg-popover p-3 text-sm shadow-xl">
+          <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate font-semibold">DeepSeek</div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                {draft.model} · {compactTokens(contextWindow)} ctx · {compactTokens(Math.min(maxTokens, contextWindow))} out
+              </div>
+            </div>
+            <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setOpen(false)} title="Close">
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            <label className="block space-y-1">
+              <span className="text-[10px] font-medium uppercase text-muted-foreground">Model</span>
+              <Select
+                aria-label="DeepSeek model"
+                value={draft.model}
+                onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}
+                disabled={saving}
+                className="h-8 text-xs"
+              >
+                {modelOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </Select>
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[10px] font-medium uppercase text-muted-foreground">Reasoning</span>
+              <Select
+                aria-label="DeepSeek reasoning"
+                value={draft.thinking}
+                onChange={(event) => setDraft((current) => ({ ...current, thinking: event.target.value }))}
+                disabled={saving}
+                className="h-8 text-xs"
+              >
+                {thinkingOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </Select>
+            </label>
+
+            <div className="space-y-1">
+              <div className="text-[10px] font-medium uppercase text-muted-foreground">Context window</div>
+              <div className="grid grid-cols-3 gap-1">
+                {DEEPSEEK_CONTEXT_PRESETS.map((preset) => {
+                  const selected = preset === contextWindow;
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setContextWindow(preset)}
+                      disabled={saving}
+                      className={cn(
+                        "flex h-8 items-center justify-center gap-1 rounded-md border px-2 text-xs transition-colors",
+                        selected ? "border-primary bg-primary/10 text-foreground" : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      <span>{compactTokens(preset)}</span>
+                      {selected && <Check className="h-3 w-3" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-[10px] font-medium uppercase text-muted-foreground">Max output</div>
+              <div className="grid grid-cols-3 gap-1">
+                {DEEPSEEK_MAX_OUTPUT_PRESETS.map((preset) => {
+                  const selected = preset === Math.min(maxTokens, contextWindow);
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setMaxTokens(preset)}
+                      disabled={saving}
+                      className={cn(
+                        "flex h-8 items-center justify-center gap-1 rounded-md border px-2 text-xs transition-colors",
+                        selected ? "border-primary bg-primary/10 text-foreground" : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      <span>{compactTokens(preset)}</span>
+                      {selected && <Check className="h-3 w-3" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block space-y-1">
+                <span className="text-[10px] font-medium uppercase text-muted-foreground">Context</span>
+                <input
+                  aria-label="DeepSeek context window"
+                  type="number"
+                  value={draft.context_window}
+                  min={1024}
+                  max={1000000}
+                  onChange={(event) => setDraft((current) => ({ ...current, context_window: event.target.value }))}
+                  disabled={saving}
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[10px] font-medium uppercase text-muted-foreground">Output</span>
+                <input
+                  aria-label="DeepSeek max output tokens"
+                  type="number"
+                  value={draft.max_tokens}
+                  min={64}
+                  max={384000}
+                  onChange={(event) => setDraft((current) => ({ ...current, max_tokens: event.target.value }))}
+                  disabled={saving}
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="outline" size="sm" onClick={() => setDraft(deepSeekDraftFromEngine(engine))} disabled={saving}>
+                Reset
+              </Button>
+              <Button type="button" size="sm" onClick={() => void save()} disabled={saving}>
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AiteamosThread({
   employees,
   selectedEmployee,
@@ -304,6 +544,7 @@ function AiteamosThread({
   aiEngineReady,
   aiEngineSaving,
   onAiEngineChange,
+  onAiEngineConfigChange,
   onAiEngineThinkingChange,
   ticketKey,
   onTicketKeyChange,
@@ -316,12 +557,14 @@ function AiteamosThread({
   aiEngineReady: boolean;
   aiEngineSaving: boolean;
   onAiEngineChange: (engineId: string) => void;
+  onAiEngineConfigChange: (engineId: string, payload: ChatAiEngineUpdateRequest) => Promise<void>;
   onAiEngineThinkingChange: (thinking: string) => void;
   ticketKey: string;
   onTicketKeyChange: (value: string) => void;
 }) {
   const activeAiEngine = aiEngineRecords.find((engine) => engine.id === aiEngines?.active_engine) ?? aiEngineRecords[0] ?? null;
   const thinkingOptions = activeAiEngine?.thinking_options ?? [];
+  const showDeepSeekConfig = activeAiEngine?.id === "deepseek";
 
   return (
     <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
@@ -346,7 +589,7 @@ function AiteamosThread({
               />
             </div>
 
-            <label className="min-w-0 flex-[1_1_10rem]">
+            <div className="min-w-0 flex-[1_1_10rem]">
               <span className="mb-1 block text-[10px] font-medium uppercase leading-none text-muted-foreground">AI Engine</span>
               <div className="flex items-center gap-1.5">
                 <div className={cn("h-2 w-2 shrink-0 rounded-full", aiEngineReady ? "bg-green-500" : "bg-orange-400")} />
@@ -365,10 +608,17 @@ function AiteamosThread({
                     <option value="stub">File stub</option>
                   )}
                 </Select>
+                {showDeepSeekConfig && activeAiEngine && (
+                  <DeepSeekQuickConfig
+                    engine={activeAiEngine}
+                    saving={aiEngineSaving}
+                    onSave={(payload) => onAiEngineConfigChange("deepseek", payload)}
+                  />
+                )}
               </div>
-            </label>
+            </div>
 
-            {thinkingOptions.length > 0 && (
+            {!showDeepSeekConfig && thinkingOptions.length > 0 && (
               <label className="min-w-0 flex-[0_1_8rem]">
                 <span className="mb-1 block text-[10px] font-medium uppercase leading-none text-muted-foreground">Reasoning</span>
                 <Select
@@ -884,6 +1134,20 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
     }
   }
 
+  async function updateAiEngineConfig(engineId: string, payload: ChatAiEngineUpdateRequest) {
+    if (!engineId || aiEngineSaving) return;
+    setAiEngineSaving(true);
+    setError(null);
+    try {
+      setAiEngines(await updateChatAiEngine(engineId, payload));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update AI Engine settings");
+      throw err;
+    } finally {
+      setAiEngineSaving(false);
+    }
+  }
+
   if (loading) return <LoadingState />;
   const aiEngineReady = Boolean(
     aiEngines?.active_engine
@@ -1016,6 +1280,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
                 aiEngineReady={aiEngineReady}
                 aiEngineSaving={aiEngineSaving}
                 onAiEngineChange={(engineId) => void switchAiEngine(engineId)}
+                onAiEngineConfigChange={updateAiEngineConfig}
                 onAiEngineThinkingChange={(thinking) => void switchAiEngineThinking(thinking)}
                 ticketKey={ticketKey}
                 onTicketKeyChange={setTicketKey}
