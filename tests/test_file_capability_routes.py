@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from aiteamos_api.main import create_app
 
 
-def test_capability_registry_groups_built_in_and_connector_tools(tmp_path, monkeypatch):
+def test_capability_registry_groups_kernel_commands_and_connector_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(tmp_path))
     client = TestClient(create_app())
 
@@ -13,17 +13,18 @@ def test_capability_registry_groups_built_in_and_connector_tools(tmp_path, monke
 
     capabilities = payload["capabilities"]
     ids = {item["id"] for item in capabilities}
-    assert "list_employees" in ids
-    assert "create_ticket" in ids
-    assert "inspect_code_repository" in ids
+    assert "employees.manage" in ids
+    assert "tickets.manage" in ids
+    assert "repositories.inspect" in ids
+    assert "kernel.permissions" in ids
     assert "mcp:github:repo.search" in ids
     assert "mcp:ci-harness:validation.run" in ids
 
-    list_employees = next(item for item in capabilities if item["id"] == "list_employees")
-    assert list_employees["kind"] == "tool"
-    assert list_employees["source_kind"] == "built_in"
-    assert list_employees["status"] == "ready"
-    assert list_employees["deep_link"] == "#/employees"
+    employees_manage = next(item for item in capabilities if item["id"] == "employees.manage")
+    assert employees_manage["kind"] == "tool"
+    assert employees_manage["source_kind"] == "kernel_command"
+    assert employees_manage["status"] == "ready"
+    assert employees_manage["deep_link"] == "#/employees"
 
     github_tool = next(item for item in capabilities if item["id"] == "mcp:github:repo.search")
     assert github_tool["kind"] == "tool"
@@ -34,17 +35,18 @@ def test_capability_registry_groups_built_in_and_connector_tools(tmp_path, monke
     status = payload["status"]
     assert status["capability_count"] == len(capabilities)
     assert status["tool_count"] == len(capabilities)
-    assert status["built_in_tool_count"] >= 14
+    assert status["kernel_command_count"] >= 8
     assert status["mcp_tool_count"] >= 6
     assert status["native_api_tool_count"] == 0
     assert status["cli_tool_count"] == 0
     assert status["ci_tool_count"] == 0
-    assert payload["model"]["tool"].startswith("executable action normalized")
+    assert payload["model"]["tool"].startswith("executable action exposed through Kernel commands")
 
-    built_in_assets = client.get("/api/v1/assets/capabilities/built-in-tools")
-    assert built_in_assets.status_code == 200
-    assert "list_employees" in {item["id"] for item in built_in_assets.json()}
-    assert all(item["metadata"]["asset_type"] == "built-in-tools" for item in built_in_assets.json())
+    kernel_assets = client.get("/api/v1/assets/capabilities/kernel-commands")
+    assert kernel_assets.status_code == 200
+    assert "employees.manage" in {item["id"] for item in kernel_assets.json()}
+    assert "kernel.permissions" in {item["id"] for item in kernel_assets.json()}
+    assert all(item["metadata"]["asset_type"] == "kernel-commands" for item in kernel_assets.json())
 
     mcp_assets = client.get("/api/v1/assets/capabilities/mcp-tools")
     assert mcp_assets.status_code == 200

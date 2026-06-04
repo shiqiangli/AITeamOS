@@ -27,7 +27,7 @@ export interface CapabilityRegistryStatus {
   configured_count: number;
   ready_count: number;
   tool_count: number;
-  built_in_tool_count: number;
+  kernel_command_count: number;
   mcp_tool_count: number;
   native_api_tool_count: number;
   cli_tool_count: number;

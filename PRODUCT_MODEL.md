@@ -233,7 +233,7 @@ Assets
        -> Decisions
   -> Capabilities
        -> Skills
-       -> Built-in Tools
+       -> Kernel Commands
        -> MCP Tools
   -> Review Queue
        -> Memory candidates
@@ -363,7 +363,7 @@ System Status
 
 AI Engines 是 Clara 和 Employees 思考或执行的后端。DeepSeek、OpenAI / ChatGPT API、Kimi、Gemini、Ollama、LM Studio、vLLM 等都可表达为 `llm_api`；Codex、Claude Code、Cursor、Qoder 等可表达为 `agent_platform`。本地模型不是单独的产品层级，而是 `llm_api` 的本地 deployment。
 
-Tool Connector 是外部能力来源的配置入口。MCP Server 是 Tool Connector 的一种 `kind`，不是和 Connector 并列的产品概念。AITeamOS 作为 host / client 连接 MCP Server，发现其 tools / resources / prompts，并把可执行动作归一化到 Capabilities / MCP Tools。AITeamOS Kernel 自带动作进入 Capabilities / Built-in Tools。Plane、Jira 等 Ticket 事实源优先归入 Ticket Backend；它们派生出的 `tickets.create`、`tickets.comment`、`tickets.transition` 等动作进入对应的 capability tool 分类，但配置不在 Tool Connectors 中重复。
+Tool Connector 是外部能力来源的配置入口。MCP Server 是 Tool Connector 的一种 `kind`，不是和 Connector 并列的产品概念。AITeamOS 作为 host / client 连接 MCP Server，发现其 tools / resources / prompts，并把可执行动作归一化到 Capabilities / MCP Tools。AITeamOS Kernel 自带动作进入 Capabilities / Kernel Commands。Plane、Jira 等 Ticket 事实源优先归入 Ticket Backend；它们派生出的 `tickets.create`、`tickets.comment`、`tickets.transition` 等动作进入对应的 capability tool 分类，但配置不在 Tool Connectors 中重复。
 
 System Status 是一级只读状态入口，放在 Settings 之后。API key、token、password 等敏感值只通过环境变量提供；Settings 的各业务页面只配置非敏感信息和环境变量引用。System Status / Secrets Health 只展示需要哪些环境变量、用途、是否已配置、如何配置，以及被哪个 AI Engine、Ticket Backend、Tool Connector 或 Memory Backend 使用。
 
@@ -418,7 +418,7 @@ AITeamOS 的吸收方式：
 
 AITeamOS 的吸收方式：
 
-- 继续区分 Knowledge、Capabilities 和 Connectors：Capabilities 内含 Skills、Built-in Tools 和 MCP Tools；Connectors 只负责接入配置。
+- 继续区分 Knowledge、Capabilities 和 Connectors：Capabilities 内含 Skills、Kernel Commands 和 MCP Tools；Connectors 只负责接入配置。
 - 让 Clara 和 Employees 通过 Capability Registry 发现 executable tools。
 - 用户仍然通过 Chat 操作，而不是把所有 action 都做成按钮。
 

@@ -27,7 +27,7 @@ The Dashboard opens on Chat because Clara-led Ticket flow is the main operating 
 | `#/assets/knowledge/memories` | Memories |
 | `#/assets/knowledge/decisions` | Decisions |
 | `#/assets/capabilities/skills` | Skills |
-| `#/assets/capabilities/built-in-tools` | Built-in Tools |
+| `#/assets/capabilities/kernel-commands` | Kernel Commands |
 | `#/assets/capabilities/mcp-tools` | MCP Tools |
 | `#/assets/review` | Review Queue |
 | `#/settings/ai-engines` | AI Engines |

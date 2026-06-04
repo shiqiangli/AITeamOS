@@ -44,6 +44,7 @@ import {
   updateChatAiEngine,
   type ConversationMessage,
   type ChatEmployeeSummary,
+  type ChatAiEngineConfigField,
   type ChatMessageResponse,
   type ChatAiEngineRecord,
   type ChatAiEngineSettings,
@@ -61,12 +62,16 @@ import { cn } from "@/lib/utils";
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
 
 function hasEmployeeProfileMutation(events: ChatTraceEvent[]): boolean {
+  const mutationCommands = new Set([
+    "employees.manage:create",
+    "employees.manage:update",
+    "employees.manage:delete",
+    "assets.manage:assign_skill",
+    "assets.manage:delete_skill",
+  ]);
   return events.some((event) => (
-    event.event === "tool.create_employee.completed"
-    || event.event === "tool.edit_employee_profile.completed"
-    || event.event === "tool.delete_employee.completed"
-    || event.event === "tool.assign_skill_to_employee.completed"
-    || event.event === "tool.delete_skill.completed"
+    event.event === "command.completed"
+    && mutationCommands.has(metadataText(asRecord(asRecord(event.data).command).id))
   ));
 }
 
@@ -225,18 +230,107 @@ function aiEngineNumberDraft(value?: number | null, fallback = 0): string {
   return String(value || fallback || "");
 }
 
-function deepSeekDraftFromEngine(engine: ChatAiEngineRecord) {
-  return {
-    model: engine.model ?? "deepseek-v4-flash",
-    thinking: engine.thinking ?? "enabled",
-    context_window: aiEngineNumberDraft(engine.context_window, 1000000),
-    max_tokens: aiEngineNumberDraft(engine.max_tokens, 384000),
-  };
-}
-
 function draftNumber(value: string, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function draftNumberOrNull(value: string): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+const QUICK_ENGINE_FIELD_IDS = ["model", "thinking", "speed", "context_window", "max_tokens"] as const;
+type QuickEngineFieldId = typeof QUICK_ENGINE_FIELD_IDS[number];
+type QuickEngineDraft = Record<QuickEngineFieldId, string>;
+
+function isQuickEngineFieldId(value: string): value is QuickEngineFieldId {
+  return (QUICK_ENGINE_FIELD_IDS as readonly string[]).includes(value);
+}
+
+function engineFieldTextValue(engine: ChatAiEngineRecord, fieldId: QuickEngineFieldId): string {
+  if (fieldId === "context_window") return aiEngineNumberDraft(engine.context_window);
+  if (fieldId === "max_tokens") return aiEngineNumberDraft(engine.max_tokens);
+  const value = engine[fieldId];
+  return value === undefined || value === null ? "" : String(value);
+}
+
+function quickEngineFields(engine: ChatAiEngineRecord): ChatAiEngineConfigField[] {
+  const fieldsById = new Map<QuickEngineFieldId, ChatAiEngineConfigField>();
+  const fields = [
+    ...(engine.config_fields ?? []),
+    ...(engine.chat_options ?? []),
+  ];
+  for (const field of fields) {
+    if (isQuickEngineFieldId(field.id) && !field.secret && !field.read_only) {
+      fieldsById.set(field.id, field);
+    }
+  }
+  return QUICK_ENGINE_FIELD_IDS
+    .map((fieldId) => fieldsById.get(fieldId))
+    .filter((field): field is ChatAiEngineConfigField => Boolean(field));
+}
+
+function quickDraftFromEngine(engine: ChatAiEngineRecord): QuickEngineDraft {
+  const draft = {
+    model: "",
+    thinking: "",
+    speed: "",
+    context_window: "",
+    max_tokens: "",
+  };
+  for (const field of quickEngineFields(engine)) {
+    const fieldId = field.id as QuickEngineFieldId;
+    const value = field.value ?? engineFieldTextValue(engine, fieldId);
+    draft[fieldId] = value === undefined || value === null ? "" : String(value);
+  }
+  return draft;
+}
+
+function quickFieldOptions(engine: ChatAiEngineRecord, field: ChatAiEngineConfigField): string[] {
+  const fieldOptions = field.options ?? [];
+  if (fieldOptions.length > 0) return fieldOptions;
+  if (field.id === "model") return engine.model_options ?? [];
+  if (field.id === "thinking") return engine.thinking_options ?? [];
+  return [];
+}
+
+function quickPresets(engine: ChatAiEngineRecord, fieldId: string): number[] {
+  if (engine.id === "deepseek" && fieldId === "context_window") return DEEPSEEK_CONTEXT_PRESETS;
+  if (engine.id === "deepseek" && fieldId === "max_tokens") return DEEPSEEK_MAX_OUTPUT_PRESETS;
+  return [];
+}
+
+function quickFieldMax(engine: ChatAiEngineRecord, fieldId: string): number | undefined {
+  if (fieldId === "context_window") return engine.context_window ?? undefined;
+  if (fieldId === "max_tokens") return engine.context_window ?? engine.max_tokens ?? undefined;
+  return undefined;
+}
+
+function quickPayloadFromDraft(engine: ChatAiEngineRecord, draft: QuickEngineDraft): ChatAiEngineUpdateRequest {
+  const fieldIds = new Set(quickEngineFields(engine).map((field) => field.id));
+  const payload: ChatAiEngineUpdateRequest = {};
+  if (fieldIds.has("model")) payload.model = draft.model;
+  if (fieldIds.has("thinking")) payload.thinking = draft.thinking;
+  if (fieldIds.has("speed")) payload.speed = draft.speed;
+  if (fieldIds.has("context_window")) payload.context_window = draftNumberOrNull(draft.context_window);
+  if (fieldIds.has("max_tokens")) {
+    const maxTokens = draftNumberOrNull(draft.max_tokens);
+    const contextWindow = draftNumberOrNull(draft.context_window);
+    payload.max_tokens = maxTokens && contextWindow ? Math.min(maxTokens, contextWindow) : maxTokens;
+  }
+  return payload;
+}
+
+function quickEngineSummary(draft: QuickEngineDraft): string {
+  const parts = [
+    draft.model,
+    draft.thinking ? `reasoning ${draft.thinking}` : "",
+    draft.speed ? `speed ${draft.speed}` : "",
+    draft.context_window ? `${compactTokens(draft.context_window)} ctx` : "",
+    draft.max_tokens ? `${compactTokens(draft.max_tokens)} out` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : "No runtime fields";
 }
 
 function dataPreview(value: unknown): string {
@@ -327,7 +421,7 @@ function AssistantMessage() {
   );
 }
 
-function DeepSeekQuickConfig({
+function EngineQuickConfig({
   engine,
   saving,
   onSave,
@@ -337,12 +431,13 @@ function DeepSeekQuickConfig({
   onSave: (payload: ChatAiEngineUpdateRequest) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(() => deepSeekDraftFromEngine(engine));
+  const [draft, setDraft] = useState(() => quickDraftFromEngine(engine));
   const ref = useRef<HTMLDivElement>(null);
+  const fields = useMemo(() => quickEngineFields(engine), [engine]);
 
   useEffect(() => {
-    setDraft(deepSeekDraftFromEngine(engine));
-  }, [engine.context_window, engine.id, engine.max_tokens, engine.model, engine.thinking]);
+    setDraft(quickDraftFromEngine(engine));
+  }, [engine]);
 
   useEffect(() => {
     if (!open) return;
@@ -353,33 +448,22 @@ function DeepSeekQuickConfig({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [open]);
 
-  const contextWindow = draftNumber(draft.context_window, engine.context_window ?? 1000000);
-  const maxTokens = draftNumber(draft.max_tokens, engine.max_tokens ?? 384000);
-  const modelOptions = engine.model_options.length > 0 ? engine.model_options : [draft.model];
-  const thinkingOptions = engine.thinking_options.length > 0 ? engine.thinking_options : ["enabled", "disabled"];
+  if (fields.length === 0) return null;
 
-  function setContextWindow(value: number) {
-    setDraft((current) => ({
-      ...current,
-      context_window: String(value),
-      max_tokens: String(Math.min(draftNumber(current.max_tokens, engine.max_tokens ?? 384000), value)),
-    }));
-  }
-
-  function setMaxTokens(value: number) {
-    setDraft((current) => ({
-      ...current,
-      max_tokens: String(Math.min(value, draftNumber(current.context_window, engine.context_window ?? 1000000))),
-    }));
+  function setDraftField(fieldId: QuickEngineFieldId, value: string) {
+    setDraft((current) => {
+      const next = { ...current, [fieldId]: value };
+      const contextWindow = draftNumberOrNull(next.context_window) ?? engine.context_window ?? null;
+      const maxTokens = draftNumberOrNull(next.max_tokens);
+      if (contextWindow && maxTokens && maxTokens > contextWindow) {
+        next.max_tokens = String(contextWindow);
+      }
+      return next;
+    });
   }
 
   async function save() {
-    await onSave({
-      model: draft.model,
-      thinking: draft.thinking,
-      context_window: contextWindow,
-      max_tokens: Math.min(maxTokens, contextWindow),
-    });
+    await onSave(quickPayloadFromDraft(engine, draft));
     setOpen(false);
   }
 
@@ -390,8 +474,8 @@ function DeepSeekQuickConfig({
         variant="outline"
         size="icon"
         className="h-9 w-9"
-        aria-label="DeepSeek settings"
-        title="DeepSeek settings"
+        aria-label={`${engine.display_name} settings`}
+        title={`${engine.display_name} settings`}
         onClick={() => setOpen((value) => !value)}
         disabled={saving}
       >
@@ -402,10 +486,8 @@ function DeepSeekQuickConfig({
         <div className="absolute bottom-full right-0 z-50 mb-2 w-[20rem] max-w-[calc(100vw-2rem)] rounded-md border bg-popover p-3 text-sm shadow-xl">
           <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="truncate font-semibold">DeepSeek</div>
-              <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                {draft.model} · {compactTokens(contextWindow)} ctx · {compactTokens(Math.min(maxTokens, contextWindow))} out
-              </div>
+              <div className="truncate font-semibold">{engine.display_name}</div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">{quickEngineSummary(draft)}</div>
             </div>
             <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setOpen(false)} title="Close">
               <X className="h-3.5 w-3.5" />
@@ -413,115 +495,69 @@ function DeepSeekQuickConfig({
           </div>
 
           <div className="space-y-3">
-            <label className="block space-y-1">
-              <span className="text-[10px] font-medium uppercase text-muted-foreground">Model</span>
-              <Select
-                aria-label="DeepSeek model"
-                value={draft.model}
-                onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}
-                disabled={saving}
-                className="h-8 text-xs"
-              >
-                {modelOptions.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </Select>
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-[10px] font-medium uppercase text-muted-foreground">Reasoning</span>
-              <Select
-                aria-label="DeepSeek reasoning"
-                value={draft.thinking}
-                onChange={(event) => setDraft((current) => ({ ...current, thinking: event.target.value }))}
-                disabled={saving}
-                className="h-8 text-xs"
-              >
-                {thinkingOptions.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </Select>
-            </label>
-
-            <div className="space-y-1">
-              <div className="text-[10px] font-medium uppercase text-muted-foreground">Context window</div>
-              <div className="grid grid-cols-3 gap-1">
-                {DEEPSEEK_CONTEXT_PRESETS.map((preset) => {
-                  const selected = preset === contextWindow;
-                  return (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setContextWindow(preset)}
+            {fields.map((field) => {
+              const fieldId = field.id as QuickEngineFieldId;
+              const options = quickFieldOptions(engine, field);
+              const presets = quickPresets(engine, field.id);
+              const numericValue = draftNumber(draft[fieldId], 0);
+              const max = quickFieldMax(engine, field.id);
+              return (
+                <label key={field.id} className="block space-y-1">
+                  <span className="text-[10px] font-medium uppercase text-muted-foreground">{field.label}</span>
+                  {presets.length > 0 && (
+                    <div className="grid grid-cols-3 gap-1">
+                      {presets.map((preset) => {
+                        const selected = preset === numericValue;
+                        return (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setDraftField(fieldId, String(preset))}
+                            disabled={saving}
+                            className={cn(
+                              "flex h-8 items-center justify-center gap-1 rounded-md border px-2 text-xs transition-colors",
+                              selected ? "border-primary bg-primary/10 text-foreground" : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
+                            )}
+                          >
+                            <span>{compactTokens(preset)}</span>
+                            {selected && <Check className="h-3 w-3" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {options.length > 0 ? (
+                    <Select
+                      aria-label={`${engine.display_name} ${field.label}`}
+                      value={draft[fieldId]}
+                      onChange={(event) => setDraftField(fieldId, event.target.value)}
                       disabled={saving}
-                      className={cn(
-                        "flex h-8 items-center justify-center gap-1 rounded-md border px-2 text-xs transition-colors",
-                        selected ? "border-primary bg-primary/10 text-foreground" : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
-                      )}
+                      className="h-8 text-xs"
                     >
-                      <span>{compactTokens(preset)}</span>
-                      {selected && <Check className="h-3 w-3" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-[10px] font-medium uppercase text-muted-foreground">Max output</div>
-              <div className="grid grid-cols-3 gap-1">
-                {DEEPSEEK_MAX_OUTPUT_PRESETS.map((preset) => {
-                  const selected = preset === Math.min(maxTokens, contextWindow);
-                  return (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setMaxTokens(preset)}
+                      {options.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <input
+                      aria-label={`${engine.display_name} ${field.label}`}
+                      type={field.kind === "number" ? "number" : "text"}
+                      value={draft[fieldId]}
+                      min={field.kind === "number" ? (field.id === "context_window" ? 1024 : 64) : undefined}
+                      max={field.kind === "number" ? max : undefined}
+                      onChange={(event) => setDraftField(fieldId, event.target.value)}
                       disabled={saving}
-                      className={cn(
-                        "flex h-8 items-center justify-center gap-1 rounded-md border px-2 text-xs transition-colors",
-                        selected ? "border-primary bg-primary/10 text-foreground" : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
-                      )}
-                    >
-                      <span>{compactTokens(preset)}</span>
-                      {selected && <Check className="h-3 w-3" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block space-y-1">
-                <span className="text-[10px] font-medium uppercase text-muted-foreground">Context</span>
-                <input
-                  aria-label="DeepSeek context window"
-                  type="number"
-                  value={draft.context_window}
-                  min={1024}
-                  max={1000000}
-                  onChange={(event) => setDraft((current) => ({ ...current, context_window: event.target.value }))}
-                  disabled={saving}
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-[10px] font-medium uppercase text-muted-foreground">Output</span>
-                <input
-                  aria-label="DeepSeek max output tokens"
-                  type="number"
-                  value={draft.max_tokens}
-                  min={64}
-                  max={384000}
-                  onChange={(event) => setDraft((current) => ({ ...current, max_tokens: event.target.value }))}
-                  disabled={saving}
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </label>
-            </div>
+                      placeholder={field.placeholder}
+                      className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                  )}
+                  {field.help && <span className="block text-[11px] leading-4 text-muted-foreground">{field.help}</span>}
+                </label>
+              );
+            })}
 
             <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="outline" size="sm" onClick={() => setDraft(deepSeekDraftFromEngine(engine))} disabled={saving}>
+              <Button type="button" variant="outline" size="sm" onClick={() => setDraft(quickDraftFromEngine(engine))} disabled={saving}>
                 Reset
               </Button>
               <Button type="button" size="sm" onClick={() => void save()} disabled={saving}>
@@ -545,7 +581,6 @@ function AiteamosThread({
   aiEngineSaving,
   onAiEngineChange,
   onAiEngineConfigChange,
-  onAiEngineThinkingChange,
   ticketKey,
   onTicketKeyChange,
 }: {
@@ -558,13 +593,10 @@ function AiteamosThread({
   aiEngineSaving: boolean;
   onAiEngineChange: (engineId: string) => void;
   onAiEngineConfigChange: (engineId: string, payload: ChatAiEngineUpdateRequest) => Promise<void>;
-  onAiEngineThinkingChange: (thinking: string) => void;
   ticketKey: string;
   onTicketKeyChange: (value: string) => void;
 }) {
   const activeAiEngine = aiEngineRecords.find((engine) => engine.id === aiEngines?.active_engine) ?? aiEngineRecords[0] ?? null;
-  const thinkingOptions = activeAiEngine?.thinking_options ?? [];
-  const showDeepSeekConfig = activeAiEngine?.id === "deepseek";
 
   return (
     <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
@@ -608,32 +640,15 @@ function AiteamosThread({
                     <option value="stub">File stub</option>
                   )}
                 </Select>
-                {showDeepSeekConfig && activeAiEngine && (
-                  <DeepSeekQuickConfig
+                {activeAiEngine && (
+                  <EngineQuickConfig
                     engine={activeAiEngine}
                     saving={aiEngineSaving}
-                    onSave={(payload) => onAiEngineConfigChange("deepseek", payload)}
+                    onSave={(payload) => onAiEngineConfigChange(activeAiEngine.id, payload)}
                   />
                 )}
               </div>
             </div>
-
-            {!showDeepSeekConfig && thinkingOptions.length > 0 && (
-              <label className="min-w-0 flex-[0_1_8rem]">
-                <span className="mb-1 block text-[10px] font-medium uppercase leading-none text-muted-foreground">Reasoning</span>
-                <Select
-                  aria-label="Reasoning for next reply"
-                  value={activeAiEngine?.thinking ?? thinkingOptions[0] ?? "disabled"}
-                  onChange={(event) => onAiEngineThinkingChange(event.target.value)}
-                  disabled={aiEngineSaving}
-                  className="h-9 text-xs"
-                >
-                  {thinkingOptions.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </Select>
-              </label>
-            )}
 
             <label className="min-w-0 flex-[1_1_9rem]">
               <span className="mb-1 block text-[10px] font-medium uppercase leading-none text-muted-foreground">Ticket</span>
@@ -1118,22 +1133,6 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
     }
   }
 
-  async function switchAiEngineThinking(nextThinking: string) {
-    const activeEngine = aiEngines?.active_engine;
-    if (!activeEngine || aiEngineSaving) return;
-    const current = aiEngines?.engines?.[activeEngine]?.thinking ?? "";
-    if (nextThinking === current) return;
-    setAiEngineSaving(true);
-    setError(null);
-    try {
-      setAiEngines(await updateChatAiEngine(activeEngine, { thinking: nextThinking }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update AI Engine reasoning");
-    } finally {
-      setAiEngineSaving(false);
-    }
-  }
-
   async function updateAiEngineConfig(engineId: string, payload: ChatAiEngineUpdateRequest) {
     if (!engineId || aiEngineSaving) return;
     setAiEngineSaving(true);
@@ -1158,7 +1157,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
   const runAiEngine = asRecord(runMetadataRecord.ai_engine);
   const runEmployee = asRecord(runMetadataRecord.employee);
   const runTicketKeys = asStringArray(runMetadataRecord.ticket_keys);
-  const runTools = Array.isArray(runMetadataRecord.tools) ? runMetadataRecord.tools.map(asRecord) : [];
+  const runCommands = Array.isArray(runMetadataRecord.commands) ? runMetadataRecord.commands.map(asRecord) : [];
 
   return (
     <AiteamosAgUiRuntimeProvider
@@ -1281,7 +1280,6 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
                 aiEngineSaving={aiEngineSaving}
                 onAiEngineChange={(engineId) => void switchAiEngine(engineId)}
                 onAiEngineConfigChange={updateAiEngineConfig}
-                onAiEngineThinkingChange={(thinking) => void switchAiEngineThinking(thinking)}
                 ticketKey={ticketKey}
                 onTicketKeyChange={setTicketKey}
               />
@@ -1364,16 +1362,16 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
                         </div>
                       </div>
                       <div>
-                        <div className="mb-1 text-[10px] uppercase text-muted-foreground">Tools</div>
+                        <div className="mb-1 text-[10px] uppercase text-muted-foreground">Commands</div>
                         <div className="flex flex-wrap gap-1">
-                          {runTools.length ? runTools.map((tool, index) => (
+                          {runCommands.length ? runCommands.map((command, index) => (
                             <Badge
-                              key={`${metadataText(tool.tool)}-${index}`}
-                              variant={metadataText(tool.status) === "completed" ? "success" : metadataText(tool.status) === "blocked" ? "warning" : "outline"}
+                              key={`${metadataText(command.id)}-${index}`}
+                              variant={metadataText(command.status) === "completed" ? "success" : metadataText(command.status) === "blocked" ? "warning" : "outline"}
                               className="max-w-full px-1.5 text-[10px]"
-                              title={metadataText(tool.tool)}
+                              title={metadataText(command.id)}
                             >
-                              <span className="truncate">{metadataText(tool.tool)}:{metadataText(tool.status)}</span>
+                              <span className="truncate">{metadataText(command.id)}:{metadataText(command.status)}</span>
                             </Badge>
                           )) : (
                             <Badge variant="outline" className="px-1.5 text-[10px]">none</Badge>
@@ -1435,7 +1433,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
                   ) : (
                     <ol className="space-y-1.5">
                       {traceEvents.map((event, index) => {
-                        const preview = event.event.startsWith("tool.") ? dataPreview(event.data) : "";
+                        const preview = event.event.startsWith("command.") ? dataPreview(event.data) : "";
                         return (
                           <li key={`${event.event}-${index}`} className="rounded border px-2 py-1.5">
                             <div className="text-[10px] font-medium text-muted-foreground">{event.event}</div>

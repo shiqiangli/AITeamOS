@@ -100,7 +100,7 @@ Assets
        -> Decisions
   -> Capabilities
        -> Skills
-       -> Built-in Tools
+       -> Kernel Commands
        -> MCP Tools
   -> Review Queue
 ```
@@ -151,9 +151,9 @@ Secrets Health should answer:
 
 It must not expose secret values.
 
-## 9. Tool Result Pattern
+## 9. Kernel Command Result Pattern
 
-Every local tool result should answer:
+Every Kernel Command result should answer:
 
 1. What happened.
 2. What changed or was found.

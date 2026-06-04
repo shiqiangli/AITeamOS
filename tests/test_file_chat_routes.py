@@ -8,6 +8,14 @@ from aiteamos_api.read import chat_routes
 from aiteamos_api.main import create_app
 
 
+def _has_command_event(payload: dict, command_id: str, phase: str = "completed") -> bool:
+    return any(
+        event["event"] == f"command.{phase}"
+        and event.get("data", {}).get("command", {}).get("id") == command_id
+        for event in payload["trace_events"]
+    )
+
+
 def test_chat_employees_bootstraps_protected_clara_system_employee(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
@@ -183,6 +191,24 @@ ai_engine:
     assert conversation_messages[-1]["metadata"]["aiteamos"]["ai_engine"]["actual_ai_engine"] == "stub"
     assert conversation_messages[-1]["metadata"]["aiteamos"]["ticket_keys"] == ["SV-1234"]
 
+    chinese_response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "Clara，请说明你具备哪些权限？",
+            "target_employee_id": "clara",
+            "thread_id": "chinese-stub-test",
+        },
+    )
+    assert chinese_response.status_code == 200
+    chinese_payload = chinese_response.json()
+    assert "这是 Kernel 根据 Clara 当前 profile 生成的权限事实" in chinese_payload["reply"]
+    assert "Profile 原始权限" in chinese_payload["reply"]
+    assert "Kernel 展开权限" in chinese_payload["reply"]
+    assert "Raw permissions" not in chinese_payload["reply"]
+    assert "Expanded Kernel permissions" not in chinese_payload["reply"]
+    assert _has_command_event(chinese_payload, "kernel.permissions:inspect")
+    assert chinese_payload["run_metadata"]["ai_engine"]["actual_ai_engine"] == "kernel_command"
+
     tool_response = client.post(
         "/api/v1/chat/messages",
         json={
@@ -193,13 +219,13 @@ ai_engine:
     )
     assert tool_response.status_code == 200
     tool_payload = tool_response.json()
-    assert any(event["event"] == "tool.list_employees.called" for event in tool_payload["trace_events"])
-    assert any(event["event"] == "tool.list_employees.completed" for event in tool_payload["trace_events"])
-    assert tool_payload["run_metadata"]["tools"][0]["tool"] == "list_employees"
-    assert tool_payload["run_metadata"]["tools"][0]["status"] == "completed"
+    assert _has_command_event(tool_payload, "employees.manage:list", "called")
+    assert _has_command_event(tool_payload, "employees.manage:list")
+    assert tool_payload["run_metadata"]["commands"][0]["id"] == "employees.manage:list"
+    assert tool_payload["run_metadata"]["commands"][0]["status"] == "completed"
 
     tool_trace = workspace / tool_payload["saved_paths"]["trace"]
-    assert "tool.list_employees.called" in tool_trace.read_text(encoding="utf-8")
+    assert "employees.manage:list" in tool_trace.read_text(encoding="utf-8")
 
 
 def test_chat_ai_engine_settings_are_file_backed(tmp_path, monkeypatch):
@@ -550,6 +576,7 @@ ai_engine:
     assert calls[0]["json"]["stream"] is True
     assert calls[0]["json"]["stream_options"] == {"include_usage": True}
     assert calls[0]["json"]["max_tokens"] == 384000
+    assert "Language: Reply in concise Simplified Chinese" in calls[0]["json"]["messages"][0]["content"]
     assert 'event: delta\ndata: {"text": "我是 "}' in body
     assert 'event: delta\ndata: {"text": "Clara"}' in body
     assert "ai_engine.deepseek.stream_completed" in body
@@ -623,11 +650,11 @@ ai_engine:
     assert "Clara" in payload["reply"]
     assert "Alex" in payload["reply"]
     assert "#/employees" in payload["reply"]
-    assert any(event["event"] == "tool.list_employees.called" for event in payload["trace_events"])
-    assert any(event["event"] == "tool.list_employees.completed" for event in payload["trace_events"])
+    assert _has_command_event(payload, "employees.manage:list", "called")
+    assert _has_command_event(payload, "employees.manage:list")
 
     trace = workspace / payload["saved_paths"]["trace"]
-    assert "tool.list_employees.completed" in trace.read_text(encoding="utf-8")
+    assert "employees.manage:list" in trace.read_text(encoding="utf-8")
 
 
 def test_chat_lists_file_backed_skills(tmp_path, monkeypatch):
@@ -740,7 +767,7 @@ ai_engine:
     assert create_response.status_code == 200
     create_payload = create_response.json()
     assert "已创建 Skill" in create_payload["reply"]
-    assert any(event["event"] == "tool.create_skill.completed" for event in create_payload["trace_events"])
+    assert _has_command_event(create_payload, "assets.manage:create_skill")
     skill_path = workspace / ".aiteamos" / "skills" / "nightly-regression-log-triage" / "SKILL.md"
     assert skill_path.exists()
 
@@ -756,7 +783,7 @@ ai_engine:
     assert assign_response.status_code == 200
     assign_payload = assign_response.json()
     assert "已把 Skill" in assign_payload["reply"]
-    assert any(event["event"] == "tool.assign_skill_to_employee.completed" for event in assign_payload["trace_events"])
+    assert _has_command_event(assign_payload, "assets.manage:assign_skill")
     profile = chat_routes.yaml.safe_load((employees_dir / "alex.yaml").read_text(encoding="utf-8"))
     assert profile["skills"] == ["nightly-regression-log-triage"]
 
@@ -772,7 +799,7 @@ ai_engine:
     assert delete_response.status_code == 200
     delete_payload = delete_response.json()
     assert "已删除 Skill" in delete_payload["reply"]
-    assert any(event["event"] == "tool.delete_skill.completed" for event in delete_payload["trace_events"])
+    assert _has_command_event(delete_payload, "assets.manage:delete_skill")
     assert not skill_path.exists()
     profile = chat_routes.yaml.safe_load((employees_dir / "alex.yaml").read_text(encoding="utf-8"))
     assert profile["skills"] == []
@@ -842,7 +869,8 @@ ai_engine:
     assert "event: final" in body
     assert "Clara" in body
     assert "Alex" in body
-    assert "tool.list_employees.completed" in body
+    assert "command.completed" in body
+    assert "employees.manage:list" in body
 
 
 def test_employee_chat_creates_employee_with_local_tool(tmp_path, monkeypatch):
@@ -892,7 +920,7 @@ ai_engine:
     payload = response.json()
     assert "已创建成员 Victor" in payload["reply"]
     assert "#/employees/victor" in payload["reply"]
-    assert any(event["event"] == "tool.create_employee.completed" for event in payload["trace_events"])
+    assert _has_command_event(payload, "employees.manage:create")
 
     profile_path = employees_dir / "victor.yaml"
     assert profile_path.exists()
@@ -951,7 +979,7 @@ ai_engine:
     assert response.status_code == 200
     payload = response.json()
     assert "已创建成员 Peter" in payload["reply"]
-    assert any(event["event"] == "tool.create_employee.completed" for event in payload["trace_events"])
+    assert _has_command_event(payload, "employees.manage:create")
 
     profile = chat_routes.yaml.safe_load((employees_dir / "peter.yaml").read_text(encoding="utf-8"))
     assert profile["id"] == "peter"
@@ -996,7 +1024,7 @@ ai_engine:
                     {
                         "message": {
                             "content": json.dumps({
-                                "tool": "create_employee",
+                                "command": "employees.manage:create",
                                 "arguments": {
                                     "display_name": "Nora",
                                     "kind": "ai",
@@ -1042,10 +1070,10 @@ ai_engine:
     payload = response.json()
     assert len(calls) == 1
     assert calls[0]["url"] == "https://api.deepseek.com/chat/completions"
-    assert "local tool planner" in calls[0]["json"]["messages"][0]["content"].lower()
+    assert "kernel command planner" in calls[0]["json"]["messages"][0]["content"].lower()
     assert "已创建成员 Nora" in payload["reply"]
-    assert any(event["event"] == "tool.intent_planner.completed" for event in payload["trace_events"])
-    assert any(event["event"] == "tool.create_employee.completed" for event in payload["trace_events"])
+    assert any(event["event"] == "command.intent_planner.completed" for event in payload["trace_events"])
+    assert _has_command_event(payload, "employees.manage:create")
 
     profile = chat_routes.yaml.safe_load((employees_dir / "nora.yaml").read_text(encoding="utf-8"))
     assert profile["id"] == "nora"
@@ -1117,7 +1145,7 @@ ai_engine:
     assert "已更新成员 Victor 的 profile" in payload["reply"]
     assert "summary: Owns PV triage" in payload["reply"]
     assert "#/employees/victor" in payload["reply"]
-    assert any(event["event"] == "tool.edit_employee_profile.completed" for event in payload["trace_events"])
+    assert _has_command_event(payload, "employees.manage:update")
 
     profile = chat_routes.yaml.safe_load((employees_dir / "victor.yaml").read_text(encoding="utf-8"))
     assert profile["summary"] == "Owns PV triage"
@@ -1191,7 +1219,7 @@ ai_engine:
     assert response.status_code == 200
     payload = response.json()
     assert "已删除成员 Victor" in payload["reply"]
-    assert any(event["event"] == "tool.delete_employee.completed" for event in payload["trace_events"])
+    assert _has_command_event(payload, "employees.manage:delete")
     assert not (employees_dir / "victor.yaml").exists()
 
     engine_threads = json.loads((runtime_dir / "engine_threads.json").read_text(encoding="utf-8"))
@@ -1243,7 +1271,7 @@ ai_engine:
     payload = response.json()
     assert "没有删除 Clara" in payload["reply"]
     assert "系统默认 Employee" in payload["reply"]
-    assert any(event["event"] == "tool.delete_employee.blocked" for event in payload["trace_events"])
+    assert _has_command_event(payload, "employees.manage:delete", "blocked")
     assert (employees_dir / "clara.yaml").exists()
 
 
@@ -1293,8 +1321,150 @@ ai_engine:
     assert "event: start" in body
     assert "event: delta" in body
     assert "event: final" in body
-    assert "tool.create_employee.completed" in body
+    assert "command.completed" in body
+    assert "employees.manage:create" in body
     assert (employees_dir / "riley.yaml").exists()
+
+
+def test_clara_can_run_allowlisted_terminal_command(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "Clara，请执行命令 `pwd`。",
+            "thread_id": "terminal-command-test",
+            "target_employee_id": "clara",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "terminal.run completed" in payload["reply"]
+    assert str(workspace) in payload["reply"]
+    assert _has_command_event(payload, "terminal.run:run")
+    assert payload["run_metadata"]["commands"][0]["id"] == "terminal.run:run"
+    assert payload["run_metadata"]["ai_engine"]["actual_ai_engine"] == "kernel_command"
+
+
+def test_clara_reports_kernel_permissions_from_profile(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    class FailingAsyncClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Remote AI Engine should not be called for permission inspection")
+
+    monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "Clara，你具备哪些权限？你能不能创建或删除 Employee？",
+            "thread_id": "permissions-inspect-test",
+            "target_employee_id": "clara",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "不是模型猜测" in payload["reply"]
+    assert "Profile 原始权限" in payload["reply"]
+    assert "Kernel 展开权限" in payload["reply"]
+    assert "manage_employees" in payload["reply"]
+    assert "employees.manage:create" in payload["reply"]
+    assert "employees.manage:delete" in payload["reply"]
+    assert "destructive / execution command" in payload["reply"]
+    assert "Raw permissions" not in payload["reply"]
+    assert "Expanded Kernel permissions" not in payload["reply"]
+    assert _has_command_event(payload, "kernel.permissions:inspect")
+    completed = next(
+        event
+        for event in payload["trace_events"]
+        if event["event"] == "command.completed"
+        and event["data"]["command"]["id"] == "kernel.permissions:inspect"
+    )
+    assert "employees:write" in completed["data"]["expanded_permissions"]
+    assert any(
+        command["id"] == "employees.manage:create" and command["status"] == "allowed"
+        for command in completed["data"]["commands"]
+    )
+
+
+def test_clara_can_inspect_named_employee_permissions(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "stub")
+
+    employees_dir = workspace / ".aiteamos" / "employees"
+    employees_dir.mkdir(parents=True)
+    (employees_dir / "alex.yaml").write_text(
+        """
+id: alex
+display_name: Alex
+kind: ai
+role: AI RD / Implementer
+summary: Implementation owner.
+skills: []
+permissions:
+  - chat
+  - read_local_assets
+  - write_trace
+  - propose_code_change
+""".strip(),
+        encoding="utf-8",
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "Alex 有哪些权限？",
+            "thread_id": "alex-permissions-inspect-test",
+            "target_employee_id": "clara",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "员工：Alex (alex)" in payload["reply"]
+    assert "repositories.inspect:inspect" in payload["reply"]
+    assert "terminal.run:run；缺失权限=terminal:run" in payload["reply"]
+    assert _has_command_event(payload, "kernel.permissions:inspect")
+
+
+def test_terminal_command_streams_progress(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    client = TestClient(create_app())
+    with client.stream(
+        "POST",
+        "/api/v1/chat/messages/stream",
+        json={
+            "message": "terminal.run `pwd`",
+            "thread_id": "terminal-stream-test",
+            "target_employee_id": "clara",
+        },
+    ) as response:
+        assert response.status_code == 200
+        body = response.read().decode("utf-8")
+
+    assert "event: start" in body
+    assert "event: delta" in body
+    assert "$ pwd" in body
+    assert str(workspace) in body
+    assert "command.completed" in body
+    assert "terminal.run:run" in body
 
 
 def test_employee_chat_can_use_openai_ai_engine(tmp_path, monkeypatch):

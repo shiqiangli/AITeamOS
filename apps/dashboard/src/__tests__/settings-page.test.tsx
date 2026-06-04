@@ -171,7 +171,7 @@ const capabilityRegistry = {
     configured_count: 1,
     ready_count: 1,
     tool_count: 3,
-    built_in_tool_count: 1,
+    kernel_command_count: 1,
     mcp_tool_count: 2,
     native_api_tool_count: 0,
     cli_tool_count: 0,
@@ -183,7 +183,7 @@ const capabilityRegistry = {
       id: "list_employees",
       name: "List employees",
       kind: "tool",
-      source_kind: "built_in",
+      source_kind: "kernel_command",
       domain: "employees",
       source: "AITeamOS Kernel",
       status: "ready",
@@ -221,7 +221,7 @@ const capabilityRegistry = {
     },
   ],
   model: {
-    tool: "executable action normalized from built-in code, MCP servers, native APIs, CLIs, CI, or AI engine bridges",
+    tool: "executable action exposed through Kernel commands, MCP servers, native APIs, CLIs, CI, or AI engine bridges",
     connector: "settings-side external capability source",
   },
 };

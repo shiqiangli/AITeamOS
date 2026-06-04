@@ -60,7 +60,7 @@ The Dashboard is a React/Vite application. The API is FastAPI with Pydantic mode
     candidates.json
 ```
 
-Historical conversations and traces are append-only audit records. Current configuration files may be rewritten by Settings or local tools.
+Historical conversations and traces are append-only audit records. Current configuration files may be rewritten by Settings or Kernel Commands.
 
 ## 4. Services
 
@@ -69,7 +69,7 @@ Chat service:
 - loads Employees, Skills, approved Memory snippets, and Knowledge snippets
 - selects Clara or the requested Employee
 - selects the effective AI Engine
-- invokes local tools or remote AI Engine calls
+- invokes Kernel Commands or remote AI Engine calls
 - persists conversation, trace events, run metadata, and engine thread state
 
 Ticket service:
@@ -82,7 +82,7 @@ Ticket service:
 
 Capability service:
 
-- exposes built-in tools
+- exposes Kernel Commands
 - reads Tool Connector capabilities
 - normalizes tools into capability records for Assets and Employee details
 

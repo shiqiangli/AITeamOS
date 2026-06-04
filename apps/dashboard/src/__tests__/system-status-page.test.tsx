@@ -43,7 +43,7 @@ const capabilities = {
     configured_count: 2,
     ready_count: 2,
     tool_count: 3,
-    built_in_tool_count: 1,
+    kernel_command_count: 1,
     mcp_tool_count: 2,
     native_api_tool_count: 0,
     cli_tool_count: 0,

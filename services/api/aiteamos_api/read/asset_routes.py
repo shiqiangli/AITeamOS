@@ -54,9 +54,9 @@ async def get_skill_assets(q: str = Query("", alias="q")) -> list[AssetRecord]:
     return asset_items(domain="capabilities", asset_type="skills", query=q)
 
 
-@router.get("/capabilities/built-in-tools", response_model=list[AssetRecord])
-async def get_built_in_tool_assets(q: str = Query("", alias="q")) -> list[AssetRecord]:
-    return asset_items(domain="capabilities", asset_type="built-in-tools", query=q)
+@router.get("/capabilities/kernel-commands", response_model=list[AssetRecord])
+async def get_kernel_command_assets(q: str = Query("", alias="q")) -> list[AssetRecord]:
+    return asset_items(domain="capabilities", asset_type="kernel-commands", query=q)
 
 
 @router.get("/capabilities/mcp-tools", response_model=list[AssetRecord])

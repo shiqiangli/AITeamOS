@@ -34,7 +34,7 @@ Knowledge
   -> Decisions
 Capabilities
   -> Skills
-  -> Built-in Tools
+  -> Kernel Commands
   -> MCP Tools
 Review Queue
 ```
@@ -106,7 +106,7 @@ Employee detail tabs:
 
 - Overview: mission, current focus, identity boundary, communication signal, high-level metrics.
 - Work Ledger: current Tickets, historical Tickets, reports, PV validations, blocked records, handoffs.
-- Capabilities: assigned Skills, Built-in Tools, MCP Tools, other tool sources.
+- Capabilities: assigned Skills, Kernel Commands, MCP Tools, other tool sources.
 - Governance: knowledge scope, project access, permissions, connector visibility.
 - AI Engine: effective engine, profile default, Settings active engine, default engine edit field.
 

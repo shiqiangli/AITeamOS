@@ -162,6 +162,9 @@ ai_engine:
         },
     )
     assert second.status_code == 200
-    assert "1 local memory snippet(s)" in second.json()["reply"]
+    assert (
+        "1 local memory snippet(s)" in second.json()["reply"]
+        or "1 条本地记忆片段" in second.json()["reply"]
+    )
     context_loaded = next(event for event in second.json()["trace_events"] if event["event"] == "context.loaded")
     assert context_loaded["data"]["memory_count"] == 1

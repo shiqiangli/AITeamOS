@@ -535,7 +535,7 @@ def _capability_asset_type(kind: str, source_kind: str) -> str:
     if kind != "tool":
         return "capabilities"
     mapping = {
-        "built_in": "built-in-tools",
+        "kernel_command": "kernel-commands",
         "mcp_server": "mcp-tools",
         "native_api": "native-api-tools",
         "cli": "cli-tools",
@@ -543,7 +543,7 @@ def _capability_asset_type(kind: str, source_kind: str) -> str:
         "ticket_backend": "ticket-backend-tools",
         "ai_engine_bridge": "ai-engine-tools",
     }
-    return mapping.get(source_kind or "built_in", "built-in-tools")
+    return mapping.get(source_kind or "kernel_command", "kernel-commands")
 
 
 def _capability_asset_items() -> list[AssetRecord]:

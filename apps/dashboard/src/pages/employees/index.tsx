@@ -147,7 +147,7 @@ function contributionValue(work: EmployeeWorkLedger | null, key: string): number
 }
 
 function sourceKindLabel(sourceKind: string): string {
-  if (sourceKind === "built_in") return "Built-in";
+  if (sourceKind === "kernel_command") return "Kernel Command";
   if (sourceKind === "mcp_server") return "MCP";
   if (sourceKind === "native_api") return "Native API";
   if (sourceKind === "cli") return "CLI";
@@ -160,9 +160,9 @@ function sourceKindLabel(sourceKind: string): string {
 function capabilityGroups(capabilities: CapabilityRecord[]) {
   const tools = capabilities.filter((capability) => capability.kind === "tool");
   return {
-    builtIn: tools.filter((capability) => capability.source_kind === "built_in"),
+    kernelCommands: tools.filter((capability) => capability.source_kind === "kernel_command"),
     mcp: tools.filter((capability) => capability.source_kind === "mcp_server"),
-    other: tools.filter((capability) => !["built_in", "mcp_server"].includes(capability.source_kind)),
+    other: tools.filter((capability) => !["kernel_command", "mcp_server"].includes(capability.source_kind)),
   };
 }
 
@@ -494,9 +494,9 @@ function EmployeeDrawer({
             <Sparkles className="h-4 w-4" />
             Skills
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "capabilities", "built-in-tools")}>
+          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "capabilities", "kernel-commands")}>
             <Wrench className="h-4 w-4" />
-            Tools
+            Commands
           </Button>
         </div>
       </div>
@@ -648,9 +648,9 @@ function EmployeeDrawer({
             </section>
 
             <CapabilityGroupSection
-              title="Built-in Tools"
-              capabilities={groupedCapabilities.builtIn}
-              empty="No built-in tools mapped."
+              title="Kernel Commands"
+              capabilities={groupedCapabilities.kernelCommands}
+              empty="No Kernel commands mapped."
             />
 
             <CapabilityGroupSection

@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils";
 
 type AssetArea = "knowledge" | "capabilities" | "review";
 type KnowledgeTab = "docs" | "memories" | "decisions";
-type CapabilityTab = "skills" | "built-in-tools" | "mcp-tools";
+type CapabilityTab = "skills" | "kernel-commands" | "mcp-tools";
 type ReviewTab = "memories" | "decisions" | "skills" | "tools";
 
 const AREA_TABS: Array<{ key: AssetArea; label: string; icon: typeof Brain }> = [
@@ -52,7 +52,7 @@ const KNOWLEDGE_TABS: Array<{ key: KnowledgeTab; label: string }> = [
 
 const CAPABILITY_TABS: Array<{ key: CapabilityTab; label: string }> = [
   { key: "skills", label: "Skills" },
-  { key: "built-in-tools", label: "Built-in Tools" },
+  { key: "kernel-commands", label: "Kernel Commands" },
   { key: "mcp-tools", label: "MCP Tools" },
 ];
 
@@ -60,7 +60,7 @@ const CAPABILITY_TABS: Array<{ key: CapabilityTab; label: string }> = [
 
 function areaFromRoute(v?: string | null): AssetArea | null {
   if (!v || v === "all") return null;
-  if (v === "skills" || v === "built-in-tools" || v === "mcp-tools") return "capabilities";
+  if (v === "skills" || v === "kernel-commands" || v === "mcp-tools") return "capabilities";
   return AREA_TABS.some((t) => t.key === v) ? (v as AssetArea) : null;
 }
 
@@ -109,7 +109,7 @@ function metadataBlock(metadata: Record<string, unknown>): string {
 }
 
 function capabilitySourceForTab(tab: CapabilityTab | null): string | null {
-  if (tab === "built-in-tools") return "built_in";
+  if (tab === "kernel-commands") return "kernel_command";
   if (tab === "mcp-tools") return "mcp_server";
   return null;
 }
@@ -228,9 +228,9 @@ function AssetOverview({
   const decisions = knowledgeStatus?.decisions_count ?? 0;
 
   const caps = capRegistry?.capabilities ?? [];
-  const builtInToolCount = caps.filter((c) => c.kind === "tool" && c.source_kind === "built_in").length;
+  const kernelCommandCount = caps.filter((c) => c.kind === "tool" && c.source_kind === "kernel_command").length;
   const mcpToolCount = caps.filter((c) => c.kind === "tool" && c.source_kind === "mcp_server").length;
-  const toolCount = builtInToolCount + mcpToolCount;
+  const toolCount = kernelCommandCount + mcpToolCount;
 
   // Review sub-counts by kind
   const revMemories = reviewItems.filter((i) => i.kind === "memory").length;
@@ -259,7 +259,7 @@ function AssetOverview({
       area: "capabilities" as AssetArea, total: skills.length + toolCount,
       subs: [
         { label: "Skills", count: skills.length, detail: "skills" },
-        { label: "Built-in Tools", count: builtInToolCount, detail: "built-in-tools" },
+        { label: "Kernel Commands", count: kernelCommandCount, detail: "kernel-commands" },
         { label: "MCP Tools", count: mcpToolCount, detail: "mcp-tools" },
       ],
     },
@@ -459,7 +459,7 @@ function SkillsTableView({ skills, selectedId, onSelect }: { skills: ChatSkillSu
 /* ── Capabilities Deep View ────────────────────────────────────────────────── */
 
 function capabilityGroupLabel(k: string): string {
-  if (k === "built_in") return "Built-in Tools";
+  if (k === "kernel_command") return "Kernel Commands";
   if (k === "mcp_server") return "MCP Tools";
   if (k === "native_api") return "Native API Tools";
   if (k === "cli") return "CLI Tools";
@@ -482,10 +482,10 @@ function CapabilitiesGroupedView({
 }) {
   const sourceKind = capabilitySourceForTab(tab);
   const caps = registry.capabilities.filter((c) => c.kind === "tool" && (!sourceKind || c.source_kind === sourceKind));
-  const order: string[] = ["built_in", "mcp_server", "native_api", "cli", "ci", "ticket_backend", "ai_engine_bridge"];
+  const order: string[] = ["kernel_command", "mcp_server", "native_api", "cli", "ci", "ticket_backend", "ai_engine_bridge"];
   const groups = new Map<string, CapabilityRecord[]>();
   for (const c of caps) {
-    const key = c.source_kind || "built_in";
+    const key = c.source_kind || "kernel_command";
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
   const sorted = [
@@ -495,7 +495,7 @@ function CapabilitiesGroupedView({
 
   if (tab === "skills") return null;
   const currentLabel = CAPABILITY_TABS.find((item) => item.key === tab)?.label ?? "Tools";
-  if (sorted.length === 0) return <EmptyState title={`No ${currentLabel}`} description="Tools are discovered from built-in code and configured Tool Connectors." action={<Button variant="outline" size="sm" onClick={() => navigateTo("settings", "tool-connectors")}>Tool Connectors</Button>} />;
+  if (sorted.length === 0) return <EmptyState title={`No ${currentLabel}`} description="Capabilities are discovered from Kernel commands and configured Tool Connectors." action={<Button variant="outline" size="sm" onClick={() => navigateTo("settings", "tool-connectors")}>Tool Connectors</Button>} />;
   return <div className="space-y-4">{sorted.map(([kind, items]) => (
     <section key={kind} className="rounded-md border bg-background">
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
@@ -613,7 +613,7 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
     ? (selectedDetail && ["docs", "memories", "decisions"].includes(selectedDetail) ? selectedDetail as KnowledgeTab : "docs")
     : null;
   const cTab: CapabilityTab | null = area === "capabilities"
-    ? (selectedDetail && ["skills", "built-in-tools", "mcp-tools"].includes(selectedDetail) ? selectedDetail as CapabilityTab : "skills")
+    ? (selectedDetail && ["skills", "kernel-commands", "mcp-tools"].includes(selectedDetail) ? selectedDetail as CapabilityTab : "skills")
     : null;
   const rTab: ReviewTab | null = area === "review"
     ? (selectedDetail && ["memories", "decisions", "skills", "tools"].includes(selectedDetail) ? selectedDetail as ReviewTab : null)

@@ -16,7 +16,7 @@ class CapabilityRecord(BaseModel):
     id: str
     name: str
     kind: str = "tool"
-    source_kind: str = "built_in"
+    source_kind: str = "kernel_command"
     domain: str
     source: str
     status: str = "planned"
@@ -39,7 +39,7 @@ class CapabilityRegistryStatus(BaseModel):
     configured_count: int
     ready_count: int
     tool_count: int
-    built_in_tool_count: int
+    kernel_command_count: int
     mcp_tool_count: int
     native_api_tool_count: int = 0
     cli_tool_count: int = 0
@@ -53,156 +53,50 @@ class CapabilityRegistryResponse(BaseModel):
     model: dict[str, str]
 
 
-_LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
+_LOCAL_KERNEL_CAPABILITIES: list[CapabilityRecord] = [
     CapabilityRecord(
-        id="list_employees",
-        name="List employees",
+        id="employees.manage",
+        name="Manage employees",
         kind="tool",
-        source_kind="built_in",
+        source_kind="kernel_command",
         domain="employees",
-        source="AITeamOS Kernel",
+        source="AITeamOS Kernel Command Executor",
         status="ready",
         enabled=True,
         configured=True,
-        description="List file-backed AI and human employees for chat replies and employee inspection.",
-        owner_scope="Clara and authorized employees",
-        permissions=["employees:read"],
-        produces=["chat_result", "trace_event"],
-        boundary="Read-only employee inventory.",
+        description="List, create, update, and delete local workforce records through Kernel policy.",
+        owner_scope="Clara with Kernel policy checks",
+        permissions=["employees:read", "employees:write", "employees:delete"],
+        arguments=["operation", "employee_id", "display_name", "kind", "role", "summary", "skills"],
+        produces=["employee_profile", "chat_result", "trace_event"],
+        boundary="Manages file-backed workforce records only; external accounts are not provisioned or removed.",
         deep_link="#/employees",
     ),
     CapabilityRecord(
-        id="create_employee",
-        name="Create employee",
+        id="assets.manage",
+        name="Manage assets",
         kind="tool",
-        source_kind="built_in",
-        domain="employees",
-        source="AITeamOS Kernel",
+        source_kind="kernel_command",
+        domain="assets",
+        source="AITeamOS Kernel Command Executor",
         status="ready",
         enabled=True,
         configured=True,
-        description="Create a local employee profile under .aiteamos/employees.",
-        owner_scope="Clara",
-        permissions=["employees:write"],
-        arguments=["display_name", "employee_id", "kind", "role", "summary", "skills"],
-        produces=["employee_profile", "trace_event"],
-        boundary="Creates local profile metadata; it does not provision an external AI Engine account.",
-        deep_link="#/employees",
-    ),
-    CapabilityRecord(
-        id="edit_employee_profile",
-        name="Edit employee profile",
-        kind="tool",
-        source_kind="built_in",
-        domain="employees",
-        source="AITeamOS Kernel",
-        status="ready",
-        enabled=True,
-        configured=True,
-        description="Update safe local employee profile fields.",
-        owner_scope="Clara",
-        permissions=["employees:write"],
-        arguments=["target_employee_id", "target_employee_name", "display_name", "role", "summary", "skills", "ai_engine_mode"],
-        produces=["employee_profile", "trace_event"],
-        boundary="Only supported profile fields are editable in P0.",
-        deep_link="#/employees",
-    ),
-    CapabilityRecord(
-        id="delete_employee",
-        name="Delete employee",
-        kind="tool",
-        source_kind="built_in",
-        domain="employees",
-        source="AITeamOS Kernel",
-        status="ready",
-        enabled=True,
-        configured=True,
-        description="Remove a local employee profile after intent is planned and confirmed by policy.",
-        owner_scope="Clara",
-        permissions=["employees:delete"],
-        arguments=["target_employee_id", "target_employee_name"],
-        produces=["trace_event"],
-        boundary="Deletes only the local employee profile, not external accounts or AI Engine state.",
-        deep_link="#/employees",
-    ),
-    CapabilityRecord(
-        id="list_skills",
-        name="List skills",
-        kind="tool",
-        source_kind="built_in",
-        domain="skills",
-        source="AITeamOS Kernel",
-        status="ready",
-        enabled=True,
-        configured=True,
-        description="List local SKILL.md assets.",
-        owner_scope="Clara and authorized employees",
-        permissions=["skills:read"],
-        produces=["chat_result", "trace_event"],
-        boundary="Read-only local skill inventory.",
+        description="List, create, assign, and delete Ticket-flow assets such as Skills.",
+        owner_scope="Clara with Kernel policy checks",
+        permissions=["skills:read", "skills:write", "skills:delete", "assets:assign"],
+        arguments=["operation", "skill_id", "title", "description", "target_employee_id"],
+        produces=["skill_file", "employee_profile", "trace_event"],
+        boundary="Assets are reusable Ticket-flow records with provenance; Skill execution is separate.",
         deep_link="#/assets/capabilities/skills",
     ),
     CapabilityRecord(
-        id="create_skill",
-        name="Create skill",
-        kind="tool",
-        source_kind="built_in",
-        domain="skills",
-        source="AITeamOS Kernel",
-        status="ready",
-        enabled=True,
-        configured=True,
-        description="Create a local file-backed skill.",
-        owner_scope="Clara",
-        permissions=["skills:write"],
-        arguments=["skill_id", "title", "description", "body"],
-        produces=["skill_file", "trace_event"],
-        boundary="Creates method/context assets; it does not execute the method by itself.",
-        deep_link="#/assets/capabilities/skills",
-    ),
-    CapabilityRecord(
-        id="assign_skill_to_employee",
-        name="Assign skill to employee",
-        kind="tool",
-        source_kind="built_in",
-        domain="skills",
-        source="AITeamOS Kernel",
-        status="ready",
-        enabled=True,
-        configured=True,
-        description="Attach a local skill id to a employee profile.",
-        owner_scope="Clara",
-        permissions=["employees:write", "skills:read"],
-        arguments=["skill_id", "skill_name", "target_employee_id", "target_employee_name"],
-        produces=["employee_profile", "trace_event"],
-        boundary="Records availability; execution still depends on the employee AI Engine and tool access policy.",
-        deep_link="#/assets/capabilities/skills",
-    ),
-    CapabilityRecord(
-        id="delete_skill",
-        name="Delete skill",
-        kind="tool",
-        source_kind="built_in",
-        domain="skills",
-        source="AITeamOS Kernel",
-        status="ready",
-        enabled=True,
-        configured=True,
-        description="Remove a local skill directory and detach it from employee profiles.",
-        owner_scope="Clara",
-        permissions=["skills:delete", "employees:write"],
-        arguments=["skill_id", "skill_name"],
-        produces=["trace_event"],
-        boundary="Deletes local skill files only.",
-        deep_link="#/assets/capabilities/skills",
-    ),
-    CapabilityRecord(
-        id="search_knowledge",
+        id="knowledge.search",
         name="Search knowledge",
         kind="tool",
-        source_kind="built_in",
+        source_kind="kernel_command",
         domain="knowledge",
-        source="AITeamOS Kernel",
+        source="AITeamOS Kernel Command Executor",
         status="ready",
         enabled=True,
         configured=True,
@@ -215,73 +109,30 @@ _LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
         deep_link="#/assets/knowledge/docs",
     ),
     CapabilityRecord(
-        id="create_ticket",
-        name="Create ticket",
+        id="tickets.manage",
+        name="Manage tickets",
         kind="tool",
-        source_kind="built_in",
+        source_kind="kernel_command",
         domain="tickets",
-        source="AITeamOS Kernel",
+        source="AITeamOS Kernel Command Executor",
         status="ready",
         enabled=True,
         configured=True,
-        description="Create a local P0 Ticket and attach employee/repo context for delegation.",
-        owner_scope="Clara",
-        permissions=["tickets:write"],
-        arguments=[
-            "title",
-            "description",
-            "target_employee_id",
-            "assigned_role",
-            "validation_employee_id",
-            "validation_role",
-            "code_repository_ids",
-        ],
-        produces=["ticket", "trace_event"],
-        boundary="Plane remains the long-term Ticket fact source; this local tool proves the flow.",
-        deep_link="#/tickets/tickets",
-    ),
-    CapabilityRecord(
-        id="record_ticket_report",
-        name="Record ticket report",
-        kind="tool",
-        source_kind="built_in",
-        domain="tickets",
-        source="AITeamOS Kernel",
-        status="ready",
-        enabled=True,
-        configured=True,
-        description="Append a employee, PV, or validation report to a Ticket.",
+        description="Create, list, and append reports to local Tickets in the Ticket-flow ledger.",
         owner_scope="Clara and assigned employees",
-        permissions=["tickets:write"],
-        arguments=["ticket_id", "reporter_employee_id", "reporter_role", "content", "report_type", "evidence"],
-        produces=["ticket_report", "trace_event"],
-        boundary="Persists evidence/report text; Clara still summarizes through the LLM.",
-        deep_link="#/tickets/reports",
-    ),
-    CapabilityRecord(
-        id="list_tickets",
-        name="List tickets",
-        kind="tool",
-        source_kind="built_in",
-        domain="tickets",
-        source="AITeamOS Kernel",
-        status="ready",
-        enabled=True,
-        configured=True,
-        description="List local P0 Tickets for Chat and Tickets page inspection.",
-        owner_scope="Clara and authorized employees",
-        permissions=["tickets:read"],
-        produces=["chat_result", "trace_event"],
-        boundary="Read-only local Ticket inventory.",
+        permissions=["tickets:read", "tickets:write"],
+        arguments=["operation", "ticket_id", "title", "assignee", "report", "evidence"],
+        produces=["ticket", "ticket_report", "trace_event"],
+        boundary="Local P0 Ticket backend only; Plane/Jira adapters remain Ticket Backends.",
         deep_link="#/tickets/tickets",
     ),
     CapabilityRecord(
-        id="list_code_repositories",
+        id="repositories.list",
         name="List code repositories",
         kind="tool",
-        source_kind="built_in",
+        source_kind="kernel_command",
         domain="repositories",
-        source="AITeamOS Kernel",
+        source="AITeamOS Kernel Command Executor",
         status="ready",
         enabled=True,
         configured=True,
@@ -293,12 +144,12 @@ _LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
         deep_link="#/settings/code-repositories",
     ),
     CapabilityRecord(
-        id="inspect_code_repository",
+        id="repositories.inspect",
         name="Inspect code repository",
         kind="tool",
-        source_kind="built_in",
+        source_kind="kernel_command",
         domain="repositories",
-        source="AITeamOS Kernel",
+        source="AITeamOS Kernel Command Executor",
         status="ready",
         enabled=True,
         configured=True,
@@ -310,26 +161,81 @@ _LOCAL_CHAT_TOOLS: list[CapabilityRecord] = [
         boundary="Clara should delegate repo inspection to RD/PV/Architect employees; remote repos need connectors or AI Engines.",
         deep_link="#/settings/code-repositories",
     ),
+    CapabilityRecord(
+        id="terminal.run",
+        name="Run terminal command",
+        kind="tool",
+        source_kind="kernel_command",
+        domain="terminal",
+        source="AITeamOS Kernel Command Executor",
+        status="ready",
+        enabled=True,
+        configured=True,
+        description="Run approved non-interactive workspace commands and stream output as Ticket evidence.",
+        owner_scope="Clara and authorized technical employees",
+        permissions=["terminal:run"],
+        arguments=["command", "cwd", "ticket_id"],
+        produces=["terminal_output", "trace_event"],
+        boundary="Not a general IDE terminal: no shell expansion, no interactive PTY, workspace-only cwd, allowlisted commands.",
+        deep_link="#/chat",
+    ),
+    CapabilityRecord(
+        id="kernel.permissions",
+        name="Inspect Kernel permissions",
+        kind="tool",
+        source_kind="kernel_command",
+        domain="kernel",
+        source="AITeamOS Kernel Command Executor",
+        status="ready",
+        enabled=True,
+        configured=True,
+        description="Inspect an Employee's raw profile permissions, expanded Kernel permissions, and command access.",
+        owner_scope="Clara and authorized employees",
+        permissions=["employees:read"],
+        arguments=["target_employee_id", "target_employee_name"],
+        produces=["permission_report", "trace_event"],
+        boundary="Read-only introspection; it cannot grant or mutate permissions.",
+        deep_link="#/chat",
+    ),
 ]
 
-def local_chat_tools() -> list[CapabilityRecord]:
-    return [tool.model_copy(deep=True) for tool in _LOCAL_CHAT_TOOLS]
+_LOCAL_KERNEL_COMMANDS: dict[str, str] = {
+    "employees.manage:list": "List file-backed employees.",
+    "employees.manage:create": "Create a local Employee workforce record.",
+    "employees.manage:update": "Update supported Employee profile fields.",
+    "employees.manage:delete": "Delete a non-protected local Employee workforce record.",
+    "assets.manage:list_skills": "List local SKILL.md assets.",
+    "assets.manage:create_skill": "Create a local SKILL.md asset.",
+    "assets.manage:assign_skill": "Assign a Skill asset to an Employee.",
+    "assets.manage:delete_skill": "Delete a local Skill asset and detach it from Employees.",
+    "knowledge.search:search": "Search approved Docs, Memories, and Decisions.",
+    "tickets.manage:create": "Create a local Ticket and route it to an assignee.",
+    "tickets.manage:list": "List local Tickets.",
+    "tickets.manage:report": "Append a Ticket report or validation report.",
+    "repositories.list:list": "List configured code repositories.",
+    "repositories.inspect:inspect": "Inspect a configured local repository for Ticket evidence.",
+    "terminal.run:run": "Run an approved non-interactive terminal command with live output.",
+    "kernel.permissions:inspect": "Inspect raw and expanded Employee permissions plus command access.",
+}
+
+def local_kernel_capabilities() -> list[CapabilityRecord]:
+    return [tool.model_copy(deep=True) for tool in _LOCAL_KERNEL_CAPABILITIES]
 
 
-def local_chat_tool_ids() -> list[str]:
-    return [tool.id for tool in _LOCAL_CHAT_TOOLS]
+def local_kernel_command_ids() -> list[str]:
+    return list(_LOCAL_KERNEL_COMMANDS)
 
 
-def local_chat_tool_union(*, include_none: bool = False) -> str:
-    ids = local_chat_tool_ids()
+def local_kernel_command_union(*, include_none: bool = False) -> str:
+    ids = local_kernel_command_ids()
     if include_none:
         ids = ["none", *ids]
     return "|".join(ids)
 
 
-def local_chat_tool_prompt() -> str:
+def local_kernel_command_prompt() -> str:
     lines = ["- none"]
-    lines.extend(f"- {tool.id}" for tool in _LOCAL_CHAT_TOOLS)
+    lines.extend(f"- {command}: {description}" for command, description in _LOCAL_KERNEL_COMMANDS.items())
     return "\n".join(lines)
 
 
@@ -372,7 +278,7 @@ def _tool_connector_capabilities() -> list[CapabilityRecord]:
 
 def list_capabilities() -> list[CapabilityRecord]:
     records = [
-        *local_chat_tools(),
+        *local_kernel_capabilities(),
         *_tool_connector_capabilities(),
     ]
     return sorted(records, key=lambda item: (item.kind, item.source_kind, item.domain, item.id))
@@ -387,7 +293,7 @@ def capability_registry_status() -> CapabilityRegistryStatus:
         configured_count=sum(1 for item in capabilities if item.configured),
         ready_count=sum(1 for item in capabilities if item.status in {"ready", "active", "configured", "local"}),
         tool_count=sum(1 for item in capabilities if item.kind == "tool"),
-        built_in_tool_count=sum(1 for item in capabilities if item.kind == "tool" and item.source_kind == "built_in"),
+        kernel_command_count=sum(1 for item in capabilities if item.kind == "tool" and item.source_kind == "kernel_command"),
         mcp_tool_count=sum(1 for item in capabilities if item.kind == "tool" and item.source_kind == "mcp_server"),
         saved_paths=connector_status.saved_paths,
     )
@@ -399,9 +305,9 @@ def capability_registry() -> CapabilityRegistryResponse:
         capabilities=list_capabilities(),
         model={
             "knowledge": "facts and history that ground reasoning; does not execute actions",
-            "capability": "reusable team capability asset; currently includes Skills, Built-in Tools, and MCP Tools",
+            "capability": "reusable team capability asset; currently includes Skills, Kernel Commands, and MCP Tools",
             "skill": "method, workflow, and role-specific know-how assigned to employees",
-            "tool": "executable action normalized from built-in code, MCP servers, native APIs, CLIs, CI, or AI engine bridges",
+            "tool": "executable action exposed through Kernel commands, MCP servers, native APIs, CLIs, CI, or AI engine bridges",
             "connector": "settings-side external capability source; not itself a capability asset",
             "ai_engine": "settings-side model or agent backend used for thinking or execution; not listed as a capability asset",
         },

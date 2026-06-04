@@ -128,7 +128,7 @@ const capabilities = {
     configured_count: 2,
     ready_count: 2,
     tool_count: 1,
-    built_in_tool_count: 1,
+    kernel_command_count: 1,
     mcp_tool_count: 0,
     native_api_tool_count: 0,
     cli_tool_count: 0,
@@ -140,7 +140,7 @@ const capabilities = {
       id: "search_knowledge",
       name: "Search Knowledge",
       kind: "tool",
-      source_kind: "built_in",
+      source_kind: "kernel_command",
       domain: "knowledge",
       source: "file",
       status: "ready",
@@ -256,7 +256,7 @@ describe("EmployeesPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Capabilities" }));
     expect(screen.getByText("Assigned Skills")).toBeTruthy();
-    expect(screen.getByText("Built-in Tools")).toBeTruthy();
+    expect(screen.getByText("Kernel Commands")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Governance" }));
     expect(screen.getByText("Knowledge Scope")).toBeTruthy();

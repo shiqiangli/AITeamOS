@@ -118,6 +118,7 @@ export interface ChatAiEngineRecord {
   api_key_env?: string | null;
   model?: string | null;
   thinking?: string | null;
+  speed?: string | null;
   context_window?: number | null;
   max_tokens?: number | null;
   enabled: boolean;
@@ -145,6 +146,7 @@ export interface ChatAiEngineSettingsRequest {
 export interface ChatAiEngineUpdateRequest {
   model?: string | null;
   thinking?: string | null;
+  speed?: string | null;
   context_window?: number | null;
   max_tokens?: number | null;
   base_url?: string | null;

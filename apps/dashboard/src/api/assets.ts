@@ -20,7 +20,7 @@ export type AssetDetail =
   | "memories"
   | "decisions"
   | "skills"
-  | "built-in-tools"
+  | "kernel-commands"
   | "mcp-tools"
   | "tools";
 

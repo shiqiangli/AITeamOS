@@ -39,7 +39,7 @@ Employees are workforce records. They are not just personas or chat identities. 
 
 Tickets are the accountability ledger. Every active Ticket has an assignee; changing assignee is the routing primitive between AI Employees. Every meaningful action should append a Ticket event such as `created`, `assigned`, `status_changed`, `reported`, `validated`, `blocked`, or `asset_linked`.
 
-Assets are traceable reusable team resources. Assets include Knowledge, Skills, Built-in Tools, MCP Tools, Decisions, Reports, Evidence, and review candidates. Every asset should carry provenance where possible: source Ticket, source Employee, status, scopes, created time, and updated time.
+Assets are traceable reusable team resources. Assets include Knowledge, Skills, Kernel Commands, MCP Tools, Decisions, Reports, Evidence, and review candidates. Every asset should carry provenance where possible: source Ticket, source Employee, status, scopes, created time, and updated time.
 
 ## Navigation
 
@@ -56,7 +56,7 @@ Assets
        -> Decisions
   -> Capabilities
        -> Skills
-       -> Built-in Tools
+       -> Kernel Commands
        -> MCP Tools
   -> Review Queue
 Settings
@@ -89,7 +89,7 @@ Chat may offer lightweight per-run AI Engine controls, such as model or reasonin
 Capabilities are executable or reusable ability assets. In Assets they are visible as:
 
 - Skills
-- Built-in Tools
+- Kernel Commands
 - MCP Tools
 
 Tool Connectors are Settings entries that make external tools discoverable. MCP Server is a `kind` of Tool Connector, not a parallel top-level concept. AITeamOS acts as host/client, discovers MCP tools/resources/prompts, normalizes them into capabilities, and applies permission and trace boundaries.

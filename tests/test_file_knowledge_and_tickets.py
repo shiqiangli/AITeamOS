@@ -8,6 +8,15 @@ from aiteamos_api.main import create_app
 from aiteamos_api.read import chat_routes
 
 
+def _command_event(payload: dict, command_id: str, phase: str = "completed") -> dict:
+    return next(
+        event
+        for event in payload["trace_events"]
+        if event["event"] == f"command.{phase}"
+        and event.get("data", {}).get("command", {}).get("id") == command_id
+    )
+
+
 def _write_employee(path, *, employee_id: str, name: str, role: str) -> None:
     path.write_text(
         f"""
@@ -256,7 +265,7 @@ def test_clara_can_search_knowledge_and_create_local_ticket(tmp_path, monkeypatc
     )
     assert list_repos.status_code == 200
     assert "代码仓库" in list_repos.json()["reply"]
-    assert any(event["event"] == "tool.list_code_repositories.completed" for event in list_repos.json()["trace_events"])
+    _command_event(list_repos.json(), "repositories.list:list")
 
     search = client.post(
         "/api/v1/chat/messages",
@@ -268,7 +277,7 @@ def test_clara_can_search_knowledge_and_create_local_ticket(tmp_path, monkeypatc
     )
     assert search.status_code == 200
     assert "我搜索了 Knowledge" in search.json()["reply"]
-    assert any(event["event"] == "tool.search_knowledge.completed" for event in search.json()["trace_events"])
+    _command_event(search.json(), "knowledge.search:search")
 
     create = client.post(
         "/api/v1/chat/messages",
@@ -281,7 +290,7 @@ def test_clara_can_search_knowledge_and_create_local_ticket(tmp_path, monkeypatc
     assert create.status_code == 200
     payload = create.json()
     assert "已创建本地 Ticket" in payload["reply"]
-    completed = next(event for event in payload["trace_events"] if event["event"] == "tool.create_ticket.completed")
+    completed = _command_event(payload, "tickets.manage:create")
     ticket = completed["data"]["ticket"]
     assert ticket["id"].startswith("rd-")
     assert ticket["ticket_type"] == "rd"
@@ -301,7 +310,7 @@ def test_clara_can_search_knowledge_and_create_local_ticket(tmp_path, monkeypatc
     assert inspect.status_code == 200
     inspect_payload = inspect.json()
     assert "已检查代码仓库" in inspect_payload["reply"]
-    inspect_event = next(event for event in inspect_payload["trace_events"] if event["event"] == "tool.inspect_code_repository.completed")
+    inspect_event = _command_event(inspect_payload, "repositories.inspect:inspect")
     assert inspect_event["data"]["matches"]
     assert inspect_event["data"]["ticket"]["reports"][-1]["report_type"] == "repo_inspection"
     assert inspect_event["data"]["ticket"]["events"][-1]["type"] == "asset_linked"

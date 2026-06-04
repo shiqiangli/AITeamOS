@@ -109,7 +109,7 @@ AI Engine:
 - Top-level `Assets` page must include a search box across all assets.
 - Assets must be organized as:
   - Knowledge: Docs, Memories, Decisions
-  - Capabilities: Skills, Built-in Tools, MCP Tools
+  - Capabilities: Skills, Kernel Commands, MCP Tools
   - Review Queue
 - Selecting an asset must show a right-side detail panel.
 - Full text must be available in a read-only dialog for docs, skills, review items, reports, and evidence where content exists.

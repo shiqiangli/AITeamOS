@@ -65,7 +65,7 @@ describe("AssetsPage — Skills view", () => {
               configured_count: 0,
               ready_count: 0,
               tool_count: 0,
-              built_in_tool_count: 0,
+              kernel_command_count: 0,
               mcp_tool_count: 0,
               native_api_tool_count: 0,
               cli_tool_count: 0,

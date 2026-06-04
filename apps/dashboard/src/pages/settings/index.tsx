@@ -77,6 +77,7 @@ type AiEngineForm = {
 type AiEngineDraft = {
   model: string;
   thinking: string;
+  speed: string;
   context_window: string;
   max_tokens: string;
   base_url: string;
@@ -156,6 +157,7 @@ function aiEnginesToDrafts(aiEngines: ChatAiEngineSettings): Record<string, AiEn
       {
         model: String(aiEngineFieldValue(engine, "model")),
         thinking: String(aiEngineFieldValue(engine, "thinking")),
+        speed: String(aiEngineFieldValue(engine, "speed")),
         context_window: String(aiEngineFieldValue(engine, "context_window")),
         max_tokens: String(aiEngineFieldValue(engine, "max_tokens")),
         base_url: String(aiEngineFieldValue(engine, "base_url")),
@@ -353,6 +355,7 @@ function updateAiEngineDraft(
     const currentDraft = current[engineId] ?? {
       model: "",
       thinking: "",
+      speed: "",
       context_window: "",
       max_tokens: "",
       base_url: "",
@@ -373,6 +376,7 @@ function aiEngineUpdatePayload(draft: AiEngineDraft | undefined): ChatAiEngineUp
   return {
     model: draft?.model ?? "",
     thinking: draft?.thinking ?? "",
+    speed: draft?.speed ?? "",
     context_window: draft?.context_window ? Number(draft.context_window) : null,
     max_tokens: draft?.max_tokens ? Number(draft.max_tokens) : null,
     base_url: draft?.base_url ?? "",
@@ -1447,6 +1451,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     const draft = selectedAiEngine ? aiEngineDrafts[selectedAiEngine.id] ?? {
       model: selectedAiEngine.model ?? "",
       thinking: selectedAiEngine.thinking ?? "",
+      speed: selectedAiEngine.speed ?? "",
       context_window: selectedAiEngine.context_window ? String(selectedAiEngine.context_window) : "",
       max_tokens: selectedAiEngine.max_tokens ? String(selectedAiEngine.max_tokens) : "",
       base_url: selectedAiEngine.base_url ?? "",
@@ -1455,6 +1460,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     } : {
       model: "",
       thinking: "",
+      speed: "",
       context_window: "",
       max_tokens: "",
       base_url: "",

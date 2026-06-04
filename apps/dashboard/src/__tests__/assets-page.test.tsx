@@ -46,13 +46,13 @@ const assets = [
     source_ticket: "",
     source_employee: "",
     assigned_employees: [],
-    scopes: ["capabilities", "built-in-tools", "employees"],
+    scopes: ["capabilities", "kernel-commands", "employees"],
     created_at: "2026-06-03T08:30:00Z",
     updated_at: "2026-06-03T08:30:00Z",
     metadata: {
       asset_domain: "capabilities",
-      asset_type: "built-in-tools",
-      source_kind: "built_in",
+      asset_type: "kernel-commands",
+      source_kind: "kernel_command",
       description: "List file-backed employees.",
     },
   },
@@ -122,7 +122,7 @@ const capabilities = {
     configured_count: 1,
     ready_count: 1,
     tool_count: 2,
-    built_in_tool_count: 1,
+    kernel_command_count: 1,
     mcp_tool_count: 1,
     native_api_tool_count: 0,
     cli_tool_count: 0,
@@ -134,7 +134,7 @@ const capabilities = {
       id: "list_employees",
       name: "List employees",
       kind: "tool",
-      source_kind: "built_in",
+      source_kind: "kernel_command",
       domain: "employees",
       source: "AITeamOS Kernel",
       status: "ready",
@@ -251,9 +251,9 @@ describe("AssetsPage", () => {
   });
 
   it("renders flattened capability tool tabs", async () => {
-    const { rerender } = render(<AssetsPage selectedArea="capabilities" selectedDetail="built-in-tools" />);
+    const { rerender } = render(<AssetsPage selectedArea="capabilities" selectedDetail="kernel-commands" />);
 
-    expect((await screen.findAllByText("Built-in Tools")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Kernel Commands")).length).toBeGreaterThan(0);
     expect(await screen.findByText("List employees")).toBeTruthy();
 
     rerender(<AssetsPage selectedArea="capabilities" selectedDetail="mcp-tools" />);

@@ -31,7 +31,7 @@ Assets
        -> Decisions
   -> Capabilities
        -> Skills
-       -> Built-in Tools
+       -> Kernel Commands
        -> MCP Tools
   -> Review Queue
 Settings
