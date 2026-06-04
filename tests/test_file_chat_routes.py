@@ -592,6 +592,7 @@ def test_employee_chat_lists_employees_with_local_tool(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -714,6 +715,7 @@ def test_employee_chat_creates_and_assigns_skill_with_local_tools(tmp_path, monk
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -810,6 +812,7 @@ def test_employee_chat_streams_list_employees_tool(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -878,6 +881,7 @@ def test_employee_chat_creates_employee_with_local_tool(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -941,6 +945,7 @@ def test_employee_chat_creates_employee_from_ai_employee_phrase(tmp_path, monkey
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -994,6 +999,7 @@ def test_employee_chat_uses_deepseek_tool_planner_for_create_employee(tmp_path, 
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -1086,6 +1092,7 @@ def test_employee_chat_edits_employee_profile_with_local_tool(tmp_path, monkeypa
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -1157,6 +1164,7 @@ def test_employee_chat_deletes_employee_with_local_tool(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     runtime_dir = workspace / ".aiteamos"
     employees_dir = runtime_dir / "employees"
@@ -1232,6 +1240,7 @@ def test_employee_chat_blocks_deleting_clara(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -1280,6 +1289,7 @@ def test_employee_chat_streams_create_employee_tool(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -1331,6 +1341,7 @@ def test_clara_can_run_allowlisted_terminal_command(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     client = TestClient(create_app())
     response = client.post(
@@ -1356,6 +1367,7 @@ def test_clara_reports_kernel_permissions_from_profile(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
@@ -1445,6 +1457,7 @@ def test_terminal_command_streams_progress(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
 
     client = TestClient(create_app())
     with client.stream(
@@ -1550,6 +1563,246 @@ handoff_rules:
     state = engine_threads["clara::who-are-you"]
     assert state["ai_engine"] == "openai_responses"
     assert state["openai_previous_response_id"] == "resp-test-1"
+
+
+def test_employee_capability_question_uses_openai_agent_bundle_without_kernel_intercept(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "openai")
+    monkeypatch.setenv("AITEAMOS_OPENAI_ENABLED", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_OPENAI_MODEL", "gpt-test")
+
+    employees_dir = workspace / ".aiteamos" / "employees"
+    skills_dir = workspace / ".aiteamos" / "skills" / "test-engineering"
+    employees_dir.mkdir(parents=True)
+    skills_dir.mkdir(parents=True)
+    (employees_dir / "alex.yaml").write_text(
+        """
+id: alex
+display_name: Alex
+kind: ai
+role: AI RD / Implementer
+summary: Implementation owner
+personality: Direct and evidence-driven
+responsibilities:
+  - Implement delegated Tickets and report verification evidence.
+skills:
+  - test-engineering
+permissions:
+  - chat
+  - manage_tickets
+  - read_local_assets
+  - write_trace
+ai_engine:
+  mode: openai_responses
+  engine_identity: alex
+  preserve_engine_thread: true
+handoff_rules:
+  - Escalate unclear scope to Clara.
+""".strip(),
+        encoding="utf-8",
+    )
+    (skills_dir / "SKILL.md").write_text(
+        """
+# Test Engineering
+
+> Test execution and validation evidence.
+
+## Procedure
+Run focused tests and report evidence.
+""".strip(),
+        encoding="utf-8",
+    )
+    calls = []
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "id": "resp-capability-1",
+                "model": "gpt-test",
+                "output_text": "可以。我可以围绕 Ticket 做实现、证据整理和汇报，但实际 Kernel 执行要有 trace。",
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers, json):
+            calls.append({"url": url, "headers": headers, "json": json})
+            return FakeResponse()
+
+    monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FakeAsyncClient)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "你能处理tickets吗",
+            "thread_id": "alex-capability-question",
+            "target_employee_id": "alex",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["target_employee"]["id"] == "alex"
+    assert payload["reply"].startswith("可以。")
+    assert payload["run_metadata"]["commands"] == []
+    assert any(event["event"] == "command.intercept.skipped" for event in payload["trace_events"])
+    assert not _has_command_event(payload, "kernel.permissions:inspect")
+    assert calls[0]["url"] == "https://api.openai.com/v1/responses"
+    instructions = calls[0]["json"]["instructions"]
+    assert "Display name: Alex" in instructions
+    assert "Agent context bundle" in instructions
+    assert "Skill context:" in instructions
+    assert "Test Engineering (test-engineering)" in instructions
+    assert "Capability and permission context:" in instructions
+    assert "tickets.manage:create" in instructions
+    assert "Runtime policy:" in instructions
+
+
+def test_openai_auth_error_returns_configuration_blocker_without_stub_reply(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "openai")
+    monkeypatch.setenv("AITEAMOS_OPENAI_ENABLED", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "bad-test-key")
+    monkeypatch.setenv("AITEAMOS_OPENAI_MODEL", "gpt-test")
+
+    employees_dir = workspace / ".aiteamos" / "employees"
+    employees_dir.mkdir(parents=True)
+    (employees_dir / "clara.yaml").write_text(
+        """
+id: clara
+display_name: Clara
+kind: ai
+role: AI Team OS Manager
+summary: Coordinator
+skills: []
+ai_engine:
+  mode: openai_responses
+  engine_identity: clara
+  preserve_engine_thread: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    class FakeResponse:
+        status_code = 401
+        text = '{"error":{"message":"Incorrect API key provided: sk-proj-secret","type":"invalid_request_error","code":"invalid_api_key"}}'
+
+        def json(self):
+            return {}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers, json):
+            return FakeResponse()
+
+    monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FakeAsyncClient)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "你具备哪些能力，可以管理ticket, skills, employees吗",
+            "thread_id": "openai-auth-error-test",
+            "target_employee_id": "clara",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "远程调用被配置问题阻止" in payload["reply"]
+    assert "file-backed fallback/stub" not in payload["reply"]
+    assert "Clara 已收到请求" not in payload["reply"]
+    assert payload["run_metadata"]["commands"] == []
+    assert payload["run_metadata"]["ai_engine"]["actual_ai_engine"] == "openai_configuration_blocked"
+    assert any(event["event"] == "command.intercept.skipped" for event in payload["trace_events"])
+    assert any(event["event"] == "ai_engine.remote.configuration_blocked" for event in payload["trace_events"])
+    assert not any(event["event"] == "ai_engine.stub.completed" for event in payload["trace_events"])
+
+
+def test_openai_quota_error_returns_configuration_blocker_without_stub_reply(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "openai")
+    monkeypatch.setenv("AITEAMOS_OPENAI_ENABLED", "1")
+    monkeypatch.setenv("OPENAI_API_KEY", "quota-test-key")
+    monkeypatch.setenv("AITEAMOS_OPENAI_MODEL", "gpt-test")
+
+    employees_dir = workspace / ".aiteamos" / "employees"
+    employees_dir.mkdir(parents=True)
+    (employees_dir / "clara.yaml").write_text(
+        """
+id: clara
+display_name: Clara
+kind: ai
+role: AI Team OS Manager
+summary: Coordinator
+skills: []
+ai_engine:
+  mode: openai_responses
+  engine_identity: clara
+  preserve_engine_thread: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    class FakeResponse:
+        status_code = 429
+        text = '{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}'
+
+        def json(self):
+            return {}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers, json):
+            return FakeResponse()
+
+    monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FakeAsyncClient)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={"message": "你是谁", "thread_id": "openai-quota-error-test", "target_employee_id": "clara"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "远程调用被配置问题阻止" in payload["reply"]
+    assert "quota" in payload["reply"] or "额度" in payload["reply"]
+    assert "Clara 已收到请求" not in payload["reply"]
+    assert payload["run_metadata"]["ai_engine"]["actual_ai_engine"] == "openai_configuration_blocked"
+    assert any(event["event"] == "ai_engine.remote.configuration_blocked" for event in payload["trace_events"])
+    assert not any(event["event"] == "ai_engine.stub.completed" for event in payload["trace_events"])
 
 
 def test_employee_chat_can_use_deepseek_ai_engine(tmp_path, monkeypatch):

@@ -4227,6 +4227,86 @@ def _ai_engine_fallback_on_error() -> bool:
     return bool(_ai_engine_config()["fallback_on_error"])
 
 
+def _remote_ai_engine_available(engine: str) -> bool:
+    secrets = _ai_engine_secrets()
+    if engine == "deepseek":
+        return bool(secrets["deepseek_api_key"])
+    if engine == "openai":
+        return bool(secrets["openai_api_key"])
+    return False
+
+
+def _chat_kernel_command_intercept_enabled(context: ChatRunContext) -> bool:
+    mode = os.environ.get("AITEAMOS_CHAT_KERNEL_COMMANDS", "fallback").strip().lower()
+    if mode in {"0", "false", "no", "off", "disabled", "never", "llm"}:
+        return False
+    if mode in {"1", "true", "yes", "on", "enabled", "always", "legacy"}:
+        return True
+    return context.selected_ai_engine == "stub"
+
+
+def _ai_engine_error_text(exc: HTTPException | RuntimeError) -> str:
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+    return str(exc)
+
+
+def _is_ai_engine_configuration_error(exc: HTTPException | RuntimeError) -> bool:
+    text = _ai_engine_error_text(exc).lower()
+    return any(
+        token in text
+        for token in (
+            "401",
+            "403",
+            "429",
+            "api key",
+            "apikey",
+            "authentication",
+            "authorization",
+            "billing",
+            "invalid_api_key",
+            "invalid api key",
+            "incorrect api key",
+            "insufficient_quota",
+            "missing_secret",
+            "not enabled",
+            "not configured",
+            "quota",
+            "rate limit",
+            "rate_limit",
+        )
+    )
+
+
+def _safe_ai_engine_error_summary(exc: HTTPException | RuntimeError) -> str:
+    text = _ai_engine_error_text(exc)
+    if not text.strip():
+        return "unknown AI Engine configuration error"
+    text = re.sub(r"sk-[A-Za-z0-9_*.-]+", "sk-***", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:360]
+
+
+def _build_ai_engine_configuration_reply(context: ChatRunContext, *, ai_engine_id: str, error: HTTPException | RuntimeError) -> str:
+    reason = _safe_ai_engine_error_summary(error)
+    if _message_prefers_chinese(context.request.message):
+        return (
+            "这次没有进入本地 file stub，也没有让 Kernel 抢答；我已经把对话路由到选中的远程 AI Engine，"
+            "但远程调用被配置问题阻止了。\n\n"
+            f"- 选中的 AI Engine：{ai_engine_id}\n"
+            f"- 问题：{reason}\n\n"
+            "请更新对应的 API key 并重启后端，或临时把 Chat AI Engine 切回 stub。"
+        )
+
+    return (
+        "This turn was not answered by the local file stub and was not intercepted by Kernel commands. "
+        "AITeamOS routed it to the selected remote AI Engine, but the remote call was blocked by configuration.\n\n"
+        f"- Selected AI Engine: {ai_engine_id}\n"
+        f"- Problem: {reason}\n\n"
+        "Update the API key and restart the backend, or temporarily switch Chat AI Engine back to stub."
+    )
+
+
 def _message_prefers_chinese(message: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", message))
 
@@ -4235,6 +4315,100 @@ def _response_language_instruction(message: str) -> str:
     if _message_prefers_chinese(message):
         return "Language: Reply in concise Simplified Chinese because the user's latest message contains Chinese."
     return "Language: Reply in the same language as the user's latest message."
+
+
+def _trim_context_text(value: str, *, limit: int = 1200) -> str:
+    text = re.sub(r"\s+", " ", value).strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}..."
+
+
+def _format_context_list(items: list[Any]) -> str:
+    values = [str(item).strip() for item in items if str(item).strip()]
+    return "\n".join(f"- {item}" for item in values) or "- none"
+
+
+def _employee_skill_context(employee: ChatEmployeeSummary) -> str:
+    if not employee.skills:
+        return "- none"
+    skills_by_id = {skill.id: skill for skill in _load_skills()}
+    lines: list[str] = []
+    for skill_id in employee.skills:
+        skill = skills_by_id.get(skill_id)
+        if skill is None:
+            lines.append(f"- {skill_id}: assigned in profile, but no local SKILL.md was found.")
+            continue
+        description = f" - {skill.description}" if skill.description else ""
+        resources = f"; resources={', '.join(skill.resources[:5])}" if skill.resources else ""
+        excerpt = _trim_context_text(skill.content, limit=900)
+        lines.append(
+            f"- {skill.title} ({skill.id}){description}; path={skill.saved_path}{resources}\n"
+            f"  Skill excerpt: {excerpt}"
+        )
+    return "\n".join(lines)
+
+
+def _employee_capability_context(employee_profile: dict[str, Any]) -> str:
+    raw_permissions = [
+        str(permission).strip()
+        for permission in employee_profile.get("permissions", [])
+        if str(permission).strip()
+    ]
+    expanded_permissions = sorted(expand_employee_permissions(raw_permissions))
+    allowed: list[str] = []
+    blocked: list[str] = []
+    for command_id, spec in _KERNEL_COMMAND_SPECS.items():
+        command = KernelCommand(id=command_id, capability=spec.capability, operation=spec.operation)
+        decision = evaluate_kernel_policy(command, spec=spec, actor_permissions=raw_permissions)
+        risk = f"; risk={spec.risk}" if spec.risk != "low" else ""
+        label = f"{command_id} ({spec.description}{risk})"
+        if decision.status == "allowed":
+            allowed.append(label)
+        else:
+            missing = ", ".join(decision.missing_permissions) if decision.missing_permissions else "unknown"
+            blocked.append(f"{command_id} (missing={missing})")
+
+    return (
+        f"Raw profile permissions: {', '.join(raw_permissions) if raw_permissions else 'none'}\n"
+        f"Expanded Kernel permissions: {', '.join(expanded_permissions) if expanded_permissions else 'none'}\n"
+        "Allowed Kernel capabilities and commands:\n"
+        f"{_format_context_list(allowed)}\n"
+        "Blocked Kernel commands:\n"
+        f"{_format_context_list(blocked)}"
+    )
+
+
+def _employee_agent_context_bundle(
+    *,
+    employee_profile: dict[str, Any],
+    employee: ChatEmployeeSummary,
+    ticket_keys: list[str],
+    memory_snippets: list[str],
+) -> str:
+    memory_scopes = employee_profile.get("memory_scopes", [])
+    ticket_text = ", ".join(ticket_keys) if ticket_keys else "none"
+    memory_text = _format_context_list(memory_snippets)
+    memory_scope_text = ", ".join(str(item) for item in memory_scopes) if memory_scopes else "none"
+    skill_context = _employee_skill_context(employee)
+    capability_context = _employee_capability_context(employee_profile)
+    return (
+        "Agent context bundle:\n"
+        f"- Memory scopes: {memory_scope_text}\n"
+        f"- Ticket keys bound to this turn: {ticket_text}\n\n"
+        "Skill context:\n"
+        f"{skill_context}\n\n"
+        "Memory and Knowledge snippets:\n"
+        f"{memory_text}\n\n"
+        "Capability and permission context:\n"
+        f"{capability_context}\n\n"
+        "Runtime policy:\n"
+        "- This chat turn is answer-first: the selected AI Engine receives the bundled context before answering.\n"
+        "- Treat Kernel commands as capability facts and execution boundaries, not as proof that work was already done.\n"
+        "- If the user asks what you can do, answer naturally from the bundle instead of dumping raw lists.\n"
+        "- If the user asks for an action that requires a Kernel command, describe the intended action and any needed confirmation; "
+        "do not claim the command actually ran unless trace evidence is present in the conversation."
+    )
 
 
 def _ai_engine_context_gate(
@@ -4249,25 +4423,30 @@ def _ai_engine_context_gate(
     responsibilities = employee_profile.get("responsibilities", [])
     handoff_rules = employee_profile.get("handoff_rules", [])
     personality = str(employee_profile.get("personality", ""))
-    ticket_text = ", ".join(ticket_keys) if ticket_keys else "none"
-    memory_text = "\n".join(f"- {item}" for item in memory_snippets) or "- none"
     skill_text = ", ".join(skills) if skills else "none"
-    responsibilities_text = "\n".join(f"- {item}" for item in responsibilities) or "- none"
-    handoff_text = "\n".join(f"- {item}" for item in handoff_rules) or "- none"
+    responsibilities_text = _format_context_list(responsibilities)
+    handoff_text = _format_context_list(handoff_rules)
+    agent_bundle = _employee_agent_context_bundle(
+        employee_profile=employee_profile,
+        employee=employee,
+        ticket_keys=ticket_keys,
+        memory_snippets=memory_snippets,
+    )
 
     return (
         "You are an AI Employee inside AITeamOS. Answer as the addressed employee, "
         "not as a generic assistant. Be concise, truthful, and explicit about what "
-        "you can and cannot do in this P0 AI Engine setup.\n\n"
+        "you can and cannot do in this P0 AI Engine setup. Use the bundled profile, "
+        "memory, knowledge, capability, permission, and skill facts below to answer "
+        "naturally.\n\n"
         f"Employee id: {employee.id}\n"
         f"Display name: {employee.display_name}\n"
         f"Role: {employee.role}\n"
         f"Summary: {employee.summary}\n"
         f"Personality: {personality}\n"
         f"Responsibilities:\n{responsibilities_text}\n\n"
-        f"Skills available through AITeamOS context gate: {skill_text}\n"
-        f"Ticket keys bound to this turn: {ticket_text}\n"
-        f"Local memory snippets:\n{memory_text}\n\n"
+        f"Skill names available through AITeamOS context gate: {skill_text}\n\n"
+        f"{agent_bundle}\n\n"
         f"Handoff rules:\n{handoff_text}\n\n"
         f"{_response_language_instruction(user_message)}\n\n"
         "AITeamOS currently gates your profile, skills, memory, Ticket context, "
@@ -4805,8 +4984,13 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
         ),
         ChatTraceEvent(
             event="context.loaded",
-            detail="Loaded file-backed employee, skill, and approved memory context.",
-            data={"skills": skills, "memory_count": len(memories), "recent_message_count": len(recent_messages)},
+            detail="Loaded bundled Employee profile, skill, memory, knowledge, capability, and recent-message context.",
+            data={
+                "skills": skills,
+                "memory_and_knowledge_count": len(memories),
+                "recent_message_count": len(recent_messages),
+                "command_intercept_policy": os.environ.get("AITEAMOS_CHAT_KERNEL_COMMANDS", "fallback"),
+            },
         ),
         ChatTraceEvent(
             event="engine_thread.resolved",
@@ -5899,9 +6083,18 @@ async def agui_chat_agent_health() -> dict[str, Any]:
 @router.post("/messages", response_model=ChatMessageResponse)
 async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
     context = _prepare_chat_run(request)
-    kernel_command_response = await _maybe_execute_kernel_command(context)
-    if kernel_command_response is not None:
-        return kernel_command_response
+    if _chat_kernel_command_intercept_enabled(context):
+        kernel_command_response = await _maybe_execute_kernel_command(context)
+        if kernel_command_response is not None:
+            return kernel_command_response
+    else:
+        context.trace_events.append(
+            ChatTraceEvent(
+                event="command.intercept.skipped",
+                detail="Remote AI Engine is available; bundled context was sent to the AI Engine instead of local command interception.",
+                data={"selected_ai_engine": context.selected_ai_engine},
+            )
+        )
 
     ai_engine_id = context.selected_ai_engine
     try:
@@ -5949,6 +6142,22 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
             extra_trace_events=[completed_event],
         )
     except RuntimeError as exc:
+        if _is_ai_engine_configuration_error(exc):
+            return _persist_chat_response(
+                context,
+                reply=_build_ai_engine_configuration_reply(context, ai_engine_id=ai_engine_id, error=exc),
+                extra_trace_events=[
+                    ChatTraceEvent(
+                        event="ai_engine.remote.configuration_blocked",
+                        detail="Remote AI Engine configuration blocked the chat turn; no file-backed answer was generated.",
+                        data={
+                            "ai_engine": f"{ai_engine_id}_configuration_blocked",
+                            "selected_ai_engine": ai_engine_id,
+                            "reason": _safe_ai_engine_error_summary(exc),
+                        },
+                    )
+                ],
+            )
         return _persist_chat_response(
             context,
             reply=_stub_reply(context),
@@ -5965,6 +6174,23 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
             ],
         )
     except HTTPException as exc:
+        if _is_ai_engine_configuration_error(exc):
+            return _persist_chat_response(
+                context,
+                reply=_build_ai_engine_configuration_reply(context, ai_engine_id=ai_engine_id, error=exc),
+                extra_trace_events=[
+                    ChatTraceEvent(
+                        event="ai_engine.remote.configuration_blocked",
+                        detail="Remote AI Engine configuration blocked the chat turn; no file-backed answer was generated.",
+                        data={
+                            "ai_engine": f"{ai_engine_id}_configuration_blocked",
+                            "selected_ai_engine": ai_engine_id,
+                            "status_code": exc.status_code,
+                            "reason": _safe_ai_engine_error_summary(exc),
+                        },
+                    )
+                ],
+            )
         if not _ai_engine_fallback_on_error():
             raise
         return _persist_chat_response(
@@ -6092,8 +6318,9 @@ def _agui_state(input_data: RunAgentInput) -> dict[str, Any]:
 async def _stream_chat_turn(
     request: ChatMessageRequest,
 ) -> AsyncIterator[tuple[str, str | ChatMessageResponse | dict[str, Any]]]:
-    if _COMMAND_PLANNING_SIGNAL_RE.search(request.message):
-        context = _prepare_chat_run(request)
+    context = _prepare_chat_run(request)
+    command_intercept_enabled = _chat_kernel_command_intercept_enabled(context)
+    if command_intercept_enabled and _COMMAND_PLANNING_SIGNAL_RE.search(request.message):
         plan = await _plan_kernel_command_intent(context)
         command = _kernel_command_from_plan(context, plan)
         if command is not None:
@@ -6110,8 +6337,15 @@ async def _stream_chat_turn(
             async for event, payload in _stream_deepseek_agent(context):
                 yield event, payload
             return
+    elif not command_intercept_enabled:
+        context.trace_events.append(
+            ChatTraceEvent(
+                event="command.intercept.skipped",
+                detail="Remote AI Engine is available; bundled context was streamed to the AI Engine instead of local command interception.",
+                data={"selected_ai_engine": context.selected_ai_engine},
+            )
+        )
 
-    context = _prepare_chat_run(request)
     if context.selected_ai_engine == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
         async for event, payload in _stream_deepseek_agent(context):
             yield event, payload
@@ -6190,8 +6424,9 @@ async def _stream_agui_chat_events(input_data: RunAgentInput) -> AsyncIterator[A
 async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
     async def generate() -> AsyncIterator[str]:
         try:
-            if _COMMAND_PLANNING_SIGNAL_RE.search(request.message):
-                context = _prepare_chat_run(request)
+            context = _prepare_chat_run(request)
+            command_intercept_enabled = _chat_kernel_command_intercept_enabled(context)
+            if command_intercept_enabled and _COMMAND_PLANNING_SIGNAL_RE.search(request.message):
                 plan = await _plan_kernel_command_intent(context)
                 command = _kernel_command_from_plan(context, plan)
                 if command is not None:
@@ -6240,8 +6475,15 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                             elif event == "final":
                                 yield _sse_payload("final", payload)
                         return
+            elif not command_intercept_enabled:
+                context.trace_events.append(
+                    ChatTraceEvent(
+                        event="command.intercept.skipped",
+                        detail="Remote AI Engine is available; bundled context was streamed to the AI Engine instead of local command interception.",
+                        data={"selected_ai_engine": context.selected_ai_engine},
+                    )
+                )
 
-            context = _prepare_chat_run(request)
             if context.selected_ai_engine == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
                 yield _sse_payload(
                     "start",
