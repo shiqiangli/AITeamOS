@@ -1,8 +1,8 @@
 """File-backed code repository registry.
 
-AITeamOS only needs a thin map from Plane/project scope to code repository
+AITeamOS only needs a thin map from Ticket/project scope to code repository
 locations. Full repository intelligence should live behind repo tools,
-MCP connectors, or external agent executors.
+Tool Connectors, or AI Engines.
 """
 
 from __future__ import annotations

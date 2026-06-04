@@ -7,12 +7,42 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { parseHash, navigateTo, NAV_ITEMS, type RouteState } from "../components/shared";
 import { Toaster } from "../components/ui/toaster";
 import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ChatPage } from "../pages/chat";
 import { AssetsPage } from "../pages/assets";
 import { EmployeesPage } from "../pages/employees";
 import { SettingsPage } from "../pages/settings";
 import { TicketsPage } from "../pages/tickets";
+
+/** Lightweight hook to fetch sidebar nav counts for Assets sub-items */
+function useNavCounts() {
+  const [counts, setCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [ks, sk, cap, rev] = await Promise.all([
+          fetch("/knowledge/status").then((r) => r.ok ? r.json() : null).catch(() => null),
+          fetch("/chat/skills").then((r) => r.ok ? r.json() : []).catch(() => []),
+          fetch("/capabilities").then((r) => r.ok ? r.json() : null).catch(() => null),
+          fetch("/knowledge/review-queue").then((r) => r.ok ? r.json() : []).catch(() => []),
+        ]);
+        if (cancelled) return;
+        setCounts({
+          knowledge: (ks?.docs_count ?? 0) + (ks?.memories_count ?? 0) + (ks?.decisions_count ?? 0),
+          capabilities: (Array.isArray(sk) ? sk.length : 0) + (cap?.status?.tool_count ?? cap?.status?.capability_count ?? 0),
+          review: Array.isArray(rev) ? rev.length : 0,
+        });
+      } catch { /* ignore */ }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  return counts;
+}
 
 function NotFoundPage() {
   return (
@@ -32,21 +62,13 @@ function NotFoundPage() {
 function PageBody({ route }: { route: RouteState }) {
   switch (route.page) {
     case "chat":
-      return <ChatPage />;
+      return <ChatPage routeTarget={route.id} />;
     case "tickets":
       return <TicketsPage selectedSection={route.id} />;
     case "employees":
       return <EmployeesPage selectedId={route.id} />;
     case "assets":
       return <AssetsPage selectedArea={route.id} selectedDetail={route.detail} />;
-    case "skills":
-      return <AssetsPage selectedArea="skills" selectedDetail={route.id} />;
-    case "knowledge":
-      return <AssetsPage selectedArea="knowledge" selectedDetail={route.id} />;
-    case "memory":
-      return <AssetsPage selectedArea="knowledge" selectedDetail="memories" />;
-    case "capabilities":
-      return <AssetsPage selectedArea="capabilities" />;
     case "settings":
       return <SettingsPage selectedSection={route.id} />;
     default:
@@ -57,6 +79,7 @@ function PageBody({ route }: { route: RouteState }) {
 export function App() {
   const [route, setRoute] = useState<RouteState>(parseHash);
   const [navOpen, setNavOpen] = useState(true);
+  const navCounts = useNavCounts();
 
   useEffect(() => {
     function onHashChange() {
@@ -66,7 +89,7 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const navPage = ["skills", "knowledge", "memory", "capabilities"].includes(route.page) ? "assets" : route.page;
+  const navPage = route.page;
 
   return (
     <div className="h-screen bg-background">
@@ -119,7 +142,7 @@ export function App() {
                         ? "bg-accent text-accent-foreground border-l-2 border-primary"
                         : "text-muted-foreground"
                     )}
-                    onClick={() => navigateTo(item.key, item.children?.[0]?.key)}
+                    onClick={() => navigateTo(item.key, item.key === "assets" ? undefined : item.children?.[0]?.key)}
                     title={item.label}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
@@ -128,19 +151,23 @@ export function App() {
                   {navOpen && item.children && isActive && (
                     <div className="mt-1 space-y-1 pl-7">
                       {item.children.map((child) => {
-                        const childActive = route.id === child.key || (!route.id && child.key === item.children?.[0]?.key);
+                        const childActive = route.id === child.key || (!route.id && item.key !== "assets" && child.key === item.children?.[0]?.key);
+                        const childCount = item.key === "assets" ? navCounts[child.key] : undefined;
                         return (
                           <button
                             key={child.key}
                             className={cn(
-                              "w-full rounded-md px-3 py-1.5 text-left text-xs transition-colors",
+                              "flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left text-xs transition-colors",
                               childActive
-                                ? "bg-background text-foreground"
+                                ? "bg-background font-medium text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                             )}
                             onClick={() => navigateTo(item.key, child.key)}
                           >
                             <span className="block truncate">{child.label}</span>
+                            {childCount != null && childCount > 0 && (
+                              <Badge variant="secondary" className="ml-1 h-4 min-w-[1.25rem] justify-center px-1 text-[10px]">{childCount}</Badge>
+                            )}
                           </button>
                         );
                       })}

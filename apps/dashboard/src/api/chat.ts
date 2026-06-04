@@ -7,7 +7,7 @@ export interface ChatEmployeeSummary {
   role: string;
   summary: string;
   skills: string[];
-  runtime_mode: string;
+  ai_engine_mode: string;
   preserve_provider_thread: boolean;
   default_thread_id: string;
 }
@@ -16,6 +16,7 @@ export interface ChatSkillSummary {
   id: string;
   title: string;
   description: string;
+  content: string;
   assigned_employees: string[];
   resources: string[];
   saved_path: string;
@@ -79,18 +80,18 @@ export interface ChatThreadListResponse {
   threads: ChatThreadSummary[];
 }
 
-export interface ChatRuntimeSettings {
-  provider: string;
+export interface ChatAiEngineSettings {
+  active_engine: string;
   deepseek_model: string;
   deepseek_thinking: string;
   openai_model: string;
   fallback_on_error: boolean;
-  providers: Record<string, ChatRuntimeProviderSettings>;
+  engines: Record<string, ChatAiEngineRecord>;
   api_keys_configured: Record<string, boolean>;
   saved_paths: Record<string, string>;
 }
 
-export interface ChatRuntimeProviderSettings {
+export interface ChatAiEngineRecord {
   id: string;
   display_name: string;
   kind: string;
@@ -101,20 +102,17 @@ export interface ChatRuntimeProviderSettings {
   status: string;
 }
 
-export interface ChatRuntimeSettingsRequest {
-  provider: string;
+export interface ChatAiEngineSettingsRequest {
+  active_engine: string;
   deepseek_model: string;
   deepseek_thinking: string;
   openai_model: string;
   fallback_on_error: boolean;
-  deepseek_api_key?: string;
-  openai_api_key?: string;
 }
 
-export interface ChatRuntimeProviderUpdateRequest {
+export interface ChatAiEngineUpdateRequest {
   model?: string | null;
   thinking?: string | null;
-  api_key?: string;
   activate?: boolean;
 }
 
@@ -126,22 +124,22 @@ export function listChatSkills(): Promise<ChatSkillSummary[]> {
   return apiRequest<ChatSkillSummary[]>("/chat/skills");
 }
 
-export function getChatRuntime(): Promise<ChatRuntimeSettings> {
-  return apiRequest<ChatRuntimeSettings>("/chat/runtime");
+export function getChatAiEngines(): Promise<ChatAiEngineSettings> {
+  return apiRequest<ChatAiEngineSettings>("/chat/ai-engines");
 }
 
-export function updateChatRuntime(payload: ChatRuntimeSettingsRequest): Promise<ChatRuntimeSettings> {
-  return apiRequest<ChatRuntimeSettings>("/chat/runtime", {
+export function updateChatAiEngines(payload: ChatAiEngineSettingsRequest): Promise<ChatAiEngineSettings> {
+  return apiRequest<ChatAiEngineSettings>("/chat/ai-engines", {
     method: "PUT",
     body: payload,
   });
 }
 
-export function updateChatRuntimeProvider(
-  providerId: string,
-  payload: ChatRuntimeProviderUpdateRequest,
-): Promise<ChatRuntimeSettings> {
-  return apiRequest<ChatRuntimeSettings>(`/chat/runtime/providers/${encodeURIComponent(providerId)}`, {
+export function updateChatAiEngine(
+  engineId: string,
+  payload: ChatAiEngineUpdateRequest,
+): Promise<ChatAiEngineSettings> {
+  return apiRequest<ChatAiEngineSettings>(`/chat/ai-engines/${encodeURIComponent(engineId)}`, {
     method: "PUT",
     body: payload,
   });

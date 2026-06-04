@@ -65,7 +65,11 @@ except ImportError:  # pragma: no cover - exercised only when dependency is abse
 router = APIRouter(prefix="/api/v1/chat", tags=["employee-chat"])
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
-_TICKET_KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b|\bticket-[A-Za-z0-9_.:-]+\b", re.IGNORECASE)
+_LOCAL_TICKET_ID_RE = re.compile(r"\b(?:ticket-[A-Za-z0-9_.:-]+|(?:rd|pv|arch|rel|mem|doc|ops|trace)-\d{4,})\b", re.IGNORECASE)
+_TICKET_KEY_RE = re.compile(
+    r"\b[A-Z][A-Z0-9]+-\d+\b|\b(?:ticket-[A-Za-z0-9_.:-]+|(?:rd|pv|arch|rel|mem|doc|ops|trace)-\d{4,})\b",
+    re.IGNORECASE,
+)
 _LIST_EMPLOYEES_EN_RE = re.compile(
     r"\b(list|show|display|view)\b.*\b(ai\s+)?employees\b|\bemployees\b.*\b(list|show|all|available)\b"
 )
@@ -137,7 +141,7 @@ class ChatEmployeeSummary(BaseModel):
     role: str
     summary: str = ""
     skills: list[str] = Field(default_factory=list)
-    runtime_mode: str = "external_or_file_stub"
+    ai_engine_mode: str = "external_or_file_stub"
     preserve_provider_thread: bool = True
     default_thread_id: str = ""
 
@@ -146,6 +150,7 @@ class ChatSkillSummary(BaseModel):
     id: str
     title: str
     description: str = ""
+    content: str = ""
     assigned_employees: list[str] = Field(default_factory=list)
     resources: list[str] = Field(default_factory=list)
     saved_path: str
@@ -218,7 +223,7 @@ class ChatThreadActivateRequest(BaseModel):
     employee_id: str | None = None
 
 
-class ChatRuntimeProviderSettings(BaseModel):
+class ChatAiEngineRecord(BaseModel):
     id: str
     display_name: str
     kind: str
@@ -229,32 +234,29 @@ class ChatRuntimeProviderSettings(BaseModel):
     status: str = "missing"
 
 
-class ChatRuntimeProviderUpdateRequest(BaseModel):
+class ChatAiEngineUpdateRequest(BaseModel):
     model: str | None = None
     thinking: str | None = None
-    api_key: str | None = None
     activate: bool = False
 
 
-class ChatRuntimeSettings(BaseModel):
-    provider: str = "stub"
+class ChatAiEngineSettings(BaseModel):
+    active_engine: str = "stub"
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_thinking: str = "disabled"
     openai_model: str = "gpt-5-nano"
     fallback_on_error: bool = True
-    providers: dict[str, ChatRuntimeProviderSettings] = Field(default_factory=dict)
+    engines: dict[str, ChatAiEngineRecord] = Field(default_factory=dict)
     api_keys_configured: dict[str, bool] = Field(default_factory=dict)
     saved_paths: dict[str, str] = Field(default_factory=dict)
 
 
-class ChatRuntimeSettingsRequest(BaseModel):
-    provider: str = "stub"
+class ChatAiEngineSettingsRequest(BaseModel):
+    active_engine: str = "stub"
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_thinking: str = "disabled"
     openai_model: str = "gpt-5-nano"
     fallback_on_error: bool = True
-    deepseek_api_key: str | None = None
-    openai_api_key: str | None = None
 
 
 class ChatToolPlan(BaseModel):
@@ -280,7 +282,7 @@ class ChatRunContext:
     thread_id: str
     run_id: str
     ticket_keys: list[str]
-    runtime_dirs: dict[str, Path]
+    run_dirs: dict[str, Path]
     provider_state: dict[str, Any]
     provider_thread_id: str
     skills: list[str]
@@ -304,12 +306,8 @@ def _workspace_dir() -> Path:
     return _workspace_root() / ".aiteamos"
 
 
-def _runtime_settings_path() -> Path:
-    return _workspace_dir() / "runtime.json"
-
-
-def _secrets_path() -> Path:
-    return _workspace_dir() / "secrets.local.json"
+def _ai_engine_settings_path() -> Path:
+    return _workspace_dir() / "ai_engines.json"
 
 
 def _read_json_file(path: Path) -> dict[str, Any]:
@@ -325,16 +323,16 @@ def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _normalize_provider(value: str | None) -> str:
-    provider = (value or "stub").strip().lower()
-    return provider if provider in {"stub", "deepseek", "openai"} else "stub"
+def _normalize_ai_engine(value: str | None) -> str:
+    engine = (value or "stub").strip().lower()
+    return engine if engine in {"stub", "deepseek", "openai"} else "stub"
 
 
-def _require_runtime_provider(value: str) -> str:
-    provider = (value or "").strip().lower()
-    if provider not in {"stub", "deepseek", "openai"}:
-        raise HTTPException(status_code=400, detail=f"Unsupported runtime provider: {value}")
-    return provider
+def _require_ai_engine(value: str) -> str:
+    engine = (value or "").strip().lower()
+    if engine not in {"stub", "deepseek", "openai"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported AI Engine: {value}")
+    return engine
 
 
 def _normalize_thinking(value: str | None) -> str:
@@ -356,13 +354,13 @@ def _normalize_bool(value: Any, default: bool) -> bool:
     return bool(value)
 
 
-def _runtime_config() -> dict[str, Any]:
-    file_config = _read_json_file(_runtime_settings_path())
-    providers = file_config.get("providers") if isinstance(file_config.get("providers"), dict) else {}
-    deepseek_config = providers.get("deepseek") if isinstance(providers.get("deepseek"), dict) else {}
-    openai_config = providers.get("openai") if isinstance(providers.get("openai"), dict) else {}
+def _ai_engine_config() -> dict[str, Any]:
+    file_config = _read_json_file(_ai_engine_settings_path())
+    engines = file_config.get("engines") if isinstance(file_config.get("engines"), dict) else {}
+    deepseek_config = engines.get("deepseek") if isinstance(engines.get("deepseek"), dict) else {}
+    openai_config = engines.get("openai") if isinstance(engines.get("openai"), dict) else {}
     return {
-        "provider": _normalize_provider(file_config.get("provider") or os.environ.get("AITEAMOS_MODEL_PROVIDER")),
+        "active_engine": _normalize_ai_engine(file_config.get("active_engine") or os.environ.get("AITEAMOS_AI_ENGINE")),
         "deepseek_model": str(
             deepseek_config.get("model")
             or file_config.get("deepseek_model")
@@ -386,61 +384,60 @@ def _runtime_config() -> dict[str, Any]:
         "fallback_on_error": _normalize_bool(
             file_config.get(
                 "fallback_on_error",
-                os.environ.get("AITEAMOS_RUNTIME_FALLBACK_ON_ERROR", "1").lower() in {"1", "true", "yes", "on"},
+                os.environ.get("AITEAMOS_AI_ENGINE_FALLBACK_ON_ERROR", "1").lower() in {"1", "true", "yes", "on"},
             ),
             True,
         ),
     }
 
 
-def _runtime_secrets() -> dict[str, str]:
-    file_secrets = _read_json_file(_secrets_path())
+def _ai_engine_secrets() -> dict[str, str]:
     return {
-        "deepseek_api_key": str(file_secrets.get("deepseek_api_key") or os.environ.get("DEEPSEEK_API_KEY") or ""),
-        "openai_api_key": str(file_secrets.get("openai_api_key") or os.environ.get("OPENAI_API_KEY") or ""),
+        "deepseek_api_key": str(os.environ.get("DEEPSEEK_API_KEY") or ""),
+        "openai_api_key": str(os.environ.get("OPENAI_API_KEY") or ""),
     }
 
 
-def _runtime_provider_settings(config: dict[str, Any], secrets: dict[str, str]) -> dict[str, ChatRuntimeProviderSettings]:
-    active_provider = str(config["provider"])
+def _ai_engine_records(config: dict[str, Any], secrets: dict[str, str]) -> dict[str, ChatAiEngineRecord]:
+    active_engine = str(config["active_engine"])
     deepseek_key_configured = bool(secrets["deepseek_api_key"])
     openai_key_configured = bool(secrets["openai_api_key"])
     return {
-        "stub": ChatRuntimeProviderSettings(
+        "stub": ChatAiEngineRecord(
             id="stub",
             display_name="File stub",
             kind="local",
-            active=active_provider == "stub",
+            active=active_engine == "stub",
             api_key_configured=True,
-            status="active" if active_provider == "stub" else "available",
+            status="active" if active_engine == "stub" else "available",
         ),
-        "deepseek": ChatRuntimeProviderSettings(
+        "deepseek": ChatAiEngineRecord(
             id="deepseek",
             display_name="DeepSeek",
             kind="llm_api",
             model=str(config["deepseek_model"]),
             thinking=str(config["deepseek_thinking"]),
-            active=active_provider == "deepseek",
+            active=active_engine == "deepseek",
             api_key_configured=deepseek_key_configured,
             status="configured" if deepseek_key_configured else "missing",
         ),
-        "openai": ChatRuntimeProviderSettings(
+        "openai": ChatAiEngineRecord(
             id="openai",
             display_name="OpenAI / ChatGPT",
             kind="llm_api",
             model=str(config["openai_model"]),
-            active=active_provider == "openai",
+            active=active_engine == "openai",
             api_key_configured=openai_key_configured,
             status="configured" if openai_key_configured else "missing",
         ),
     }
 
 
-def _runtime_file_payload(config: dict[str, Any]) -> dict[str, Any]:
+def _ai_engine_file_payload(config: dict[str, Any]) -> dict[str, Any]:
     return {
-        "provider": _normalize_provider(str(config.get("provider"))),
+        "active_engine": _normalize_ai_engine(str(config.get("active_engine"))),
         "fallback_on_error": bool(config.get("fallback_on_error", True)),
-        "providers": {
+        "engines": {
             "deepseek": {
                 "model": str(config.get("deepseek_model") or "deepseek-v4-flash"),
                 "thinking": _normalize_thinking(str(config.get("deepseek_thinking") or "disabled")),
@@ -453,19 +450,18 @@ def _runtime_file_payload(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _runtime_settings_response() -> ChatRuntimeSettings:
-    config = _runtime_config()
-    secrets = _runtime_secrets()
-    return ChatRuntimeSettings(
+def _ai_engine_settings_response() -> ChatAiEngineSettings:
+    config = _ai_engine_config()
+    secrets = _ai_engine_secrets()
+    return ChatAiEngineSettings(
         **config,
-        providers=_runtime_provider_settings(config, secrets),
+        engines=_ai_engine_records(config, secrets),
         api_keys_configured={
             "deepseek": bool(secrets["deepseek_api_key"]),
             "openai": bool(secrets["openai_api_key"]),
         },
         saved_paths={
-            "runtime": str(_runtime_settings_path().relative_to(_workspace_root())),
-            "secrets": str(_secrets_path().relative_to(_workspace_root())),
+            "ai_engines": str(_ai_engine_settings_path().relative_to(_workspace_root())),
         },
     )
 
@@ -523,13 +519,13 @@ def _normalize_employee_profile(profile: dict[str, Any], path: Path) -> dict[str
             normalized["skills"] = _default_skills_for_role(CLARA_SYSTEM_ROLE)
         normalized["permissions"] = default_profile["permissions"]
 
-        runtime = normalized.get("runtime") if isinstance(normalized.get("runtime"), dict) else {}
-        runtime = dict(runtime)
-        provider_identity = str(runtime.get("provider_identity") or "").strip()
-        if not provider_identity:
-            runtime["provider_identity"] = CLARA_SYSTEM_EMPLOYEE_ID
-        runtime["preserve_provider_thread"] = True
-        normalized["runtime"] = runtime
+        ai_engine = normalized.get("ai_engine") if isinstance(normalized.get("ai_engine"), dict) else {}
+        ai_engine = dict(ai_engine)
+        engine_identity = str(ai_engine.get("engine_identity") or "").strip()
+        if not engine_identity:
+            ai_engine["engine_identity"] = CLARA_SYSTEM_EMPLOYEE_ID
+        ai_engine["preserve_provider_thread"] = True
+        normalized["ai_engine"] = ai_engine
         normalized["system"] = {"protected": True, "bootstrap": True}
 
     return normalized
@@ -582,9 +578,9 @@ def _default_clara_profile() -> dict[str, Any]:
             "Track progress, request validation, and summarize evidence, blockers, and next actions.",
         ],
         "skills": _default_skills_for_role(CLARA_SYSTEM_ROLE),
-        "runtime": {
+        "ai_engine": {
             "mode": "external_or_file_stub",
-            "provider_identity": CLARA_SYSTEM_EMPLOYEE_ID,
+            "engine_identity": CLARA_SYSTEM_EMPLOYEE_ID,
             "preserve_provider_thread": True,
         },
         "permissions": [
@@ -605,7 +601,7 @@ def _default_clara_profile() -> dict[str, Any]:
 
 
 def _employee_summary(profile: dict[str, Any]) -> ChatEmployeeSummary:
-    runtime = profile.get("runtime") if isinstance(profile.get("runtime"), dict) else {}
+    ai_engine = profile.get("ai_engine") if isinstance(profile.get("ai_engine"), dict) else {}
     employee_id = str(profile.get("id", ""))
     return ChatEmployeeSummary(
         id=employee_id,
@@ -614,8 +610,8 @@ def _employee_summary(profile: dict[str, Any]) -> ChatEmployeeSummary:
         role=str(profile.get("role", "AI Employee")),
         summary=str(profile.get("summary", "")),
         skills=[str(skill) for skill in profile.get("skills", [])],
-        runtime_mode=str(runtime.get("mode", "external_or_file_stub")),
-        preserve_provider_thread=bool(runtime.get("preserve_provider_thread", True)),
+        ai_engine_mode=str(ai_engine.get("mode", "external_or_file_stub")),
+        preserve_provider_thread=bool(ai_engine.get("preserve_provider_thread", True)),
         default_thread_id=_employee_default_thread_id(employee_id),
     )
 
@@ -834,10 +830,10 @@ def _extract_add_skills_value(message: str) -> list[str] | None:
     return _split_list_value(value) if value else None
 
 
-def _extract_runtime_mode(message: str) -> str | None:
+def _extract_ai_engine_mode(message: str) -> str | None:
     return _extract_first(
         [
-            r"(?:runtime|运行模式)\s*(?:是|为|改成|改为|更新为|设置为|to|=|:|：)\s*([A-Za-z0-9_.:-]{1,80})",
+            r"(?:ai_engine|AI Engine|运行引擎|运行模式)\s*(?:是|为|改成|改为|更新为|设置为|to|=|:|：)\s*([A-Za-z0-9_.:-]{1,80})",
         ],
         message,
     )
@@ -982,9 +978,9 @@ def _normalize_tool_plan(payload: dict[str, Any], *, source: str) -> ChatToolPla
 def _should_use_llm_tool_planner(context: ChatRunContext) -> bool:
     if not _TOOL_PLANNING_SIGNAL_RE.search(context.request.message):
         return False
-    if _model_provider() != "deepseek":
+    if _active_ai_engine() != "deepseek":
         return False
-    return bool(_runtime_secrets()["deepseek_api_key"])
+    return bool(_ai_engine_secrets()["deepseek_api_key"])
 
 
 async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
@@ -1009,13 +1005,13 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
                     "}\n\n"
                     "Arguments for create_employee: display_name, employee_id, kind, role, summary, responsibility, skills. "
                     "Arguments for edit_employee_profile: target_employee_id or target_employee_name, display_name, role, "
-                    "summary, skills, add_skills, runtime_mode. "
+                    "summary, skills, add_skills, ai_engine_mode. "
                     "Arguments for delete_employee: target_employee_id or target_employee_name. "
                     "Arguments for create_skill: skill_id, title, description, body. "
                     "Arguments for assign_skill_to_employee: skill_id or skill_name, target_employee_id or target_employee_name. "
                     "Arguments for delete_skill: skill_id or skill_name. "
                     "Arguments for search_knowledge: query. "
-                    "Arguments for create_ticket: title, description, target_employee_id or target_employee_name, "
+                    "Arguments for create_ticket: title, description, ticket_type, target_employee_id or target_employee_name, "
                     "assigned_role, validation_employee_id, validation_role, code_repository_ids or code_repository_name. "
                     "Arguments for record_ticket_report: ticket_id, reporter_employee_id, reporter_role, content, "
                     "report_type, evidence. "
@@ -1061,7 +1057,7 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
         response = await client.post(
             "https://api.deepseek.com/chat/completions",
             headers={
-                "Authorization": f"Bearer {_runtime_secrets()['deepseek_api_key']}",
+                "Authorization": f"Bearer {_ai_engine_secrets()['deepseek_api_key']}",
                 "Content-Type": "application/json",
             },
             json=request_body,
@@ -1237,7 +1233,7 @@ def _build_employee_profile(
     skills: list[str],
     responsibility: str | None,
 ) -> dict[str, Any]:
-    runtime_mode = "human" if kind == "human" else "external_or_file_stub"
+    ai_engine_mode = "human" if kind == "human" else "external_or_file_stub"
     return {
         "id": employee_id,
         "display_name": display_name,
@@ -1248,9 +1244,9 @@ def _build_employee_profile(
         "responsibilities": _default_responsibilities(role, responsibility),
         "skills": skills,
         "memory_scopes": ["global", "aiteamos"] if role == CLARA_SYSTEM_ROLE else ["project", f"employee:{employee_id}"],
-        "runtime": {
-            "mode": runtime_mode,
-            "provider_identity": employee_id,
+        "ai_engine": {
+            "mode": ai_engine_mode,
+            "engine_identity": employee_id,
             "preserve_provider_thread": True,
         },
         "permissions": _default_permissions(kind, role),
@@ -1344,7 +1340,7 @@ def _is_edit_employee_profile_request(message: str) -> bool:
         return True
     compact = re.sub(r"\s+", "", normalized)
     has_profile_token = any(token in compact for token in ("成员", "员工", "employee", "employee", "profile", "用户", "user"))
-    has_field_token = any(token in compact for token in ("summary", "role", "skills", "skill", "技能", "runtime", "名字", "角色", "摘要", "描述"))
+    has_field_token = any(token in compact for token in ("summary", "role", "skills", "skill", "技能", "ai_engine", "运行引擎", "名字", "角色", "摘要", "描述"))
     if not has_profile_token and not has_field_token:
         return False
     return any(token in compact for token in ("编辑", "修改", "更新", "调整", "改成", "改为"))
@@ -1415,7 +1411,7 @@ def _is_assign_skill_request(message: str) -> bool:
     has_skill_reference = any(token in compact for token in ("skill", "skills", "技能"))
     if not has_skill_reference and _extract_existing_skill_id(message) is None:
         return False
-    if any(token in compact for token in ("summary", "role", "runtime", "名字", "角色", "摘要", "描述", "改成", "改为")):
+    if any(token in compact for token in ("summary", "role", "ai_engine", "运行引擎", "名字", "角色", "摘要", "描述", "改成", "改为")):
         return False
     if not any(token in compact for token in ("分配", "关联", "添加", "增加", "assign", "attach")):
         return False
@@ -1485,7 +1481,7 @@ def _is_record_ticket_report_request(message: str) -> bool:
     normalized = message.strip().lower()
     if "record_ticket_report" in normalized:
         return True
-    if not re.search(r"\bticket-[A-Za-z0-9_.:-]+\b", message, re.IGNORECASE):
+    if not _LOCAL_TICKET_ID_RE.search(message):
         return False
     if _REPORT_TICKET_EN_RE.search(normalized):
         return True
@@ -1518,7 +1514,7 @@ def _is_inspect_code_repository_request(message: str) -> bool:
     has_repo_token = any(token in compact for token in ("代码仓库", "代码库", "仓库", "代码", "源码", "文件", "实现")) or bool(
         re.search(r"\b(codebase|source|files?|paths?|repos?|repositories|repository)\b", normalized)
     )
-    if not has_repo_token and not re.search(r"\bticket-[A-Za-z0-9_.:-]+\b", message, re.IGNORECASE):
+    if not has_repo_token and not _LOCAL_TICKET_ID_RE.search(message):
         return False
     return any(
         token in compact
@@ -1586,7 +1582,7 @@ def _build_list_employees_reply(tool_result: dict[str, Any]) -> str:
         summary = employee["summary"] or "No summary"
         lines.append(
             f"- {employee['display_name']} ({employee['id']}) - {employee['role']}；"
-            f"{skill_count} skill(s)；runtime: {employee['runtime_mode']}；{summary}"
+            f"{skill_count} skill(s)；ai_engine: {employee['ai_engine_mode']}；{summary}"
         )
 
     lines.append("")
@@ -1691,7 +1687,7 @@ def _build_list_code_repositories_reply(tool_result: dict[str, Any]) -> str:
         "",
         "说明：",
         "- Clara 只使用这些 repo 配置作为 Ticket context，不直接读取代码。",
-        "- RD/PV Employee 会通过 repo tools、MCP connector 或外部 agent executor 读取、修改和验证代码。",
+        "- RD/PV Employee 会通过 repo tools、Tool Connectors 或 AI Engines 读取、修改和验证代码。",
         "",
         "查看入口：",
         f"- Code Repositories: {tool_result['deep_links']['code_repositories']}",
@@ -1785,7 +1781,7 @@ def _extract_ticket_id(message: str, plan: ChatToolPlan | None) -> str | None:
     explicit = _tool_str_arg(plan, "ticket_id", "id", "task_id")
     if explicit:
         return explicit
-    match = re.search(r"\bticket-[A-Za-z0-9_.:-]+\b", message, re.IGNORECASE)
+    match = _LOCAL_TICKET_ID_RE.search(message)
     return match.group(0) if match else None
 
 
@@ -1927,14 +1923,14 @@ def _complete_search_knowledge_tool(context: ChatRunContext, plan: ChatToolPlan 
             f"- [{item.source_type}] {item.title} ({item.source_ref})；score={item.score:.2f}\n"
             f"  {item.content[:260]}"
         )
-    lines.extend(["", "入口：", "- Knowledge: #/assets/knowledge/docs"])
+    lines.extend(["", "入口：", "- Knowledge Docs: #/assets/knowledge/docs"])
 
     result = {
         "status": "completed",
         "detail": "Searched local Knowledge docs, decisions, and approved memories.",
         "query": query,
         "results": [item.model_dump(mode="json") for item in response.results],
-        "deep_links": {"knowledge": "#/assets/knowledge/docs"},
+        "deep_links": {"knowledge_docs": "#/assets/knowledge/docs"},
         "plan": _plan_trace_data(plan),
     }
     return _persist_local_tool_response(
@@ -2097,6 +2093,7 @@ def _complete_inspect_code_repository_tool(context: ChatRunContext, plan: ChatTo
                         *[f"file:{file['path']}" for file in files[:3]],
                     ],
                     report_type="repo_inspection",
+                    source_run_id=context.run_id,
                 ),
             )
             lines.extend(["", f"已写回 Ticket report: {recorded_item.id}"])
@@ -2144,20 +2141,36 @@ def _complete_create_ticket_tool(context: ChatRunContext, plan: ChatToolPlan | N
     code_repository_ids = _code_repository_ids_from_plan_or_message(plan, message)
     knowledge = search_knowledge_sync(message, limit=5)
     knowledge_refs = [f"{item.source_type}:{item.id}" for item in knowledge.results]
-    item = create_ticket(
-        TicketCreateRequest(
-            title=_ticket_title(message, plan),
-            description=_tool_str_arg(plan, "description", "body") or message,
-            assigned_employee_id=assignee.id if assignee else "",
-            assigned_role=assigned_role or "",
-            validation_employee_id=validation_employee.id if validation_employee else "",
-            validation_role=validation_role if validation_employee else validation_role,
-            knowledge_refs=knowledge_refs,
-            code_repository_ids=code_repository_ids,
-            source_thread_id=context.thread_id,
-            source_run_id=context.run_id,
+    try:
+        item = create_ticket(
+            TicketCreateRequest(
+                title=_ticket_title(message, plan),
+                description=_tool_str_arg(plan, "description", "body") or message,
+                ticket_type=_tool_str_arg(plan, "ticket_type", "type", "namespace") or "",
+                assigned_employee_id=assignee.id if assignee else "",
+                assigned_role=assigned_role or "",
+                validation_employee_id=validation_employee.id if validation_employee else "",
+                validation_role=validation_role if validation_employee else validation_role,
+                knowledge_refs=knowledge_refs,
+                code_repository_ids=code_repository_ids,
+                source_thread_id=context.thread_id,
+                source_run_id=context.run_id,
+                actor_employee_id=context.employee.id,
+                actor_role=context.employee.role,
+            )
         )
-    )
+    except ValueError as exc:
+        return _persist_local_tool_response(
+            context,
+            tool_name="create_ticket",
+            reply=_build_blocked_tool_reply(
+                "create_ticket",
+                str(exc),
+                "请让 Clara 创建跨域 Ticket，或让对应 role 的 Employee 创建自己的 Ticket namespace。",
+            ),
+            result={"status": "blocked", "detail": str(exc), "plan": _plan_trace_data(plan)},
+            completed=False,
+        )
 
     lines = [
         "已创建本地 Ticket。",
@@ -2218,6 +2231,7 @@ def _complete_record_ticket_report_tool(
                 content=content,
                 evidence=evidence,
                 report_type=report_type,
+                source_run_id=context.run_id,
             ),
         )
     except KeyError:
@@ -2420,7 +2434,7 @@ def _complete_edit_employee_profile_tool(context: ChatRunContext, plan: ChatTool
     new_summary = _tool_str_arg(plan, "summary") or _extract_summary(message)
     replace_skills = _tool_list_arg(plan, "skills") or _extract_skills_value(message)
     add_skills = _tool_list_arg(plan, "add_skills") or _extract_add_skills_value(message)
-    runtime_mode = _tool_str_arg(plan, "runtime_mode", "runtime.mode") or _extract_runtime_mode(message)
+    ai_engine_mode = _tool_str_arg(plan, "ai_engine_mode", "ai_engine.mode") or _extract_ai_engine_mode(message)
 
     if _is_clara_system_employee_id(str(profile.get("id") or profile_path.stem)):
         protected_updates: dict[str, str] = {}
@@ -2467,18 +2481,18 @@ def _complete_edit_employee_profile_tool(context: ChatRunContext, plan: ChatTool
         current_skills = [str(skill) for skill in profile.get("skills", [])]
         profile["skills"] = _dedupe([*current_skills, *add_skills])
         updates["skills"] = profile["skills"]
-    if runtime_mode:
-        runtime = profile.get("runtime") if isinstance(profile.get("runtime"), dict) else {}
-        runtime["mode"] = runtime_mode
-        profile["runtime"] = runtime
-        updates["runtime.mode"] = runtime_mode
+    if ai_engine_mode:
+        ai_engine = profile.get("ai_engine") if isinstance(profile.get("ai_engine"), dict) else {}
+        ai_engine["mode"] = ai_engine_mode
+        profile["ai_engine"] = ai_engine
+        updates["ai_engine.mode"] = ai_engine_mode
 
     if not updates:
         result = {
             "status": "blocked",
             "reason": "no_supported_updates",
             "detail": "No supported employee profile fields were found in the request.",
-            "supported_fields": ["display_name", "role", "summary", "skills", "runtime.mode"],
+            "supported_fields": ["display_name", "role", "summary", "skills", "ai_engine.mode"],
             "plan": _plan_trace_data(plan),
         }
         reply = _build_blocked_tool_reply(
@@ -3017,7 +3031,7 @@ def _extract_ticket_keys(message: str, explicit: str | None) -> list[str]:
     return sorted(set(filter(None, keys)))
 
 
-def _ensure_runtime_dirs() -> dict[str, Path]:
+def _ensure_run_dirs() -> dict[str, Path]:
     base = _workspace_dir()
     paths = {
         "conversations": base / "conversations",
@@ -3497,6 +3511,7 @@ def _skill_summary(skill_path: Path) -> ChatSkillSummary:
         id=skill_id,
         title=title,
         description=description,
+        content=text,
         assigned_employees=_assigned_employees_for_skill(skill_id),
         resources=resources,
         saved_path=str(skill_path.relative_to(_workspace_root())),
@@ -3526,15 +3541,15 @@ def _find_skill(skill_id_or_name: str) -> ChatSkillSummary | None:
 
 
 def _openai_enabled() -> bool:
-    return _model_provider() == "openai"
+    return _active_ai_engine() == "openai"
 
 
-def _model_provider() -> str:
-    return str(_runtime_config()["provider"])
+def _active_ai_engine() -> str:
+    return str(_ai_engine_config()["active_engine"])
 
 
 def _openai_model() -> str:
-    return str(_runtime_config()["openai_model"])
+    return str(_ai_engine_config()["openai_model"])
 
 
 def _openai_max_output_tokens() -> int:
@@ -3546,15 +3561,15 @@ def _openai_max_output_tokens() -> int:
 
 
 def _openai_fallback_on_error() -> bool:
-    return _runtime_fallback_on_error()
+    return _ai_engine_fallback_on_error()
 
 
 def _deepseek_enabled() -> bool:
-    return _model_provider() == "deepseek"
+    return _active_ai_engine() == "deepseek"
 
 
 def _deepseek_model() -> str:
-    return str(_runtime_config()["deepseek_model"])
+    return str(_ai_engine_config()["deepseek_model"])
 
 
 def _deepseek_max_tokens() -> int:
@@ -3566,14 +3581,14 @@ def _deepseek_max_tokens() -> int:
 
 
 def _deepseek_thinking_type() -> str:
-    return str(_runtime_config()["deepseek_thinking"])
+    return str(_ai_engine_config()["deepseek_thinking"])
 
 
-def _runtime_fallback_on_error() -> bool:
-    return bool(_runtime_config()["fallback_on_error"])
+def _ai_engine_fallback_on_error() -> bool:
+    return bool(_ai_engine_config()["fallback_on_error"])
 
 
-def _runtime_context_gate(
+def _ai_engine_context_gate(
     *,
     employee_profile: dict[str, Any],
     employee: ChatEmployeeSummary,
@@ -3593,7 +3608,7 @@ def _runtime_context_gate(
     return (
         "You are an AI Employee inside AITeamOS. Answer as the addressed employee, "
         "not as a generic assistant. Be concise, truthful, and explicit about what "
-        "you can and cannot do in this P0 runtime.\n\n"
+        "you can and cannot do in this P0 AI Engine setup.\n\n"
         f"Employee id: {employee.id}\n"
         f"Display name: {employee.display_name}\n"
         f"Role: {employee.role}\n"
@@ -3651,13 +3666,13 @@ async def _call_openai_agent(
     memory_snippets: list[str],
     provider_state: dict[str, Any],
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-    api_key = _runtime_secrets()["openai_api_key"]
+    api_key = _ai_engine_secrets()["openai_api_key"]
     if not _openai_enabled() or not api_key:
-        raise RuntimeError("OpenAI runtime is not enabled")
+        raise RuntimeError("OpenAI AI Engine is not enabled")
 
     request_body: dict[str, Any] = {
         "model": _openai_model(),
-        "instructions": _runtime_context_gate(
+        "instructions": _ai_engine_context_gate(
             employee_profile=employee_profile,
             employee=employee,
             ticket_keys=ticket_keys,
@@ -3684,17 +3699,17 @@ async def _call_openai_agent(
     if response.status_code >= 400:
         raise HTTPException(
             status_code=502,
-            detail=f"OpenAI runtime failed: {response.status_code} {response.text[:500]}",
+            detail=f"OpenAI AI Engine failed: {response.status_code} {response.text[:500]}",
         )
 
     payload = response.json()
     reply = _extract_openai_text(payload)
     if not reply:
-        raise HTTPException(status_code=502, detail="OpenAI runtime returned no text output")
+        raise HTTPException(status_code=502, detail="OpenAI AI Engine returned no text output")
 
     response_id = payload.get("id")
     if not isinstance(response_id, str) or not response_id:
-        raise HTTPException(status_code=502, detail="OpenAI runtime returned no response id")
+        raise HTTPException(status_code=502, detail="OpenAI AI Engine returned no response id")
 
     next_state = {
         **provider_state,
@@ -3727,16 +3742,16 @@ async def _call_deepseek_agent(
     recent_messages: list[ConversationMessage],
     provider_state: dict[str, Any],
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-    api_key = _runtime_secrets()["deepseek_api_key"]
+    api_key = _ai_engine_secrets()["deepseek_api_key"]
     if not _deepseek_enabled() or not api_key:
-        raise RuntimeError("DeepSeek runtime is not enabled")
+        raise RuntimeError("DeepSeek AI Engine is not enabled")
 
     request_body: dict[str, Any] = {
         "model": _deepseek_model(),
         "messages": [
             {
                 "role": "system",
-                "content": _runtime_context_gate(
+                "content": _ai_engine_context_gate(
                     employee_profile=employee_profile,
                     employee=employee,
                     ticket_keys=ticket_keys,
@@ -3764,17 +3779,17 @@ async def _call_deepseek_agent(
     if response.status_code >= 400:
         raise HTTPException(
             status_code=502,
-            detail=f"DeepSeek runtime failed: {response.status_code} {response.text[:500]}",
+            detail=f"DeepSeek AI Engine failed: {response.status_code} {response.text[:500]}",
         )
 
     payload = response.json()
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise HTTPException(status_code=502, detail="DeepSeek runtime returned no choices")
+        raise HTTPException(status_code=502, detail="DeepSeek AI Engine returned no choices")
     message_payload = choices[0].get("message") if isinstance(choices[0], dict) else None
     reply = message_payload.get("content") if isinstance(message_payload, dict) else None
     if not isinstance(reply, str) or not reply.strip():
-        raise HTTPException(status_code=502, detail="DeepSeek runtime returned no text output")
+        raise HTTPException(status_code=502, detail="DeepSeek AI Engine returned no text output")
 
     response_id = payload.get("id")
     if not isinstance(response_id, str) or not response_id:
@@ -3804,16 +3819,16 @@ async def _call_deepseek_agent(
 async def _stream_deepseek_agent(
     context: ChatRunContext,
 ) -> AsyncIterator[tuple[str, str | dict[str, Any]]]:
-    api_key = _runtime_secrets()["deepseek_api_key"]
+    api_key = _ai_engine_secrets()["deepseek_api_key"]
     if not _deepseek_enabled() or not api_key:
-        raise RuntimeError("DeepSeek runtime is not enabled")
+        raise RuntimeError("DeepSeek AI Engine is not enabled")
 
     request_body: dict[str, Any] = {
         "model": _deepseek_model(),
         "messages": [
             {
                 "role": "system",
-                "content": _runtime_context_gate(
+                "content": _ai_engine_context_gate(
                     employee_profile=context.selected_profile,
                     employee=context.employee,
                     ticket_keys=context.ticket_keys,
@@ -3849,7 +3864,7 @@ async def _stream_deepseek_agent(
                 error_text = await response.aread()
                 raise HTTPException(
                     status_code=502,
-                    detail=f"DeepSeek runtime failed: {response.status_code} {error_text.decode('utf-8')[:500]}",
+                    detail=f"DeepSeek AI Engine failed: {response.status_code} {error_text.decode('utf-8')[:500]}",
                 )
 
             async for line in response.aiter_lines():
@@ -3881,7 +3896,7 @@ async def _stream_deepseek_agent(
 
     reply = "".join(reply_parts).strip()
     if not reply:
-        raise HTTPException(status_code=502, detail="DeepSeek runtime returned no text output")
+        raise HTTPException(status_code=502, detail="DeepSeek AI Engine returned no text output")
 
     provider_state = {
         **context.provider_state,
@@ -3909,7 +3924,7 @@ async def _stream_deepseek_agent(
         provider_thread_id=str(provider_state["provider_thread_id"]),
         extra_trace_events=[
             ChatTraceEvent(
-                event="runtime.deepseek.stream_completed",
+                event="ai_engine.deepseek.stream_completed",
                 detail="Generated streaming response through DeepSeek Chat Completions API.",
                 data=metadata,
             )
@@ -3955,9 +3970,9 @@ def _tool_calls_from_trace_events(trace_events: list[ChatTraceEvent]) -> list[di
     return [calls[tool_name] for tool_name in order]
 
 
-def _runtime_event_metadata(trace_events: list[ChatTraceEvent]) -> dict[str, Any]:
+def _ai_engine_event_metadata(trace_events: list[ChatTraceEvent]) -> dict[str, Any]:
     for event in reversed(trace_events):
-        if event.event.startswith("runtime."):
+        if event.event.startswith("ai_engine."):
             data = dict(event.data)
             data["event"] = event.event
             data["detail"] = event.detail
@@ -3965,11 +3980,11 @@ def _runtime_event_metadata(trace_events: list[ChatTraceEvent]) -> dict[str, Any
     return {}
 
 
-def _selected_runtime_model(provider: str) -> str | None:
-    config = _runtime_config()
-    if provider == "deepseek":
+def _selected_ai_engine_model(engine: str) -> str | None:
+    config = _ai_engine_config()
+    if engine == "deepseek":
         return str(config["deepseek_model"])
-    if provider == "openai":
+    if engine == "openai":
         return str(config["openai_model"])
     return None
 
@@ -3982,14 +3997,14 @@ def _build_run_metadata(
     trace_path: Path,
 ) -> dict[str, Any]:
     tool_calls = _tool_calls_from_trace_events(trace_events)
-    runtime_event = _runtime_event_metadata(trace_events)
-    selected_provider = _model_provider()
+    ai_engine_event = _ai_engine_event_metadata(trace_events)
+    selected_ai_engine = _active_ai_engine()
     if tool_calls:
-        actual_provider = "local_tool"
-    elif runtime_event.get("event") == "runtime.stub.completed":
-        actual_provider = "stub"
+        actual_ai_engine = "built_in_tool"
+    elif ai_engine_event.get("event") == "ai_engine.stub.completed":
+        actual_ai_engine = "stub"
     else:
-        actual_provider = str(runtime_event.get("provider") or context.provider_state.get("provider") or selected_provider)
+        actual_ai_engine = str(ai_engine_event.get("provider") or context.provider_state.get("provider") or selected_ai_engine)
 
     return {
         "run_id": context.run_id,
@@ -4000,12 +4015,12 @@ def _build_run_metadata(
             "role": context.employee.role,
         },
         "ticket_keys": context.ticket_keys,
-        "runtime": {
-            "selected_provider": selected_provider,
-            "actual_provider": actual_provider,
-            "model": runtime_event.get("model") or _selected_runtime_model(selected_provider),
+        "ai_engine": {
+            "selected_ai_engine": selected_ai_engine,
+            "actual_ai_engine": actual_ai_engine,
+            "model": ai_engine_event.get("model") or _selected_ai_engine_model(selected_ai_engine),
             "provider_thread_id": final_provider_thread_id,
-            "event": runtime_event.get("event"),
+            "event": ai_engine_event.get("event"),
         },
         "tools": tool_calls,
         "trace": {
@@ -4033,14 +4048,14 @@ def _build_reply(
         f"{employee.display_name} received the request.\n\n"
         f"Role: {employee.role}\n"
         f"Ticket: {ticket_text}\n"
-        f"Runtime: {employee.runtime_mode}; provider thread: {provider_thread_id}\n"
+        f"AI Engine: {employee.ai_engine_mode}; provider thread: {provider_thread_id}\n"
         f"Context gate: {skill_text}; {memory_text}\n\n"
         "P0 file-backed run completed: I loaded the addressed employee profile, "
         "resolved the reusable provider thread mapping, captured the conversation, "
         "and wrote a local trace. External Ticket, harness, and provider execution are "
         "not invoked in this first slice.\n\n"
         "Next action preview: read the Ticket context, pick the relevant skills and "
-        "memory, execute through the configured external or local agent runtime, "
+        "memory, execute through the configured external or local AI Engine, "
         "and report progress back into this thread with trace evidence."
     )
 
@@ -4058,7 +4073,7 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
     thread_id = _require_safe_id(thread_id, field="thread_id")
     run_id = f"run-{uuid4().hex[:12]}"
     ticket_keys = _extract_ticket_keys(request.message, request.ticket_key)
-    runtime_dirs = _ensure_runtime_dirs()
+    run_dirs = _ensure_run_dirs()
     recent_messages = _load_conversation_messages(thread_id, limit=12)
     provider_state = _provider_thread_state(employee.id, thread_id)
     provider_thread_id = str(provider_state.get("provider_thread_id") or _provider_thread_id(employee.id, thread_id))
@@ -4115,7 +4130,7 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
         thread_id=thread_id,
         run_id=run_id,
         ticket_keys=ticket_keys,
-        runtime_dirs=runtime_dirs,
+        run_dirs=run_dirs,
         provider_state=provider_state,
         provider_thread_id=provider_thread_id,
         skills=skills,
@@ -4143,8 +4158,8 @@ def _persist_chat_response(
         ChatTraceEvent(event="response.created", detail="Assistant response was created."),
     ]
 
-    conversation_path = context.runtime_dirs["conversations"] / f"{context.thread_id}.jsonl"
-    trace_path = context.runtime_dirs["traces"] / f"{context.run_id}.jsonl"
+    conversation_path = context.run_dirs["conversations"] / f"{context.thread_id}.jsonl"
+    trace_path = context.run_dirs["traces"] / f"{context.run_id}.jsonl"
     run_metadata = _build_run_metadata(
         context,
         final_provider_thread_id=final_provider_thread_id,
@@ -4154,7 +4169,7 @@ def _persist_chat_response(
     trace_events.append(
         ChatTraceEvent(
             event="run.metadata.recorded",
-            detail="Captured runtime, ticket, and tool metadata for this run.",
+            detail="Captured AI Engine, ticket, and tool metadata for this run.",
             data=run_metadata,
         )
     )
@@ -4174,8 +4189,8 @@ def _persist_chat_response(
                 "thread_id": context.thread_id,
                 "target_employee_id": context.employee.id,
                 "ticket_keys": context.ticket_keys,
-                "runtime": {
-                    "selected_provider": _model_provider(),
+                "ai_engine": {
+                    "selected_ai_engine": _active_ai_engine(),
                 },
             }
         },
@@ -4358,64 +4373,48 @@ async def list_chat_skills() -> list[ChatSkillSummary]:
     return sorted(_load_skills(), key=lambda skill: skill.id)
 
 
-@router.get("/runtime", response_model=ChatRuntimeSettings)
-async def get_chat_runtime() -> ChatRuntimeSettings:
-    return _runtime_settings_response()
+@router.get("/ai-engines", response_model=ChatAiEngineSettings)
+async def get_chat_ai_engines() -> ChatAiEngineSettings:
+    return _ai_engine_settings_response()
 
 
-@router.put("/runtime", response_model=ChatRuntimeSettings)
-async def update_chat_runtime(request: ChatRuntimeSettingsRequest) -> ChatRuntimeSettings:
-    runtime_config = {
-        "provider": _normalize_provider(request.provider),
+@router.put("/ai-engines", response_model=ChatAiEngineSettings)
+async def update_chat_ai_engines(request: ChatAiEngineSettingsRequest) -> ChatAiEngineSettings:
+    ai_engine_config = {
+        "active_engine": _normalize_ai_engine(request.active_engine),
         "deepseek_model": request.deepseek_model.strip() or "deepseek-v4-flash",
         "deepseek_thinking": _normalize_thinking(request.deepseek_thinking),
         "openai_model": request.openai_model.strip() or "gpt-5-nano",
         "fallback_on_error": request.fallback_on_error,
     }
-    _write_json_file(_runtime_settings_path(), _runtime_file_payload(runtime_config))
+    _write_json_file(_ai_engine_settings_path(), _ai_engine_file_payload(ai_engine_config))
 
-    secrets = _read_json_file(_secrets_path())
-    if request.deepseek_api_key is not None and request.deepseek_api_key.strip():
-        secrets["deepseek_api_key"] = request.deepseek_api_key.strip()
-    if request.openai_api_key is not None and request.openai_api_key.strip():
-        secrets["openai_api_key"] = request.openai_api_key.strip()
-    if secrets:
-        _write_json_file(_secrets_path(), secrets)
-
-    return _runtime_settings_response()
+    return _ai_engine_settings_response()
 
 
-@router.put("/runtime/providers/{provider_id}", response_model=ChatRuntimeSettings)
-async def update_chat_runtime_provider(
-    provider_id: str,
-    request: ChatRuntimeProviderUpdateRequest,
-) -> ChatRuntimeSettings:
-    provider = _require_runtime_provider(provider_id)
-    current = _runtime_config()
+@router.put("/ai-engines/{engine_id}", response_model=ChatAiEngineSettings)
+async def update_chat_ai_engine(
+    engine_id: str,
+    request: ChatAiEngineUpdateRequest,
+) -> ChatAiEngineSettings:
+    engine = _require_ai_engine(engine_id)
+    current = _ai_engine_config()
     next_config = dict(current)
 
     if request.activate:
-        next_config["provider"] = provider
+        next_config["active_engine"] = engine
 
-    if provider == "deepseek":
+    if engine == "deepseek":
         if request.model is not None:
             next_config["deepseek_model"] = request.model.strip() or "deepseek-v4-flash"
         if request.thinking is not None:
             next_config["deepseek_thinking"] = _normalize_thinking(request.thinking)
-    elif provider == "openai" and request.model is not None:
+    elif engine == "openai" and request.model is not None:
         next_config["openai_model"] = request.model.strip() or "gpt-5-nano"
 
-    _write_json_file(_runtime_settings_path(), _runtime_file_payload(next_config))
+    _write_json_file(_ai_engine_settings_path(), _ai_engine_file_payload(next_config))
 
-    secrets = _read_json_file(_secrets_path())
-    if provider == "deepseek" and request.api_key is not None and request.api_key.strip():
-        secrets["deepseek_api_key"] = request.api_key.strip()
-    if provider == "openai" and request.api_key is not None and request.api_key.strip():
-        secrets["openai_api_key"] = request.api_key.strip()
-    if secrets:
-        _write_json_file(_secrets_path(), secrets)
-
-    return _runtime_settings_response()
+    return _ai_engine_settings_response()
 
 
 @router.get("/threads", response_model=ChatThreadListResponse)
@@ -4601,7 +4600,7 @@ def _build_agui_chat_agent() -> LangGraphAgent:
     graph = builder.compile(checkpointer=_build_langgraph_checkpointer())
     return LangGraphAgent(
         name="AITeamOS Clara",
-        description="AG-UI/LangGraph runtime for the file-backed AITeamOS Chat Workbench.",
+        description="AG-UI/LangGraph bridge for the file-backed AITeamOS Chat Workbench.",
         graph=graph,
     )
 
@@ -4668,10 +4667,10 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
     if local_tool_response is not None:
         return local_tool_response
 
-    runtime_provider = _model_provider()
+    ai_engine_id = _active_ai_engine()
     try:
-        if runtime_provider == "deepseek":
-            reply, provider_state, runtime_metadata = await _call_deepseek_agent(
+        if ai_engine_id == "deepseek":
+            reply, provider_state, ai_engine_metadata = await _call_deepseek_agent(
                 employee_profile=context.selected_profile,
                 employee=context.employee,
                 message=context.request.message,
@@ -4682,12 +4681,12 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
                 provider_state=context.provider_state,
             )
             completed_event = ChatTraceEvent(
-                event="runtime.deepseek.completed",
+                event="ai_engine.deepseek.completed",
                 detail="Generated response through DeepSeek Chat Completions API.",
-                data=runtime_metadata,
+                data=ai_engine_metadata,
             )
-        elif runtime_provider == "openai" or _openai_enabled():
-            reply, provider_state, runtime_metadata = await _call_openai_agent(
+        elif ai_engine_id == "openai" or _openai_enabled():
+            reply, provider_state, ai_engine_metadata = await _call_openai_agent(
                 employee_profile=context.selected_profile,
                 employee=context.employee,
                 message=context.request.message,
@@ -4697,12 +4696,12 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
                 provider_state=context.provider_state,
             )
             completed_event = ChatTraceEvent(
-                event="runtime.openai.completed",
+                event="ai_engine.openai.completed",
                 detail="Generated response through OpenAI Responses API.",
-                data=runtime_metadata,
+                data=ai_engine_metadata,
             )
         else:
-            raise RuntimeError("No remote runtime provider configured")
+            raise RuntimeError("No remote AI Engine configured")
 
         return _persist_chat_response(
             context,
@@ -4716,22 +4715,22 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
             context,
             reply=_stub_reply(context),
             extra_trace_events=[
-                ChatTraceEvent(event="runtime.stub.completed", detail="Generated P0 file-backed response.")
+                ChatTraceEvent(event="ai_engine.stub.completed", detail="Generated P0 file-backed response.")
             ],
         )
     except HTTPException as exc:
-        if not _runtime_fallback_on_error():
+        if not _ai_engine_fallback_on_error():
             raise
         return _persist_chat_response(
             context,
             reply=_stub_reply(context),
             extra_trace_events=[
                 ChatTraceEvent(
-                    event="runtime.remote.failed",
-                    detail="Remote runtime failed; fell back to file-backed response.",
+                    event="ai_engine.remote.failed",
+                    detail="Remote AI Engine failed; fell back to file-backed response.",
                     data={"status_code": exc.status_code, "detail": str(exc.detail)[:500]},
                 ),
-                ChatTraceEvent(event="runtime.stub.completed", detail="Generated P0 file-backed response."),
+                ChatTraceEvent(event="ai_engine.stub.completed", detail="Generated P0 file-backed response."),
             ],
         )
 
@@ -4853,12 +4852,12 @@ async def _stream_chat_turn(
         if response is not None:
             yield "final", response
             return
-        if _model_provider() == "deepseek" and _runtime_secrets()["deepseek_api_key"]:
+        if _active_ai_engine() == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
             async for event, payload in _stream_deepseek_agent(context):
                 yield event, payload
             return
 
-    if _model_provider() == "deepseek" and _runtime_secrets()["deepseek_api_key"]:
+    if _active_ai_engine() == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
         context = _prepare_chat_run(request)
         async for event, payload in _stream_deepseek_agent(context):
             yield event, payload
@@ -4941,7 +4940,7 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                 context = _prepare_chat_run(request)
                 response = await _maybe_complete_local_tool(context)
                 if response is None:
-                    if _model_provider() == "deepseek" and _runtime_secrets()["deepseek_api_key"]:
+                    if _active_ai_engine() == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
                         yield _sse_payload(
                             "start",
                             {
@@ -4975,7 +4974,7 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                     yield _sse_payload("final", response.model_dump())
                     return
 
-            if _model_provider() == "deepseek" and _runtime_secrets()["deepseek_api_key"]:
+            if _active_ai_engine() == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
                 context = _prepare_chat_run(request)
                 yield _sse_payload(
                     "start",

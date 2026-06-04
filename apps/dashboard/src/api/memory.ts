@@ -27,7 +27,7 @@ export interface GraphitiSettingsResponse {
   llm_provider: string;
   password_configured: boolean;
   openai_api_key_configured: boolean;
-  uses_runtime_openai_key: boolean;
+  uses_shared_openai_key: boolean;
   saved_paths: Record<string, string>;
   backend: GraphitiBackendStatus;
 }
@@ -37,10 +37,8 @@ export interface GraphitiSettingsUpdateRequest {
   graph_database: string;
   uri: string;
   user: string;
-  password?: string;
   group_id: string;
   llm_provider: string;
-  openai_api_key?: string;
 }
 
 export interface MemoryCandidate {

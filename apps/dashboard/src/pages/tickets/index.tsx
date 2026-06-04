@@ -22,6 +22,7 @@ import {
   type Ticket,
   type TicketBackendSettings,
   type TicketBackendStatus,
+  type TicketEvent,
   type TicketReport,
 } from "../../api/tickets";
 import { cn } from "@/lib/utils";
@@ -103,6 +104,28 @@ function nextAction(item: Ticket): string {
 
 function evidenceCount(item: Ticket): number {
   return item.reports.reduce((count, report) => count + report.evidence.length, 0);
+}
+
+function ticketEvents(item: Ticket): TicketEvent[] {
+  return item.events ?? [];
+}
+
+function eventActor(event: TicketEvent): string {
+  return event.actor?.id || event.actor?.role || "system";
+}
+
+function eventDetail(event: TicketEvent): string {
+  const data = event.data ?? {};
+  if (event.type === "created") return String(data.title || "Ticket created");
+  if (event.type === "assigned") return `Assigned to ${String(data.assigned_employee_id || data.assigned_role || data.to_employee_id || data.to_role || "-")}`;
+  if (event.type === "validation_requested") return `Validation by ${String(data.validation_employee_id || data.validation_role || data.to_employee_id || data.to_role || "-")}`;
+  if (event.type === "status_changed") return `${String(data.from || "-")} -> ${String(data.to || data.status || "-")}`;
+  if (event.type === "asset_linked") return `${String(data.target_kind || "asset")}: ${String(data.target_ref || "-")}`;
+  if (event.type === "reported" || event.type === "validated" || event.type === "blocked") {
+    const report = data.report && typeof data.report === "object" ? data.report as Record<string, unknown> : {};
+    return String(report.content || `${event.type} report`);
+  }
+  return event.type;
 }
 
 function TicketRow({
@@ -223,12 +246,7 @@ function TraceView({ compact = false, item }: { compact?: boolean; item: Ticket 
     return <EmptyTicketMessage title="No Ticket selected" description="Select a Ticket to inspect its Clara to Employee flow." />;
   }
 
-  const steps = [
-    { label: "Clara", detail: item.source_thread_id ? `Source thread ${item.source_thread_id}` : "Created or selected the Ticket" },
-    { label: assigneeLabel(item), detail: "Employee investigates, executes, and writes progress reports" },
-    { label: validationLabel(item), detail: "PV validates evidence and reports result" },
-    { label: "Clara", detail: "Summarizes reports and returns to the human user" },
-  ];
+  const events = ticketEvents(item);
 
   return (
     <section className={cn("rounded-md border bg-background", compact && "bg-transparent")}>
@@ -239,14 +257,20 @@ function TraceView({ compact = false, item }: { compact?: boolean; item: Ticket 
         </div>
       </div>
       <div className="divide-y">
-        {steps.map((step, index) => (
-          <div key={`${step.label}-${index}`} className="grid gap-2 px-4 py-4 sm:grid-cols-[2rem_minmax(0,1fr)]">
+        {events.length === 0 ? (
+          <div className="px-4 py-4 text-sm text-muted-foreground">No event log is attached to this Ticket yet.</div>
+        ) : events.map((event, index) => (
+          <div key={event.event_id} className="grid gap-2 px-4 py-4 sm:grid-cols-[2rem_minmax(0,1fr)]">
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
               {index + 1}
             </div>
             <div className="min-w-0">
-              <div className="font-medium">{step.label}</div>
-              <div className="mt-1 text-sm text-muted-foreground">{step.detail}</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{event.type}</span>
+                <Badge variant="outline">{eventActor(event)}</Badge>
+                <span className="text-xs text-muted-foreground">{formatTime(event.at)}</span>
+              </div>
+              <div className="mt-1 line-clamp-3 text-sm text-muted-foreground">{eventDetail(event)}</div>
             </div>
           </div>
         ))}
@@ -341,10 +365,10 @@ function AssetGraphCard({ item }: { item: Ticket | null }) {
           <Status label="Evidence" value={evidenceCount(item)} />
           <Status label="Repositories" value={item.code_repository_ids.length} />
           <Status label="Trace links" value={[item.source_thread_id, item.source_run_id].filter(Boolean).length} />
-          <Status label="Decisions" value="0" />
+          <Status label="Events" value={ticketEvents(item).length} />
           <div className="rounded-md border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
-            The graph view starts from local Ticket facts now. Graphiti remains the long-term memory graph; Ticket graph
-            edges will be materialized from reports, decisions, memories, docs, and repository evidence as the flow grows.
+            Local graph facts are projected from Ticket events, reports, evidence, repositories, and Knowledge refs.
+            Graphiti remains the long-term memory graph.
           </div>
         </div>
       )}

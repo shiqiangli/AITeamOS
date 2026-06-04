@@ -269,7 +269,6 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Archive,
     children: [
       { key: "knowledge", label: "Knowledge" },
-      { key: "skills", label: "Skills" },
       { key: "capabilities", label: "Capabilities" },
       { key: "review", label: "Review Queue" },
     ],
@@ -279,9 +278,12 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Settings",
     icon: Settings,
     children: [
-      { key: "runtime", label: "Runtime" },
-      { key: "integrations", label: "Integrations" },
-      { key: "system", label: "System" },
+      { key: "ai-engines", label: "AI Engines" },
+      { key: "tool-connectors", label: "Tool Connectors" },
+      { key: "code-repositories", label: "Code Repositories" },
+      { key: "ticket-backend", label: "Ticket Backend" },
+      { key: "memory-backend", label: "Memory Backend" },
+      { key: "secrets-health", label: "Secrets & Health" },
     ],
   },
 ];

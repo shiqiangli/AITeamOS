@@ -31,7 +31,7 @@ Human goal
   -> Clara 创建或选择 Ticket
   -> Ticket 承载目标、上下文、负责人、验证人、关联 docs、repos 和验收条件
   -> AI Employees 通过接手、汇报、交接和请求验证来协作推进
-  -> Runtime / tool / MCP / external agent execution 产出 evidence 和 trace
+  -> AI Engine 和 Tool execution 产出 evidence 和 trace
   -> Reports、Decisions、Memory candidates、Docs updates 和 Skill candidates 进入 Ticket Asset Graph
   -> Clara 汇总、交叉验证，并把结果回复给 human
   -> 审核通过的 assets 成为可复用团队知识，并可赋予给不同 Employees
@@ -54,7 +54,7 @@ Ticket 是最主要的工作对象。
 - 关联代码仓库和 evidence
 - 关联 Docs 和 Decisions
 - reports 和 handoff records
-- trace events 和 runtime runs
+- trace events 和 AI Engine runs
 - 由本次工作产生的 Memory candidates 和 approved Memories
 
 Plane 可以作为外部 Ticket / Docs 事实源，但 AITeamOS 拥有对这项工作的 AI-team 解释层。
@@ -68,8 +68,8 @@ Employee 是 AI 或 human worker profile。
 - 身份、角色、使命、性格和边界
 - Skills
 - Knowledge access scopes
-- Capability permissions
-- runtime 或 agent executor 偏好
+- Capability access policy
+- AI Engine 偏好
 - 当前和历史 Ticket 参与记录
 - 贡献记录
 
@@ -115,7 +115,7 @@ Ticket Asset Graph 不是长期 Memory 本身。它是 AITeamOS 的产品工作�
 - Handoff
 - Report
 - Tool call
-- Runtime session
+- AI Engine session
 - Trace event
 - Evidence
 - Memory candidate
@@ -134,7 +134,7 @@ Ticket Asset Graph 不是长期 Memory 本身。它是 AITeamOS 的产品工作�
 - Ticket validated by Employee
 - Employee produced Report
 - Report belongs to Ticket
-- Run uses Runtime
+- Run uses AI Engine
 - Run uses Skill
 - Run calls Capability
 - Run recalls Memory
@@ -208,7 +208,7 @@ Settings
 2. **Tickets**：AI 工作 cockpit 和 flow ledger。
 3. **Employees**：workforce system of record 和治理视图。
 4. **Assets**：可复用团队资产和审核队列。
-5. **Settings**：runtime 和 integration 运行条件。
+5. **Settings**：AI Engines、Tool Connectors、Code Repositories、Ticket Backend、Memory Backend 和 Secrets health。
 
 ### 为什么叫 Assets
 
@@ -228,17 +228,15 @@ Assets
        -> Docs
        -> Memories
        -> Decisions
-  -> Skills
   -> Capabilities
-       -> Local Tools
+       -> Skills
+       -> Built-in Tools
        -> MCP Tools
-       -> Agent Executors
-       -> External APIs
   -> Review Queue
        -> Memory candidates
        -> Decision candidates
        -> Skill candidates
-       -> Permission requests
+       -> Tool / capability change requests
 ```
 
 Review Queue 不应只是 Knowledge 的子页面。它应成为 Ticket flow 中产出的各类 assets 的统一审核队列。
@@ -255,7 +253,7 @@ Chat 负责启动、重定向、中断、确认和汇总 Ticket flow。
 
 - 当前 active Employee
 - 当前 active Ticket
-- runtime / provider
+- AI Engine
 - 简洁 run metadata
 - assistant reply 下方的 tool / trace footer
 - 右侧 run inspector，用于深度调试
@@ -302,7 +300,7 @@ Employees 应成为 workforce system of record。
 - Skills and Capabilities
 - Knowledge Access
 - Permissions
-- Runtime
+- AI Engine
 - Activity
 
 Work tab 必须以 Ticket 为中心：当前 Tickets、历史 Tickets、reports、validations、contribution、failures 和 handoffs。
@@ -326,17 +324,46 @@ Assets 应展示可复用、可审计的团队资产。
 
 Settings 只应承载运行条件：
 
-- Runtimes and providers
-- Agent executors
+- AI Engines
 - Ticket backend
-- Plane and MCP connectors
+- Tool connectors
 - Code repositories
-- Graphiti / Neo4j Knowledge Backend
-- Secrets
+- Memory Backend
+- Secrets and health
 - Security and approval policy
 - System health
 
 Employee Defaults 更适合逐步移动到 Employees 或 Health，而不是作为主要 Settings 概念。
+
+推荐 Settings 分区：
+
+```text
+Settings
+  -> AI Engines
+       -> llm_api
+       -> agent_platform
+  -> Tool Connectors
+       -> mcp_server
+       -> native_api
+       -> cli
+       -> ci
+  -> Code Repositories
+       -> product repos
+       -> harness / regression repos
+  -> Ticket Backend
+       -> local_file
+       -> plane
+       -> jira
+  -> Memory Backend
+       -> Graphiti / Neo4j
+  -> Secrets & Health
+```
+
+AI Engines 是 Clara 和 Employees 思考或执行的后端。DeepSeek、OpenAI / ChatGPT API、Kimi、Gemini、Ollama、LM Studio、vLLM 等都可表达为 `llm_api`；Codex、Claude Code、Cursor、Qoder 等可表达为 `agent_platform`。本地模型不是单独的产品层级，而是 `llm_api` 的本地 deployment。
+
+Tool Connector 是外部能力来源的配置入口。MCP Server 是 Tool Connector 的一种 `kind`，不是和 Connector 并列的产品概念。AITeamOS 作为 host / client 连接 MCP Server，发现其 tools / resources / prompts，并把可执行动作归一化到 Capabilities / MCP Tools。AITeamOS Kernel 自带动作进入 Capabilities / Built-in Tools。Plane、Jira 等 Ticket 事实源优先归入 Ticket Backend；它们派生出的 `tickets.create`、`tickets.comment`、`tickets.transition` 等动作进入对应的 capability tool 分类，但配置不在 Tool Connectors 中重复。
+
+Secrets 页不直接配置密钥。API key、token、password 等敏感值只通过环境变量提供；Settings 的各业务页面只配置非敏感信息和环境变量引用。Secrets & Health 只展示需要哪些环境变量、用途、是否已配置、如何配置，以及被哪个 AI Engine、Ticket Backend、Tool Connector 或 Memory Backend 使用。
 
 ---
 
@@ -389,8 +416,8 @@ AITeamOS 的吸收方式：
 
 AITeamOS 的吸收方式：
 
-- 继续区分 Knowledge、Skills、Capabilities 和 Connectors。
-- 让 Clara 和 Employees 通过 Capability Registry 发现 executable capability。
+- 继续区分 Knowledge、Capabilities 和 Connectors：Capabilities 内含 Skills、Built-in Tools 和 MCP Tools；Connectors 只负责接入配置。
+- 让 Clara 和 Employees 通过 Capability Registry 发现 executable tools。
 - 用户仍然通过 Chat 操作，而不是把所有 action 都做成按钮。
 
 参考：
@@ -427,5 +454,5 @@ AITeamOS 的吸收方式：
 6. Tickets 是 work cockpit，不是 project-management clone。
 7. Employees 是 workforce ledger，不只是 profile list。
 8. Assets 是共享记忆和能力库存，不是被动文档库。
-9. Settings 是 runtime plumbing，不是业务页面。
-10. 外部 agent platforms 是 executors；AITeamOS 是 control plane 和 asset graph。
+9. Settings 是 AI Engine、backend、connector、repo、memory 和 secrets health 的运行条件，不是业务页面。
+10. 外部 agent platforms 是 AI Engines；AITeamOS 是 control plane 和 asset graph。

@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  AlertTriangle,
   Bot,
   Brain,
   ChevronRight,
+  ClipboardCheck,
   Clock3,
   Database,
+  GitBranch,
   MessageSquare,
   Search,
   ShieldCheck,
@@ -25,22 +28,23 @@ import {
 } from "../../components/shared";
 import { listChatEmployees, listChatThreads, type ChatEmployeeSummary, type ChatThreadListResponse } from "../../api/chat";
 import { getCapabilities, type CapabilityRecord, type CapabilityRegistryResponse } from "../../api/capabilities";
+import {
+  getEmployeeWorkLedger,
+  type EmployeeTicketReportRecord,
+  type EmployeeWorkLedger,
+  type TicketWorkItem,
+} from "../../api/tickets";
 import { cn } from "@/lib/utils";
 
-type DetailTab = "overview" | "work" | "capabilities" | "knowledge" | "runtime";
+type DetailTab = "overview" | "work" | "capabilities" | "knowledge" | "ai_engine";
 
 const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "work", label: "Work" },
   { key: "capabilities", label: "Skills & Tools" },
   { key: "knowledge", label: "Knowledge" },
-  { key: "runtime", label: "Runtime" },
+  { key: "ai_engine", label: "AI Engine" },
 ];
-
-function isTechnicalEmployee(employee: ChatEmployeeSummary): boolean {
-  const role = employee.role.toLowerCase();
-  return ["rd", "pv", "qa", "architect", "engineer", "implementer"].some((token) => role.includes(token));
-}
 
 function capabilitiesForEmployee(employee: ChatEmployeeSummary | null, registry: CapabilityRegistryResponse | null): CapabilityRecord[] {
   if (!employee) return [];
@@ -48,10 +52,9 @@ function capabilitiesForEmployee(employee: ChatEmployeeSummary | null, registry:
   const isClara = employee.id === "clara";
   return capabilities.filter((capability) => {
     if (!capability.enabled) return false;
-    if (isClara) return capability.kind === "local_tool" || capability.kind === "mcp_capability";
-    if (capability.kind === "agent_executor") return isTechnicalEmployee(employee);
-    if (capability.kind === "mcp_connector") return false;
-    if (capability.kind === "mcp_capability") return capability.configured;
+    if (capability.kind !== "tool") return false;
+    if (isClara) return true;
+    if (capability.source_kind === "mcp_server") return capability.configured;
     return [
       "search_knowledge",
       "list_tickets",
@@ -110,15 +113,15 @@ function roleGroup(employee: ChatEmployeeSummary): string {
   return "Specialist";
 }
 
-function runtimeLabel(employee: ChatEmployeeSummary): string {
-  return employee.runtime_mode.replace(/_/g, " ");
+function aiEngineLabel(employee: ChatEmployeeSummary): string {
+  return employee.ai_engine_mode.replace(/_/g, " ");
 }
 
-function runtimeShortLabel(employee: ChatEmployeeSummary): string {
-  if (employee.runtime_mode.includes("deepseek")) return "DeepSeek";
-  if (employee.runtime_mode.includes("openai")) return "OpenAI";
-  if (employee.runtime_mode.includes("stub")) return "Fallback";
-  return employee.runtime_mode;
+function aiEngineShortLabel(employee: ChatEmployeeSummary): string {
+  if (employee.ai_engine_mode.includes("deepseek")) return "DeepSeek";
+  if (employee.ai_engine_mode.includes("openai")) return "OpenAI";
+  if (employee.ai_engine_mode.includes("stub")) return "Fallback";
+  return employee.ai_engine_mode;
 }
 
 function StatCard({
@@ -150,6 +153,73 @@ function InfoRow({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function WorkItemButton({ item }: { item: TicketWorkItem }) {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
+      onClick={() => navigateTo("chat", item.ticket_id)}
+    >
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium">{item.title}</div>
+        <div className="mt-0.5 flex min-w-0 flex-wrap gap-2 text-xs text-muted-foreground">
+          <span>{item.ticket_id}</span>
+          <span>{item.status}</span>
+          <span>{formatThreadTime(item.updated_at)}</span>
+        </div>
+        {item.next_action && (
+          <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.next_action}</div>
+        )}
+      </div>
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+    </button>
+  );
+}
+
+function WorkReportSection({
+  empty,
+  records,
+  title,
+}: {
+  empty: string;
+  records: EmployeeTicketReportRecord[];
+  title: string;
+}) {
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">{title}</h4>
+        <Badge variant="outline">{records.length}</Badge>
+      </div>
+      {records.length ? (
+        <div className="space-y-2">
+          {records.slice(0, 6).map((record) => (
+            <button
+              key={`${record.ticket_id}-${record.report_id}`}
+              type="button"
+              className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
+              onClick={() => navigateTo("chat", record.ticket_id)}
+            >
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <span className="truncate text-sm font-medium">{record.ticket_title}</span>
+                <Badge variant="secondary" className="shrink-0">{record.report_type}</Badge>
+              </div>
+              <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{record.content}</div>
+              <div className="mt-1 flex min-w-0 flex-wrap gap-2 text-[10px] text-muted-foreground">
+                <span>{record.ticket_id}</span>
+                <span>{formatThreadTime(record.created_at)}</span>
+                {record.evidence.length > 0 && <span>{record.evidence.length} evidence</span>}
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">{empty}</p>
+      )}
+    </section>
+  );
+}
+
 function EmployeeAvatar({ employee, size = "md" }: { employee: ChatEmployeeSummary; size?: "sm" | "md" | "lg" }) {
   return (
     <div className={cn(
@@ -167,16 +237,18 @@ function EmployeeDrawer({
   capabilities,
   employee,
   threads,
+  work,
 }: {
   capabilities: CapabilityRecord[];
   employee: ChatEmployeeSummary;
   threads: ChatThreadListResponse | null;
+  work: EmployeeWorkLedger | null;
 }) {
   const [tab, setTab] = useState<DetailTab>("overview");
   const latest = latestThread(threads);
   const state = employeeState(employee, threads);
   const readyCapabilities = capabilities.filter((capability) => capability.configured && capability.status === "ready");
-  const toolCapabilities = capabilities.filter((capability) => capability.kind !== "agent_executor");
+  const toolCapabilities = capabilities.filter((capability) => capability.kind === "tool");
 
   return (
     <aside className="absolute inset-y-0 right-0 z-20 flex w-full max-w-[34rem] flex-col border-l bg-background shadow-xl">
@@ -206,7 +278,7 @@ function EmployeeDrawer({
             <Sparkles className="h-4 w-4" />
             Skills
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "tools")}>
+          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "capabilities", "tools")}>
             <Wrench className="h-4 w-4" />
             Tools
           </Button>
@@ -247,8 +319,8 @@ function EmployeeDrawer({
               <h4 className="mb-2 text-sm font-semibold">Identity</h4>
               <InfoRow label="Role group" value={roleGroup(employee)} />
               <InfoRow label="Kind" value={employee.kind} />
-              <InfoRow label="Runtime" value={runtimeShortLabel(employee)} />
-              <InfoRow label="Provider thread" value={employee.preserve_provider_thread ? "preserved" : "per run"} />
+              <InfoRow label="AI Engine" value={aiEngineShortLabel(employee)} />
+              <InfoRow label="Engine thread" value={employee.preserve_provider_thread ? "preserved" : "per run"} />
             </section>
 
             <section className="grid gap-3 sm:grid-cols-3">
@@ -261,26 +333,44 @@ function EmployeeDrawer({
 
         {tab === "work" && (
           <div className="space-y-4">
+            <section className="grid gap-3 sm:grid-cols-2">
+              <StatCard icon={GitBranch} label="Current Tickets" value={work?.current_tickets.length ?? 0} />
+              <StatCard icon={Clock3} label="Historical" value={work?.historical_tickets.length ?? 0} />
+              <StatCard icon={ClipboardCheck} label="Reports" value={work?.reports.length ?? 0} />
+              <StatCard icon={AlertTriangle} label="Blocked" value={work?.blocked_records.length ?? 0} />
+            </section>
+
             <section className="rounded-md border p-4">
-              <h4 className="mb-2 text-sm font-semibold">Current Work Signal</h4>
-              {latest ? (
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
-                  onClick={() => navigateTo("chat", employee.id)}
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{latest.title || latest.id}</div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">
-                      {latest.message_count} msgs · last {formatThreadTime(latest.last_message_at || latest.updated_at)}
-                    </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </button>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold">Current Tickets</h4>
+                <Badge variant="outline">{work?.current_tickets.length ?? 0}</Badge>
+              </div>
+              {work?.current_tickets.length ? (
+                <div className="space-y-2">
+                  {work.current_tickets.map((item) => <WorkItemButton key={item.ticket_id} item={item} />)}
+                </div>
               ) : (
-                <p className="text-sm text-muted-foreground">No thread activity yet.</p>
+                <p className="text-sm text-muted-foreground">No active Ticket assignment in the ledger.</p>
               )}
             </section>
+
+            <WorkReportSection
+              title="Reports"
+              records={work?.reports ?? []}
+              empty="No report records yet."
+            />
+
+            <WorkReportSection
+              title="PV Validations"
+              records={work?.validations ?? []}
+              empty="No validation records yet."
+            />
+
+            <WorkReportSection
+              title="Blocked / Failed Records"
+              records={work?.blocked_records ?? []}
+              empty="No blocked records yet."
+            />
 
             <section className="rounded-md border p-4">
               <h4 className="mb-3 text-sm font-semibold">Recent Threads</h4>
@@ -376,28 +466,28 @@ function EmployeeDrawer({
 
             <section className="rounded-md border p-4">
               <h4 className="mb-2 text-sm font-semibold">Governance</h4>
-              <InfoRow label="Can preserve provider session" value={employee.preserve_provider_thread ? "yes" : "no"} />
+              <InfoRow label="Can preserve engine session" value={employee.preserve_provider_thread ? "yes" : "no"} />
               <InfoRow label="Default thread" value={employee.default_thread_id || "-"} />
             </section>
           </div>
         )}
 
-        {tab === "runtime" && (
+        {tab === "ai_engine" && (
           <div className="space-y-4">
             <section className="rounded-md border p-4">
               <div className="mb-3 flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-                <h4 className="text-sm font-semibold">Runtime Boundary</h4>
+                <h4 className="text-sm font-semibold">AI Engine Boundary</h4>
               </div>
-              <InfoRow label="Runtime mode" value={runtimeLabel(employee)} />
-              <InfoRow label="Provider thread" value={employee.preserve_provider_thread ? "preserved" : "not preserved"} />
+              <InfoRow label="AI Engine mode" value={aiEngineLabel(employee)} />
+              <InfoRow label="Engine thread" value={employee.preserve_provider_thread ? "preserved" : "not preserved"} />
               <InfoRow label="Kind" value={employee.kind} />
             </section>
 
             <section className="rounded-md border p-4">
               <h4 className="mb-2 text-sm font-semibold">Operating Note</h4>
               <p className="text-sm leading-6 text-muted-foreground">
-                Runtime provider, API keys, MCP connectors, and memory backend are configured under Settings. This
+                AI Engines, Tool Connectors, secrets, and Memory Backend are configured under Settings. This
                 employee profile only declares how the employee should participate in the AI Team OS.
               </p>
             </section>
@@ -413,10 +503,11 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [threadsMap, setThreadsMap] = useState<Record<string, ChatThreadListResponse>>({});
+  const [workMap, setWorkMap] = useState<Record<string, EmployeeWorkLedger>>({});
   const [capabilityRegistry, setCapabilityRegistry] = useState<CapabilityRegistryResponse | null>(null);
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
-  const [runtimeFilter, setRuntimeFilter] = useState("all");
+  const [aiEngineFilter, setAiEngineFilter] = useState("all");
 
   const loadEmployees = useCallback(async () => {
     setLoading(true);
@@ -429,9 +520,10 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
       setEmployees(loaded);
       setCapabilityRegistry(loadedCapabilities);
 
-      const threadsResults = await Promise.allSettled(
-        loaded.map((m) => listChatThreads(m.id)),
-      );
+      const [threadsResults, workResults] = await Promise.all([
+        Promise.allSettled(loaded.map((m) => listChatThreads(m.id))),
+        Promise.allSettled(loaded.map((m) => getEmployeeWorkLedger(m.id))),
+      ]);
       const newMap: Record<string, ChatThreadListResponse> = {};
       threadsResults.forEach((result, idx) => {
         if (result.status === "fulfilled") {
@@ -439,6 +531,13 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
         }
       });
       setThreadsMap(newMap);
+      const newWorkMap: Record<string, EmployeeWorkLedger> = {};
+      workResults.forEach((result, idx) => {
+        if (result.status === "fulfilled") {
+          newWorkMap[loaded[idx].id] = result.value;
+        }
+      });
+      setWorkMap(newWorkMap);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load employees");
     } finally {
@@ -451,7 +550,7 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
   }, [loadEmployees]);
 
   const roleGroups = useMemo(() => Array.from(new Set(employees.map(roleGroup))).sort(), [employees]);
-  const runtimeGroups = useMemo(() => Array.from(new Set(employees.map(runtimeShortLabel))).sort(), [employees]);
+  const aiEngineGroups = useMemo(() => Array.from(new Set(employees.map(aiEngineShortLabel))).sort(), [employees]);
 
   const filteredEmployees = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -464,16 +563,17 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
         ...employee.skills,
       ].some((value) => value.toLowerCase().includes(normalized));
       const matchesRole = roleFilter === "all" || roleGroup(employee) === roleFilter;
-      const matchesRuntime = runtimeFilter === "all" || runtimeShortLabel(employee) === runtimeFilter;
-      return matchesQuery && matchesRole && matchesRuntime;
+      const matchesAiEngine = aiEngineFilter === "all" || aiEngineShortLabel(employee) === aiEngineFilter;
+      return matchesQuery && matchesRole && matchesAiEngine;
     });
-  }, [employees, query, roleFilter, runtimeFilter]);
+  }, [employees, query, roleFilter, aiEngineFilter]);
 
   const selectedEmployee = useMemo(() => {
     return selectedId ? employees.find((employee) => employee.id === selectedId) ?? null : null;
   }, [employees, selectedId]);
 
   const selectedThreads = selectedEmployee ? threadsMap[selectedEmployee.id] ?? null : null;
+  const selectedWork = selectedEmployee ? workMap[selectedEmployee.id] ?? null : null;
   const selectedCapabilities = useMemo(
     () => capabilitiesForEmployee(selectedEmployee, capabilityRegistry),
     [capabilityRegistry, selectedEmployee],
@@ -503,7 +603,7 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
                 <h3 className="text-base font-semibold">AI Employee Directory</h3>
               </div>
               <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                Manage AI Team OS employees as digital employees: identity, mission, work record, skills, tools, knowledge, and runtime boundary.
+                Manage AI Team OS employees as digital employees: identity, mission, work record, skills, tools, knowledge, and AI Engine boundary.
               </p>
             </div>
             <Button type="button" variant="outline" onClick={() => navigateTo("chat")}>
@@ -544,13 +644,13 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
               ))}
             </Select>
             <Select
-              aria-label="Runtime"
-              value={runtimeFilter}
-              onChange={(event) => setRuntimeFilter(event.target.value)}
+              aria-label="AI Engine"
+              value={aiEngineFilter}
+              onChange={(event) => setAiEngineFilter(event.target.value)}
               className="w-[11rem]"
             >
-              <option value="all">All runtimes</option>
-              {runtimeGroups.map((group) => (
+              <option value="all">All engines</option>
+              {aiEngineGroups.map((group) => (
                 <option key={group} value={group}>{group}</option>
               ))}
             </Select>
@@ -565,7 +665,9 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
               {filteredEmployees.map((employee) => {
                 const active = selectedEmployee?.id === employee.id;
                 const threads = threadsMap[employee.id] ?? null;
+                const work = workMap[employee.id] ?? null;
                 const latest = latestThread(threads);
+                const currentTicket = work?.current_tickets?.[0] ?? null;
                 const capabilities = capabilitiesForEmployee(employee, capabilityRegistry);
                 const state = employeeState(employee, threads);
                 return (
@@ -596,9 +698,13 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
 
                     <div className="min-w-0">
                       <div className="text-[10px] font-medium uppercase text-muted-foreground">Current signal</div>
-                      <div className="truncate text-sm">{latest?.title || "No recent thread"}</div>
+                      <div className="truncate text-sm">
+                        {currentTicket ? `${currentTicket.ticket_id} · ${currentTicket.title}` : latest?.title || "No recent thread"}
+                      </div>
                       <div className="text-xs text-muted-foreground">
-                        {latest ? `${latest.message_count} msgs · ${formatThreadTime(latest.last_message_at || latest.updated_at)}` : "Ready for delegation"}
+                        {currentTicket
+                          ? `${currentTicket.status} · ${currentTicket.next_action || "ledger updated"}`
+                          : latest ? `${latest.message_count} msgs · ${formatThreadTime(latest.last_message_at || latest.updated_at)}` : "Ready for delegation"}
                       </div>
                     </div>
 
@@ -607,7 +713,7 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
                       <div className="flex min-w-0 flex-wrap gap-1">
                         <Badge variant="secondary" className="px-1.5 text-[10px]">{employee.skills.length} skills</Badge>
                         <Badge variant="outline" className="px-1.5 text-[10px]">{capabilities.length} tools</Badge>
-                        <Badge variant="outline" className="px-1.5 text-[10px]">{runtimeShortLabel(employee)}</Badge>
+                        <Badge variant="outline" className="px-1.5 text-[10px]">{aiEngineShortLabel(employee)}</Badge>
                       </div>
                     </div>
 
@@ -625,6 +731,7 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
           capabilities={selectedCapabilities}
           employee={selectedEmployee}
           threads={selectedThreads}
+          work={selectedWork}
         />
       )}
     </div>

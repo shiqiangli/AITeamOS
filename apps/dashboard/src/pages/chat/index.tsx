@@ -36,15 +36,15 @@ import {
   createChatThread,
   deleteChatThread,
   getChatThread,
-  getChatRuntime,
+  getChatAiEngines,
   listChatThreads,
   listChatEmployees,
-  updateChatRuntimeProvider,
+  updateChatAiEngine,
   type ConversationMessage,
   type ChatEmployeeSummary,
   type ChatMessageResponse,
-  type ChatRuntimeProviderSettings,
-  type ChatRuntimeSettings,
+  type ChatAiEngineRecord,
+  type ChatAiEngineSettings,
   type ChatThreadSummary,
   type ChatTraceEvent,
 } from "../../api/chat";
@@ -165,21 +165,15 @@ function extractAiteamosResponse(state: unknown): ChatMessageResponse | null {
   return isChatMessageResponse(response) ? response : null;
 }
 
-function isTechnicalEmployee(employee: ChatEmployeeSummary): boolean {
-  const role = employee.role.toLowerCase();
-  return ["rd", "pv", "qa", "architect", "engineer", "implementer"].some((token) => role.includes(token));
-}
-
 function employeeCapabilities(employee: ChatEmployeeSummary | null, registry: CapabilityRegistryResponse | null): CapabilityRecord[] {
   if (!employee) return [];
   const capabilities = registry?.capabilities ?? [];
   const isClara = employee.id === "clara";
   return capabilities.filter((capability) => {
     if (!capability.enabled) return false;
-    if (isClara) return capability.kind === "local_tool" || capability.kind === "mcp_capability";
-    if (capability.kind === "agent_executor") return isTechnicalEmployee(employee);
-    if (capability.kind === "mcp_connector") return false;
-    if (capability.kind === "mcp_capability") return capability.configured;
+    if (capability.kind !== "tool") return false;
+    if (isClara) return true;
+    if (capability.source_kind === "mcp_server") return capability.configured;
     return [
       "search_knowledge",
       "list_tickets",
@@ -222,7 +216,7 @@ function formatThreadTime(value?: string | null): string {
   return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-/* ─── AG-UI Runtime Provider ──────────────────────────────────────────────── */
+/* ─── AG-UI Provider ──────────────────────────────────────────────────────── */
 
 function AiteamosAgUiRuntimeProvider({
   children, ticketKey, onError, selectedEmployeeId, threadId,
@@ -241,7 +235,7 @@ function AiteamosAgUiRuntimeProvider({
     async load() { const t = await getChatThread(threadId); return conversationToHistory(t.messages); },
     async append() { /* backend persists */ },
   }), [threadId]);
-  const runtime = useAgUiRuntime({
+  const assistantRuntime = useAgUiRuntime({
     agent, showThinking: false, onError,
     adapters: {
       history,
@@ -254,7 +248,7 @@ function AiteamosAgUiRuntimeProvider({
       },
     },
   });
-  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+  return <AssistantRuntimeProvider runtime={assistantRuntime}>{children}</AssistantRuntimeProvider>;
 }
 
 function ChatStateBridge({ onResponse }: { onResponse: (r: ChatMessageResponse) => void }) {
@@ -301,22 +295,22 @@ function AiteamosThread({
   employees,
   selectedEmployee,
   onSelectEmployee,
-  runtime,
-  runtimeProviders,
-  providerReady,
-  runtimeSaving,
-  onRuntimeProviderChange,
+  aiEngines,
+  aiEngineRecords,
+  aiEngineReady,
+  aiEngineSaving,
+  onAiEngineChange,
   ticketKey,
   onTicketKeyChange,
 }: {
   employees: ChatEmployeeSummary[];
   selectedEmployee: ChatEmployeeSummary | null;
   onSelectEmployee: (employeeId: string) => void;
-  runtime: ChatRuntimeSettings | null;
-  runtimeProviders: ChatRuntimeProviderSettings[];
-  providerReady: boolean;
-  runtimeSaving: boolean;
-  onRuntimeProviderChange: (providerId: string) => void;
+  aiEngines: ChatAiEngineSettings | null;
+  aiEngineRecords: ChatAiEngineRecord[];
+  aiEngineReady: boolean;
+  aiEngineSaving: boolean;
+  onAiEngineChange: (engineId: string) => void;
   ticketKey: string;
   onTicketKeyChange: (value: string) => void;
 }) {
@@ -344,19 +338,19 @@ function AiteamosThread({
             </div>
 
             <label className="min-w-0 flex-[1_1_10rem]">
-              <span className="mb-1 block text-[10px] font-medium uppercase leading-none text-muted-foreground">Runtime</span>
+              <span className="mb-1 block text-[10px] font-medium uppercase leading-none text-muted-foreground">AI Engine</span>
               <div className="flex items-center gap-1.5">
-                <div className={cn("h-2 w-2 shrink-0 rounded-full", providerReady ? "bg-green-500" : "bg-orange-400")} />
+                <div className={cn("h-2 w-2 shrink-0 rounded-full", aiEngineReady ? "bg-green-500" : "bg-orange-400")} />
                 <Select
-                  aria-label="Runtime for next reply"
-                  value={runtime?.provider ?? "stub"}
-                  onChange={(event) => onRuntimeProviderChange(event.target.value)}
-                  disabled={runtimeSaving}
+                  aria-label="AI Engine for next reply"
+                  value={aiEngines?.active_engine ?? "stub"}
+                  onChange={(event) => onAiEngineChange(event.target.value)}
+                  disabled={aiEngineSaving}
                   className="h-9 min-w-0 flex-1 text-xs"
                 >
-                  {runtimeProviders.length > 0 ? runtimeProviders.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.display_name}
+                  {aiEngineRecords.length > 0 ? aiEngineRecords.map((engine) => (
+                    <option key={engine.id} value={engine.id}>
+                      {engine.display_name}
                     </option>
                   )) : (
                     <option value="stub">File stub</option>
@@ -636,7 +630,8 @@ function ResizeHandle({ className }: { className?: string }) {
 
 /* ─── Main Chat Page ──────────────────────────────────────────────────────── */
 
-export function ChatPage() {
+export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }) {
+  const normalizedRouteTarget = routeTarget?.trim() ?? "";
   const [employees, setEmployees] = useState<ChatEmployeeSummary[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(() => readTextStorage(ACTIVE_EMPLOYEE_STORAGE_KEY));
   const [ticketKey, setTicketKey] = useState("");
@@ -649,13 +644,13 @@ export function ChatPage() {
   const [traceEvents, setTraceEvents] = useState<ChatTraceEvent[]>([]);
   const [runMetadata, setRunMetadata] = useState<Record<string, unknown> | null>(null);
   const [savedPaths, setSavedPaths] = useState<Record<string, string>>({});
-  const [runtime, setRuntime] = useState<ChatRuntimeSettings | null>(null);
+  const [aiEngines, setAiEngines] = useState<ChatAiEngineSettings | null>(null);
   const [capabilityRegistry, setCapabilityRegistry] = useState<CapabilityRegistryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [threadsLoading, setThreadsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
-  const [runtimeSaving, setRuntimeSaving] = useState(false);
+  const [aiEngineSaving, setAiEngineSaving] = useState(false);
   const [detailsPanelOpen, setDetailsPanelOpen] = useState(true);
 
   const selectedEmployee = useMemo(
@@ -666,9 +661,9 @@ export function ChatPage() {
     () => employeeCapabilities(selectedEmployee, capabilityRegistry),
     [capabilityRegistry, selectedEmployee],
   );
-  const runtimeProviders = useMemo(
-    () => Object.values(runtime?.providers ?? {}),
-    [runtime],
+  const aiEngineRecords = useMemo(
+    () => Object.values(aiEngines?.engines ?? {}),
+    [aiEngines],
   );
   const activeThreadId = threadId || defaultThreadIdForEmployee(selectedEmployee);
   const activeThread = useMemo(
@@ -703,21 +698,26 @@ export function ChatPage() {
   const loadWorkbench = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [loaded, loadedRuntime, loadedCapabilities] = await Promise.all([
+      const [loaded, loadedAiEngines, loadedCapabilities] = await Promise.all([
         listChatEmployees(),
-        getChatRuntime(),
+        getChatAiEngines(),
         getCapabilities().catch(() => null),
       ]);
       setEmployees(loaded);
-      setRuntime(loadedRuntime);
+      setAiEngines(loadedAiEngines);
       setCapabilityRegistry(loadedCapabilities);
-      // Default to Clara, then stored, then first
+      const routeEmployee = normalizedRouteTarget ? loaded.find((m) => m.id === normalizedRouteTarget) : undefined;
+      const routeTicketKey = normalizedRouteTarget && !routeEmployee ? normalizedRouteTarget : "";
+      const clara = loaded.find((m) => m.id === "clara") ?? null;
       const storedId = readTextStorage(ACTIVE_EMPLOYEE_STORAGE_KEY);
       const preferred = (
-        (storedId ? loaded.find((m) => m.id === storedId) : undefined)
-        ?? loaded.find((m) => m.id === "clara")
+        routeEmployee
+        ?? (routeTicketKey ? (clara ?? loaded[0]) : undefined)
+        ?? (storedId ? loaded.find((m) => m.id === storedId) : undefined)
+        ?? clara
         ?? loaded[0] ?? null
       );
+      setTicketKey(routeTicketKey);
       const nextId = preferred?.id ?? "";
       setSelectedEmployeeId(nextId);
       if (nextId) writeTextStorage(ACTIVE_EMPLOYEE_STORAGE_KEY, nextId);
@@ -725,7 +725,7 @@ export function ChatPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load chat workbench");
     } finally { setLoading(false); }
-  }, [loadThreadsForEmployee]);
+  }, [loadThreadsForEmployee, normalizedRouteTarget]);
 
   useEffect(() => { loadWorkbench(); }, [loadWorkbench]);
 
@@ -825,23 +825,23 @@ export function ChatPage() {
     } finally { setDeletingThreadId(null); }
   }
 
-  async function switchRuntimeProvider(nextProvider: string) {
-    if (!nextProvider || nextProvider === runtime?.provider || runtimeSaving) return;
-    setRuntimeSaving(true);
+  async function switchAiEngine(nextEngine: string) {
+    if (!nextEngine || nextEngine === aiEngines?.active_engine || aiEngineSaving) return;
+    setAiEngineSaving(true);
     setError(null);
     try {
-      setRuntime(await updateChatRuntimeProvider(nextProvider, { activate: true }));
+      setAiEngines(await updateChatAiEngine(nextEngine, { activate: true }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to switch runtime provider");
+      setError(err instanceof Error ? err.message : "Failed to switch AI Engine");
     } finally {
-      setRuntimeSaving(false);
+      setAiEngineSaving(false);
     }
   }
 
   if (loading) return <LoadingState />;
-  const providerReady = Boolean(runtime?.provider && runtime.provider !== "stub");
+  const aiEngineReady = Boolean(aiEngines?.active_engine && aiEngines.active_engine !== "stub");
   const runMetadataRecord = asRecord(runMetadata);
-  const runRuntime = asRecord(runMetadataRecord.runtime);
+  const runAiEngine = asRecord(runMetadataRecord.ai_engine);
   const runEmployee = asRecord(runMetadataRecord.employee);
   const runTicketKeys = asStringArray(runMetadataRecord.ticket_keys);
   const runTools = Array.isArray(runMetadataRecord.tools) ? runMetadataRecord.tools.map(asRecord) : [];
@@ -961,11 +961,11 @@ export function ChatPage() {
                 employees={employees}
                 selectedEmployee={selectedEmployee}
                 onSelectEmployee={selectEmployee}
-                runtime={runtime}
-                runtimeProviders={runtimeProviders}
-                providerReady={providerReady}
-                runtimeSaving={runtimeSaving}
-                onRuntimeProviderChange={(providerId) => void switchRuntimeProvider(providerId)}
+                aiEngines={aiEngines}
+                aiEngineRecords={aiEngineRecords}
+                aiEngineReady={aiEngineReady}
+                aiEngineSaving={aiEngineSaving}
+                onAiEngineChange={(engineId) => void switchAiEngine(engineId)}
                 ticketKey={ticketKey}
                 onTicketKeyChange={setTicketKey}
               />
@@ -1022,19 +1022,19 @@ export function ChatPage() {
                         </span>
                       </div>
                       <div className="flex justify-between gap-2">
-                        <span className="text-muted-foreground">Runtime</span>
+                        <span className="text-muted-foreground">AI Engine</span>
                         <span className="truncate text-right font-medium">
-                          {metadataText(runRuntime.actual_provider)}
+                          {metadataText(runAiEngine.actual_ai_engine)}
                         </span>
                       </div>
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground">Model</span>
-                        <span className="truncate text-right">{metadataText(runRuntime.model)}</span>
+                        <span className="truncate text-right">{metadataText(runAiEngine.model)}</span>
                       </div>
                       <div className="flex justify-between gap-2">
-                        <span className="text-muted-foreground">Provider thread</span>
-                        <span className="truncate text-right" title={metadataText(runRuntime.provider_thread_id || providerThreadId)}>
-                          {metadataText(runRuntime.provider_thread_id || providerThreadId)}
+                        <span className="text-muted-foreground">Engine thread</span>
+                        <span className="truncate text-right" title={metadataText(runAiEngine.provider_thread_id || providerThreadId)}>
+                          {metadataText(runAiEngine.provider_thread_id || providerThreadId)}
                         </span>
                       </div>
                       <div>

@@ -4,6 +4,7 @@ export interface CapabilityRecord {
   id: string;
   name: string;
   kind: string;
+  source_kind: string;
   domain: string;
   source: string;
   status: string;
@@ -25,9 +26,12 @@ export interface CapabilityRegistryStatus {
   enabled_count: number;
   configured_count: number;
   ready_count: number;
-  local_tool_count: number;
-  mcp_capability_count: number;
-  agent_executor_count: number;
+  tool_count: number;
+  built_in_tool_count: number;
+  mcp_tool_count: number;
+  native_api_tool_count: number;
+  cli_tool_count: number;
+  ci_tool_count: number;
   saved_paths: Record<string, string>;
 }
 

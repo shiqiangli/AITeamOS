@@ -74,6 +74,10 @@ htmlcov/
 .aiteamos/work_items/
 .aiteamos/connectors/
 .aiteamos/plane/
+.aiteamos/tickets/
+.aiteamos/ai_engines.json
+.aiteamos/tool_connectors.json
+.aiteamos/code_repositories.json
 .aiteamos/mcp_connectors.json
 .aiteamos/graphiti.json
 .aiteamos/provider_threads.json

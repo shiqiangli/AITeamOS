@@ -42,3 +42,6 @@ system:
   bootstrap: true
 updated_at: '2026-06-03T15:08:24.917688+00:00'
 created_at: '2026-06-03T12:27:12.087249+00:00'
+ai_engine:
+  engine_identity: clara
+  preserve_provider_thread: true

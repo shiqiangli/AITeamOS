@@ -6,6 +6,7 @@ export interface KnowledgeDocSummary {
   source: string;
   path: string;
   excerpt: string;
+  content: string;
   updated_at: string;
   tags: string[];
 }
@@ -56,6 +57,7 @@ export interface KnowledgeStatusResponse {
   memories_count: number;
   decisions_count: number;
   review_queue_count: number;
+  asset_count?: number;
   saved_paths: Record<string, string>;
 }
 

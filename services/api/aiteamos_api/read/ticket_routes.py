@@ -5,16 +5,22 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from .ticket_service import (
+    EmployeeWorkLedger,
     Ticket,
+    TicketAssetRecord,
     TicketBackendSettings,
     TicketBackendSettingsUpdateRequest,
     TicketBackendStatus,
     TicketCreateRequest,
+    TicketEvent,
     TicketReportRequest,
     add_ticket_report,
     create_ticket,
+    employee_work_ledger,
     get_ticket,
+    get_ticket_events,
     list_tickets,
+    ticket_asset_records,
     ticket_backend_settings,
     ticket_backend_status,
     update_ticket_backend_settings,
@@ -55,6 +61,33 @@ async def put_ticket_backend(request: TicketBackendSettingsUpdateRequest) -> Tic
 @router.get("/status", response_model=TicketBackendStatus)
 async def get_ticket_backend_status() -> TicketBackendStatus:
     return ticket_backend_status()
+
+
+@router.get("/assets", response_model=list[TicketAssetRecord])
+async def get_ticket_assets() -> list[TicketAssetRecord]:
+    try:
+        return ticket_asset_records()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/employees/{employee_id}/work", response_model=EmployeeWorkLedger)
+async def get_employee_work_ledger(employee_id: str) -> EmployeeWorkLedger:
+    try:
+        return employee_work_ledger(employee_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{ticket_id}/events", response_model=list[TicketEvent])
+async def get_ticket_event_log(ticket_id: str) -> list[TicketEvent]:
+    try:
+        events = get_ticket_events(ticket_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not events:
+        raise HTTPException(status_code=404, detail=f"Ticket not found: {ticket_id}")
+    return events
 
 
 @router.get("/{ticket_id}", response_model=Ticket)

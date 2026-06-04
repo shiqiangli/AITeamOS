@@ -17,9 +17,9 @@ kind: ai
 role: {role}
 summary: {role}
 skills: []
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: {employee_id}
+  engine_identity: {employee_id}
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -91,14 +91,19 @@ def test_ticket_routes_create_and_record_reports(tmp_path, monkeypatch):
         json={
             "title": "Implement Knowledge flow",
             "description": "Create docs, memories, decisions and review queue views.",
+            "ticket_type": "rd",
             "assigned_employee_id": "alex",
+            "assigned_role": "AI RD / Implementer",
             "validation_employee_id": "peter",
+            "validation_role": "AI PV",
             "knowledge_refs": ["doc:product-direction"],
             "code_repository_ids": ["repo-aiteamos"],
         },
     )
     assert created.status_code == 200
     ticket_id = created.json()["id"]
+    assert ticket_id == "rd-0001"
+    assert created.json()["ticket_type"] == "rd"
     assert created.json()["status"] == "assigned"
     assert created.json()["code_repository_ids"] == ["repo-aiteamos"]
 
@@ -115,6 +120,55 @@ def test_ticket_routes_create_and_record_reports(tmp_path, monkeypatch):
     assert reported.status_code == 200
     assert reported.json()["status"] == "validated"
     assert reported.json()["reports"][0]["evidence"] == ["pytest passed"]
+
+    event_file = workspace / ".aiteamos" / "tickets" / "rd" / f"{ticket_id}.ticket.jsonl"
+    assert event_file.exists()
+    event_lines = [json.loads(line) for line in event_file.read_text(encoding="utf-8").splitlines()]
+    assert [event["type"] for event in event_lines[:3]] == ["created", "assigned", "validation_requested"]
+
+    events = client.get(f"/api/v1/tickets/{ticket_id}/events")
+    assert events.status_code == 200
+    event_types = [event["type"] for event in events.json()]
+    assert "validated" in event_types
+    assert "status_changed" in event_types
+    assert any(event["type"] == "asset_linked" and event["data"]["target_kind"] == "evidence" for event in events.json())
+
+    peter_work = client.get("/api/v1/tickets/employees/peter/work")
+    assert peter_work.status_code == 200
+    assert peter_work.json()["contribution"]["validation_count"] == 1
+    assert peter_work.json()["validations"][0]["ticket_id"] == ticket_id
+
+    alex_work = client.get("/api/v1/tickets/employees/alex/work")
+    assert alex_work.status_code == 200
+    assert alex_work.json()["historical_tickets"][0]["ticket_id"] == ticket_id
+
+    ticket_assets = client.get("/api/v1/tickets/assets")
+    assert ticket_assets.status_code == 200
+    assert {item["kind"] for item in ticket_assets.json()} == {"report", "evidence"}
+    assert {item["source_ticket_id"] for item in ticket_assets.json()} == {ticket_id}
+
+    all_assets = client.get("/api/v1/assets")
+    assert all_assets.status_code == 200
+    evidence_asset = next(item for item in all_assets.json() if item["kind"] == "evidence")
+    assert evidence_asset["source_ticket"] == ticket_id
+    assert evidence_asset["source_employee"] == "peter"
+
+    knowledge_docs = client.get("/api/v1/assets/knowledge/docs")
+    assert knowledge_docs.status_code == 200
+    assert all(item["metadata"]["asset_domain"] == "knowledge" for item in knowledge_docs.json())
+
+    forbidden = client.post(
+        "/api/v1/tickets",
+        json={
+            "title": "PV-only namespace",
+            "description": "RD employee should not create PV Tickets.",
+            "ticket_type": "pv",
+            "actor_employee_id": "alex",
+            "actor_role": "AI RD / Implementer",
+        },
+    )
+    assert forbidden.status_code == 400
+    assert "cannot create pv Tickets" in forbidden.json()["detail"]
 
     status = client.get("/api/v1/tickets/status")
     assert status.status_code == 200
@@ -138,7 +192,7 @@ def test_ticket_routes_create_and_record_reports(tmp_path, monkeypatch):
 def test_clara_can_search_knowledge_and_create_local_ticket(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
     (workspace / "PRODUCT_DIRECTION.md").write_text(
         "# Product Direction\n\nKnowledge contains Docs, Memories, Decisions, and Review Queue.\n",
@@ -218,6 +272,8 @@ def test_clara_can_search_knowledge_and_create_local_ticket(tmp_path, monkeypatc
     assert "已创建本地 Ticket" in payload["reply"]
     completed = next(event for event in payload["trace_events"] if event["event"] == "tool.create_ticket.completed")
     ticket = completed["data"]["ticket"]
+    assert ticket["id"].startswith("rd-")
+    assert ticket["ticket_type"] == "rd"
     assert ticket["assigned_employee_id"] == "alex"
     assert ticket["validation_employee_id"] == "peter"
     assert ticket["knowledge_refs"]
@@ -237,3 +293,4 @@ def test_clara_can_search_knowledge_and_create_local_ticket(tmp_path, monkeypatc
     inspect_event = next(event for event in inspect_payload["trace_events"] if event["event"] == "tool.inspect_code_repository.completed")
     assert inspect_event["data"]["matches"]
     assert inspect_event["data"]["ticket"]["reports"][-1]["report_type"] == "repo_inspection"
+    assert inspect_event["data"]["ticket"]["events"][-1]["type"] == "asset_linked"

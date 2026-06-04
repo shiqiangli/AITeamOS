@@ -1,4 +1,4 @@
-"""File-backed MCP connector registry for AITeamOS.
+"""File-backed Tool Connector registry for AITeamOS.
 
 The registry is the Kernel-facing source of truth for connector capabilities.
 Actual MCP client/server protocol integration can be attached behind these
@@ -15,14 +15,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import httpx
 from pydantic import BaseModel, Field
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _LEGACY_UNCONFIGURED_CONNECTORS = {"redmine", "ticket", "confluence"}
 
 
-class McpConnector(BaseModel):
+class ToolConnector(BaseModel):
     id: str
     name: str
     status: str = "planned"
@@ -37,7 +36,7 @@ class McpConnector(BaseModel):
     updated_at: str = ""
 
 
-class McpConnectorUpdateRequest(BaseModel):
+class ToolConnectorUpdateRequest(BaseModel):
     status: str | None = None
     transport: str | None = None
     enabled: bool | None = None
@@ -49,7 +48,7 @@ class McpConnectorUpdateRequest(BaseModel):
     server: dict[str, Any] | None = None
 
 
-class McpRegistryStatus(BaseModel):
+class ToolConnectorRegistryStatus(BaseModel):
     connector_count: int
     enabled_count: int
     configured_count: int
@@ -57,7 +56,7 @@ class McpRegistryStatus(BaseModel):
     saved_paths: dict[str, str] = Field(default_factory=dict)
 
 
-class McpConnectorSettingsResponse(BaseModel):
+class ToolConnectorSettingsResponse(BaseModel):
     connector_id: str
     enabled: bool = False
     configured: bool = False
@@ -68,20 +67,19 @@ class McpConnectorSettingsResponse(BaseModel):
     project_id: str = ""
     api_token_configured: bool = False
     saved_paths: dict[str, str] = Field(default_factory=dict)
-    connector: McpConnector
+    connector: ToolConnector
 
 
-class McpConnectorSettingsUpdateRequest(BaseModel):
+class ToolConnectorSettingsUpdateRequest(BaseModel):
     enabled: bool = True
     base_url: str = ""
     email: str = ""
     space_key: str = ""
     workspace_slug: str = ""
     project_id: str = ""
-    api_token: str | None = None
 
 
-class McpConnectorHealthResponse(BaseModel):
+class ToolConnectorHealthResponse(BaseModel):
     connector_id: str
     status: str
     detail: str
@@ -106,7 +104,7 @@ def _workspace_dir() -> Path:
 
 
 def _registry_path() -> Path:
-    return _workspace_dir() / "mcp_connectors.json"
+    return _workspace_dir() / "tool_connectors.json"
 
 
 def _connectors_dir() -> Path:
@@ -119,10 +117,6 @@ def _connector_settings_path(connector_id: str) -> Path:
     return _connectors_dir() / f"{connector_id}.json"
 
 
-def _secrets_path() -> Path:
-    return _workspace_dir() / "secrets.local.json"
-
-
 def _relative(path: Path) -> str:
     try:
         return str(path.relative_to(_workspace_root()))
@@ -130,73 +124,51 @@ def _relative(path: Path) -> str:
         return str(path)
 
 
-def _default_connectors() -> list[McpConnector]:
+def _default_connectors() -> list[ToolConnector]:
     timestamp = _now()
     return [
-        McpConnector(
-            id="plane",
-            name="Plane",
+        ToolConnector(
+            id="mcp-server",
+            name="MCP Server",
             status="planned",
-            transport="rest",
+            transport="mcp",
             description=(
-                "Selected default Ticket/Docs backend for AITeamOS; "
-                "Plane tickets map to Tickets and Plane pages map to Docs."
+                "Generic MCP server entry point. Configure a server command or URL, "
+                "then discovered tools are projected into Assets / Capabilities / MCP Tools."
             ),
-            capabilities=[
-                "tickets.search",
-                "tickets.create",
-                "tickets.update",
-                "tickets.transition",
-                "tickets.comment",
-                "tickets.relate",
-                "knowledge.docs.search",
-                "knowledge.docs.read",
-                "knowledge.docs.write",
-            ],
-            permissions=["tickets:read", "tickets:write", "docs:read", "docs:write"],
-            required_settings=["base_url", "api_token", "workspace_slug"],
+            capabilities=[],
+            permissions=[],
+            required_settings=["server_command_or_url"],
             updated_at=timestamp,
         ),
-        McpConnector(
+        ToolConnector(
             id="github",
             name="GitHub",
             status="planned",
             description="Repository, pull request, and issue connector.",
             capabilities=["repo.search", "pull_requests.read", "issues.read"],
             permissions=["repo:read"],
-            required_settings=["owner", "repo", "token"],
+            required_settings=["owner", "repo"],
             updated_at=timestamp,
         ),
-        McpConnector(
-            id="filesystem",
-            name="Filesystem",
-            status="local",
-            transport="local",
-            enabled=True,
-            configured=True,
-            description="Scoped local resources already used by Knowledge and file-backed P0 data.",
-            capabilities=["knowledge.docs.local_read", "knowledge.memory.local_mirror", "runtime.files.local_state"],
-            permissions=["local:read"],
-            updated_at=timestamp,
-        ),
-        McpConnector(
+        ToolConnector(
             id="ci-harness",
             name="CI / Harness",
             status="planned",
             description="Validation evidence and test execution connector.",
             capabilities=["validation.run", "validation.report", "harness.logs.read"],
             permissions=["ci:read", "ci:execute"],
-            required_settings=["base_url", "token"],
+            required_settings=["base_url"],
             updated_at=timestamp,
         ),
     ]
 
 
-def _connector_index(connectors: list[McpConnector]) -> dict[str, McpConnector]:
+def _connector_index(connectors: list[ToolConnector]) -> dict[str, ToolConnector]:
     return {connector.id: connector for connector in connectors}
 
 
-def _save_connectors(connectors: list[McpConnector]) -> None:
+def _save_connectors(connectors: list[ToolConnector]) -> None:
     path = _registry_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = [connector.model_dump(mode="json") for connector in sorted(connectors, key=lambda item: item.id)]
@@ -218,7 +190,7 @@ def _write_json_object(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _load_connectors() -> list[McpConnector]:
+def _load_connectors() -> list[ToolConnector]:
     defaults = _connector_index(_default_connectors())
     path = _registry_path()
     if not path.exists():
@@ -236,7 +208,7 @@ def _load_connectors() -> list[McpConnector]:
         if not isinstance(row, dict):
             continue
         try:
-            connector = McpConnector.model_validate(row)
+            connector = ToolConnector.model_validate(row)
         except ValueError:
             continue
         if connector.id in _LEGACY_UNCONFIGURED_CONNECTORS and not connector.enabled and not connector.configured:
@@ -254,13 +226,13 @@ def _require_connector_id(connector_id: str) -> str:
     return normalized
 
 
-def list_mcp_connectors() -> list[McpConnector]:
+def list_tool_connectors() -> list[ToolConnector]:
     return sorted(_load_connectors(), key=lambda item: item.id)
 
 
-def mcp_registry_status() -> McpRegistryStatus:
-    connectors = list_mcp_connectors()
-    return McpRegistryStatus(
+def tool_connector_registry_status() -> ToolConnectorRegistryStatus:
+    connectors = list_tool_connectors()
+    return ToolConnectorRegistryStatus(
         connector_count=len(connectors),
         enabled_count=sum(1 for connector in connectors if connector.enabled),
         configured_count=sum(1 for connector in connectors if connector.configured),
@@ -269,9 +241,9 @@ def mcp_registry_status() -> McpRegistryStatus:
     )
 
 
-def update_mcp_connector(connector_id: str, request: McpConnectorUpdateRequest) -> McpConnector:
+def update_tool_connector(connector_id: str, request: ToolConnectorUpdateRequest) -> ToolConnector:
     normalized = _require_connector_id(connector_id)
-    connectors = list_mcp_connectors()
+    connectors = list_tool_connectors()
     index = _connector_index(connectors)
     if normalized not in index:
         raise KeyError(connector_id)
@@ -290,143 +262,105 @@ def update_mcp_connector(connector_id: str, request: McpConnectorUpdateRequest) 
     return connector
 
 
-def _connector_by_id(connector_id: str) -> McpConnector:
+def _connector_by_id(connector_id: str) -> ToolConnector:
     normalized = _require_connector_id(connector_id)
-    for connector in list_mcp_connectors():
+    for connector in list_tool_connectors():
         if connector.id == normalized:
             return connector
     raise KeyError(connector_id)
 
 
-def _connector_secret_key(connector_id: str, name: str) -> str:
-    return f"connector_{connector_id}_{name}"
+def _connector_secret_env(connector_id: str, name: str) -> str:
+    normalized = re.sub(r"[^A-Z0-9]+", "_", connector_id.upper()).strip("_")
+    return f"AITEAMOS_{normalized}_{name.upper()}"
 
 
-def _connector_configured(connector_id: str, settings: dict[str, Any], secrets: dict[str, Any]) -> bool:
-    if connector_id == "plane":
-        return bool(settings.get("base_url") and secrets.get(_connector_secret_key(connector_id, "api_token")))
+def _connector_secret_configured(connector_id: str, name: str) -> bool:
+    return bool(os.environ.get(_connector_secret_env(connector_id, name)))
+
+
+def _connector_configured(connector_id: str, settings: dict[str, Any]) -> bool:
     return bool(settings)
 
 
-def mcp_connector_settings(connector_id: str) -> McpConnectorSettingsResponse:
+def tool_connector_settings(connector_id: str) -> ToolConnectorSettingsResponse:
     connector = _connector_by_id(connector_id)
     settings = _read_json_object(_connector_settings_path(connector.id))
-    secrets = _read_json_object(_secrets_path())
-    return McpConnectorSettingsResponse(
+    return ToolConnectorSettingsResponse(
         connector_id=connector.id,
         enabled=bool(settings.get("enabled", connector.enabled)),
-        configured=_connector_configured(connector.id, settings, secrets),
+        configured=_connector_configured(connector.id, settings),
         base_url=str(settings.get("base_url") or ""),
         email=str(settings.get("email") or ""),
         space_key=str(settings.get("space_key") or ""),
         workspace_slug=str(settings.get("workspace_slug") or ""),
         project_id=str(settings.get("project_id") or ""),
-        api_token_configured=bool(secrets.get(_connector_secret_key(connector.id, "api_token"))),
+        api_token_configured=_connector_secret_configured(connector.id, "api_token"),
         saved_paths={
             "settings": _relative(_connector_settings_path(connector.id)),
-            "secrets": _relative(_secrets_path()),
         },
         connector=connector,
     )
 
 
-def update_mcp_connector_settings(
+def update_tool_connector_settings(
     connector_id: str,
-    request: McpConnectorSettingsUpdateRequest,
-) -> McpConnectorSettingsResponse:
+    request: ToolConnectorSettingsUpdateRequest,
+) -> ToolConnectorSettingsResponse:
     connector = _connector_by_id(connector_id)
-    if connector.id != "plane":
-        raise ValueError(f"Settings form is not implemented for connector: {connector.id}")
-
     settings = {
         "enabled": request.enabled,
         "base_url": request.base_url.strip().rstrip("/"),
+        "email": request.email.strip(),
+        "space_key": request.space_key.strip(),
         "workspace_slug": request.workspace_slug.strip(),
         "project_id": request.project_id.strip(),
         "updated_at": _now(),
     }
     _write_json_object(_connector_settings_path(connector.id), settings)
 
-    secrets = _read_json_object(_secrets_path())
-    if request.api_token is not None and request.api_token.strip():
-        secrets[_connector_secret_key(connector.id, "api_token")] = request.api_token.strip()
-    if secrets:
-        _write_json_object(_secrets_path(), secrets)
-
-    configured = _connector_configured(connector.id, settings, secrets)
+    configured = _connector_configured(connector.id, settings)
     updated_connector = connector.model_copy(
         update={
             "enabled": request.enabled,
             "configured": configured,
             "status": "configured" if configured else "missing",
-            "transport": "rest",
             "updated_at": _now(),
         }
     )
-    index = _connector_index(list_mcp_connectors())
+    index = _connector_index(list_tool_connectors())
     index[connector.id] = updated_connector
     _save_connectors(list(index.values()))
-    return mcp_connector_settings(connector.id)
+    return tool_connector_settings(connector.id)
 
 
-def _plane_headers(settings: McpConnectorSettingsResponse) -> dict[str, str]:
-    secrets = _read_json_object(_secrets_path())
-    token = str(secrets.get(_connector_secret_key(settings.connector_id, "api_token")) or "")
-    return {"Accept": "application/json", "X-API-Key": token}
-
-
-def _plane_url(base_url: str, path: str) -> str:
-    return f"{base_url.rstrip('/')}{path}"
-
-
-def _require_plane_settings() -> McpConnectorSettingsResponse:
-    settings = mcp_connector_settings("plane")
-    if not settings.enabled or not settings.configured:
-        raise ValueError("Plane connector is not enabled or configured.")
-    return settings
-
-
-def check_plane_health() -> McpConnectorHealthResponse:
-    settings = mcp_connector_settings("plane")
+def check_tool_connector_health(connector_id: str) -> ToolConnectorHealthResponse:
+    settings = tool_connector_settings(connector_id)
     if not settings.enabled:
-        return McpConnectorHealthResponse(
-            connector_id="plane",
+        return ToolConnectorHealthResponse(
+            connector_id=settings.connector_id,
             status="disabled",
-            detail="Plane connector is disabled.",
+            detail=f"{settings.connector.name} connector is disabled.",
             checked_at=_now(),
             configured=settings.configured,
         )
     if not settings.configured:
-        return McpConnectorHealthResponse(
-            connector_id="plane",
+        return ToolConnectorHealthResponse(
+            connector_id=settings.connector_id,
             status="missing",
-            detail="Set Plane API base URL and API key in Settings / MCP Connectors.",
+            detail=f"{settings.connector.name} connector is enabled but not configured.",
             checked_at=_now(),
             configured=False,
         )
-
-    with httpx.Client(timeout=10.0) as client:
-        response = client.get(
-            _plane_url(settings.base_url, "/api/v1/users/me/"),
-            headers=_plane_headers(settings),
-        )
-        response.raise_for_status()
-        payload = response.json()
-
-    user = payload if isinstance(payload, dict) else {}
-    return McpConnectorHealthResponse(
-        connector_id="plane",
+    return ToolConnectorHealthResponse(
+        connector_id=settings.connector_id,
         status="ready",
-        detail="Plane API is reachable with the configured API key.",
+        detail=f"{settings.connector.name} connector has local settings. Adapter-level health checks are not attached yet.",
         checked_at=_now(),
         configured=True,
         data={
             "base_url": settings.base_url,
             "workspace_slug": settings.workspace_slug,
-            "user": {
-                "id": user.get("id"),
-                "email": user.get("email"),
-                "display_name": user.get("display_name"),
-            },
+            "transport": settings.connector.transport,
         },
     )

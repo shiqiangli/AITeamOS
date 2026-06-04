@@ -10,7 +10,7 @@ const employees = [
     role: "AI Team OS Manager",
     summary: "Coordinator",
     skills: ["task-specification"],
-    runtime_mode: "deepseek_chat_or_file_stub",
+    ai_engine_mode: "deepseek_chat_or_file_stub",
     preserve_provider_thread: true,
   },
   {
@@ -20,7 +20,7 @@ const employees = [
     role: "AI RD / Implementer",
     summary: "Implementer",
     skills: ["test-engineering"],
-    runtime_mode: "external_or_file_stub",
+    ai_engine_mode: "external_or_file_stub",
     preserve_provider_thread: true,
   },
 ];
@@ -62,22 +62,81 @@ const threadsByEmployee = {
   },
 };
 
+const workByEmployee = {
+  clara: {
+    employee_id: "clara",
+    current_tickets: [],
+    historical_tickets: [],
+    reports: [],
+    validations: [],
+    blocked_records: [],
+    handoffs: [],
+    contribution: {
+      ticket_count: 0,
+      current_ticket_count: 0,
+      report_count: 0,
+      validation_count: 0,
+      blocked_count: 0,
+      handoff_count: 0,
+    },
+  },
+  alex: {
+    employee_id: "alex",
+    current_tickets: [
+      {
+        ticket_id: "rd-0001",
+        title: "Implement ticket flow",
+        status: "assigned",
+        role: "owner",
+        updated_at: "2026-06-01T00:10:00Z",
+        next_action: "alex investigates and reports",
+      },
+    ],
+    historical_tickets: [
+      {
+        ticket_id: "rd-0001",
+        title: "Implement ticket flow",
+        status: "assigned",
+        role: "owner",
+        updated_at: "2026-06-01T00:10:00Z",
+        next_action: "alex investigates and reports",
+      },
+    ],
+    reports: [],
+    validations: [],
+    blocked_records: [],
+    handoffs: [],
+    contribution: {
+      ticket_count: 1,
+      current_ticket_count: 1,
+      report_count: 0,
+      validation_count: 0,
+      blocked_count: 0,
+      handoff_count: 0,
+    },
+  },
+};
+
 const capabilities = {
   status: {
     capability_count: 2,
     enabled_count: 2,
     configured_count: 2,
     ready_count: 2,
-    local_tool_count: 1,
-    mcp_capability_count: 0,
-    agent_executor_count: 1,
+    tool_count: 1,
+    built_in_tool_count: 1,
+    mcp_tool_count: 0,
+    native_api_tool_count: 0,
+    cli_tool_count: 0,
+    ci_tool_count: 0,
     saved_paths: {},
   },
   capabilities: [
     {
       id: "search_knowledge",
       name: "Search Knowledge",
-      kind: "local_tool",
+      kind: "tool",
+      source_kind: "built_in",
       domain: "knowledge",
       source: "file",
       status: "ready",
@@ -103,7 +162,9 @@ describe("EmployeesPage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        const body = url.includes("/chat/threads")
+        const body = url.includes("/tickets/employees/")
+          ? workByEmployee[url.includes("alex") ? "alex" : "clara"]
+          : url.includes("/chat/threads")
           ? threadsByEmployee[url.includes("alex") ? "alex" : "clara"]
           : url.includes("/capabilities")
             ? capabilities
@@ -127,7 +188,7 @@ describe("EmployeesPage", () => {
     expect(await screen.findByText("Clara")).toBeTruthy();
     expect(screen.getAllByText("Alex").length).toBeGreaterThan(0);
     expect(screen.getAllByText("AI RD / Implementer").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Implement ticket flow").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Implement ticket flow/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("1 skills").length).toBeGreaterThan(0);
   });
 });

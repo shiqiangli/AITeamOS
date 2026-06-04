@@ -10,9 +10,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import yaml
 from pydantic import BaseModel, Field
 
+from .capability_service import list_capabilities
 from .memory_service import MemoryCandidate, list_approved_memories, list_memory_candidates
+from .ticket_service import ticket_asset_records
 
 _MAX_DOC_BYTES = 256_000
 _DOC_GLOBS = (
@@ -29,6 +32,7 @@ class KnowledgeDocSummary(BaseModel):
     source: str = "local"
     path: str
     excerpt: str = ""
+    content: str = ""
     updated_at: str = ""
     tags: list[str] = Field(default_factory=list)
 
@@ -84,11 +88,26 @@ class ReviewQueueItem(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class AssetRecord(BaseModel):
+    id: str
+    kind: str
+    title: str
+    status: str = "active"
+    source_ticket: str = ""
+    source_employee: str = ""
+    assigned_employees: list[str] = Field(default_factory=list)
+    scopes: list[str] = Field(default_factory=list)
+    created_at: str = ""
+    updated_at: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class KnowledgeStatusResponse(BaseModel):
     docs_count: int
     memories_count: int
     decisions_count: int
     review_queue_count: int
+    asset_count: int = 0
     saved_paths: dict[str, str]
 
 
@@ -114,6 +133,14 @@ def _decisions_dir() -> Path:
     path = _knowledge_dir() / "decisions"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _employees_dir() -> Path:
+    return _workspace_dir() / "employees"
+
+
+def _skills_dir() -> Path:
+    return _workspace_dir() / "skills"
 
 
 def _relative(path: Path) -> str:
@@ -162,6 +189,10 @@ def _excerpt(text: str, limit: int = 240) -> str:
     return cleaned[:limit] + ("..." if len(cleaned) > limit else "")
 
 
+def _asset_metadata(domain: str, asset_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return {"asset_domain": domain, "asset_type": asset_type, **payload}
+
+
 def _doc_id(path: Path) -> str:
     return _slugify(_relative(path).removesuffix(".md"))
 
@@ -188,6 +219,7 @@ def list_docs() -> list[KnowledgeDocSummary]:
                 title=_first_heading(text, path.stem),
                 path=relative,
                 excerpt=_excerpt(text),
+                content=text,
                 updated_at=updated_at,
                 tags=tags,
             )
@@ -423,12 +455,239 @@ def review_queue_items() -> list[ReviewQueueItem]:
     return sorted(items, key=lambda item: item.updated_at, reverse=True)
 
 
+def _skill_title_and_description(skill_id: str, text: str) -> tuple[str, str]:
+    title = skill_id.replace("-", " ").title()
+    description = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            title = stripped.lstrip("#").strip() or title
+            continue
+        if stripped.startswith(">") and not description:
+            description = stripped.lstrip(">").strip()
+            continue
+        if not description and not stripped.startswith("---"):
+            description = stripped[:240]
+        if title and description:
+            break
+    return title, description
+
+
+def _employee_skill_assignments() -> dict[str, list[str]]:
+    assignments: dict[str, list[str]] = {}
+    for path in sorted(_employees_dir().glob("*.yaml")):
+        try:
+            payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except OSError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        employee_id = str(payload.get("id") or path.stem)
+        for skill in payload.get("skills", []) if isinstance(payload.get("skills"), list) else []:
+            skill_id = str(skill).strip()
+            if skill_id:
+                assignments.setdefault(skill_id, []).append(employee_id)
+    return {skill_id: sorted(set(employee_ids)) for skill_id, employee_ids in assignments.items()}
+
+
+def _skill_asset_items() -> list[AssetRecord]:
+    assignments = _employee_skill_assignments()
+    items: list[AssetRecord] = []
+    for path in sorted(_skills_dir().glob("*/SKILL.md")):
+        skill_id = path.parent.name
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            updated_at = datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat()
+        except OSError:
+            continue
+        title, description = _skill_title_and_description(skill_id, text)
+        resources = [
+            str(resource.relative_to(path.parent))
+            for resource in sorted(path.parent.rglob("*"))
+            if resource.is_file() and resource.name != "SKILL.md"
+        ]
+        metadata = {
+            "id": skill_id,
+            "description": description,
+            "content": text,
+            "resources": resources,
+            "saved_path": _relative(path),
+        }
+        items.append(
+            AssetRecord(
+                id=skill_id,
+                kind="skill",
+                title=title,
+                status="approved",
+                assigned_employees=assignments.get(skill_id, []),
+                scopes=["capabilities", "skills"],
+                created_at=updated_at,
+                updated_at=updated_at,
+                metadata=_asset_metadata("capabilities", "skills", metadata),
+            )
+        )
+    return items
+
+
+def _capability_asset_type(kind: str, source_kind: str) -> str:
+    if kind != "tool":
+        return "capabilities"
+    mapping = {
+        "built_in": "built-in-tools",
+        "mcp_server": "mcp-tools",
+        "native_api": "native-api-tools",
+        "cli": "cli-tools",
+        "ci": "ci-tools",
+        "ticket_backend": "ticket-backend-tools",
+        "ai_engine_bridge": "ai-engine-tools",
+    }
+    return mapping.get(source_kind or "built_in", "built-in-tools")
+
+
+def _capability_asset_items() -> list[AssetRecord]:
+    timestamp = _now()
+    items: list[AssetRecord] = []
+    for capability in list_capabilities():
+        asset_type = _capability_asset_type(capability.kind, capability.source_kind)
+        metadata = capability.model_dump(mode="json")
+        items.append(
+            AssetRecord(
+                id=capability.id,
+                kind="tool",
+                title=capability.name,
+                status=capability.status,
+                scopes=["capabilities", asset_type, capability.domain],
+                created_at=timestamp,
+                updated_at=timestamp,
+                metadata=_asset_metadata("capabilities", asset_type, metadata),
+            )
+        )
+    return items
+
+
+def all_asset_items() -> list[AssetRecord]:
+    items: list[AssetRecord] = []
+    for doc in list_docs():
+        items.append(
+            AssetRecord(
+                id=doc.id,
+                kind="doc",
+                title=doc.title,
+                status="approved",
+                scopes=doc.tags,
+                created_at=doc.updated_at,
+                updated_at=doc.updated_at,
+                metadata=_asset_metadata("knowledge", "docs", doc.model_dump(mode="json")),
+            )
+        )
+    for decision in list_decisions():
+        items.append(
+            AssetRecord(
+                id=decision.id,
+                kind="decision",
+                title=decision.title,
+                status=decision.status,
+                source_ticket=decision.linked_tickets[0] if decision.linked_tickets else "",
+                scopes=decision.linked_tickets,
+                created_at=decision.created_at,
+                updated_at=decision.updated_at,
+                metadata=_asset_metadata("knowledge", "decisions", decision.model_dump(mode="json")),
+            )
+        )
+    for memory in [*list_memory_candidates(), *list_approved_memories()]:
+        items.append(
+            AssetRecord(
+                id=memory.id,
+                kind="memory",
+                title=f"Memory {memory.scope_kind}:{memory.scope_ref}",
+                status=memory.status,
+                source_ticket=memory.scope_ref if memory.scope_kind == "ticket" else "",
+                source_employee=memory.employee_ids[0] if memory.employee_ids else "",
+                assigned_employees=memory.employee_ids,
+                scopes=[f"{memory.scope_kind}:{memory.scope_ref}", *memory.tags],
+                created_at=memory.created_at,
+                updated_at=memory.updated_at,
+                metadata=_asset_metadata("knowledge", "memories", memory.model_dump(mode="json")),
+            )
+        )
+    for ticket_asset in ticket_asset_records():
+        items.append(
+            AssetRecord(
+                id=ticket_asset.id,
+                kind=ticket_asset.kind,
+                title=ticket_asset.title,
+                status=ticket_asset.status,
+                source_ticket=ticket_asset.source_ticket_id,
+                source_employee=ticket_asset.source_employee_id,
+                assigned_employees=ticket_asset.assigned_employees,
+                scopes=ticket_asset.scopes,
+                created_at=ticket_asset.created_at,
+                updated_at=ticket_asset.updated_at,
+                metadata=_asset_metadata("work", ticket_asset.kind, ticket_asset.metadata),
+            )
+        )
+    items.extend(_skill_asset_items())
+    items.extend(_capability_asset_items())
+    return sorted(items, key=lambda item: item.updated_at or item.created_at, reverse=True)
+
+
+def _asset_matches_query(item: AssetRecord, query: str) -> bool:
+    normalized = query.strip().lower()
+    if not normalized:
+        return True
+    haystack = " ".join(
+        [
+            item.id,
+            item.kind,
+            item.title,
+            item.status,
+            item.source_ticket,
+            item.source_employee,
+            " ".join(item.assigned_employees),
+            " ".join(item.scopes),
+            json.dumps(item.metadata, ensure_ascii=False, sort_keys=True),
+        ]
+    ).lower()
+    return all(term in haystack for term in re.split(r"\s+", normalized) if term)
+
+
+def _asset_domain(item: AssetRecord) -> str:
+    value = item.metadata.get("asset_domain")
+    return str(value) if value else ""
+
+
+def _asset_type(item: AssetRecord) -> str:
+    value = item.metadata.get("asset_type")
+    return str(value) if value else ""
+
+
+def _is_review_asset(item: AssetRecord) -> bool:
+    return item.status in {"proposed", "candidate", "needs_review", "pending"} or _asset_domain(item) == "review"
+
+
+def asset_items(*, domain: str = "", asset_type: str = "", query: str = "") -> list[AssetRecord]:
+    items = all_asset_items()
+    if domain:
+        if domain == "review":
+            items = [item for item in items if _is_review_asset(item)]
+        else:
+            items = [item for item in items if _asset_domain(item) == domain]
+    if asset_type:
+        items = [item for item in items if _asset_type(item) == asset_type]
+    if query.strip():
+        items = [item for item in items if _asset_matches_query(item, query)]
+    return items
+
+
 def knowledge_status() -> KnowledgeStatusResponse:
     return KnowledgeStatusResponse(
         docs_count=len(list_docs()),
         memories_count=len(list_approved_memories()),
         decisions_count=len(list_decisions()),
         review_queue_count=len(review_queue_items()),
+        asset_count=len(all_asset_items()),
         saved_paths={
             "docs": ".aiteamos/docs",
             "decisions": _relative(_decisions_dir()),

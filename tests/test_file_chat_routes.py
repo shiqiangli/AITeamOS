@@ -43,9 +43,9 @@ role: Obsolete Clara Role
 summary: Obsolete Clara summary.
 responsibilities:
   - Obsolete Clara responsibility.
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -66,7 +66,7 @@ runtime:
 def test_file_backed_employee_chat_roundtrip(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "stub")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "stub")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     skills_dir = workspace / ".aiteamos" / "skills" / "test-engineering"
@@ -81,9 +81,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -97,9 +97,9 @@ role: AI RD / Implementer
 summary: Implementer
 skills:
   - test-engineering
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: alex
+  engine_identity: alex
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -168,7 +168,7 @@ runtime:
     assert payload["ticket_keys"] == ["SV-1234"]
     assert payload["provider_thread_id"] == "provider-alex-thread-t"
     assert payload["run_metadata"]["ticket_keys"] == ["SV-1234"]
-    assert payload["run_metadata"]["runtime"]["actual_provider"] == "stub"
+    assert payload["run_metadata"]["ai_engine"]["actual_ai_engine"] == "stub"
     assert "Test Engineering" in payload["reply"]
 
     provider_threads = json.loads((workspace / ".aiteamos" / "provider_threads.json").read_text())
@@ -180,7 +180,7 @@ runtime:
     assert trace.exists()
     assert "employee.selected" in trace.read_text(encoding="utf-8")
     conversation_messages = [json.loads(line) for line in conversation.read_text(encoding="utf-8").splitlines()]
-    assert conversation_messages[-1]["metadata"]["aiteamos"]["runtime"]["actual_provider"] == "stub"
+    assert conversation_messages[-1]["metadata"]["aiteamos"]["ai_engine"]["actual_ai_engine"] == "stub"
     assert conversation_messages[-1]["metadata"]["aiteamos"]["ticket_keys"] == ["SV-1234"]
 
     tool_response = client.post(
@@ -202,72 +202,73 @@ runtime:
     assert "tool.list_employees.called" in tool_trace.read_text(encoding="utf-8")
 
 
-def test_chat_runtime_settings_are_file_backed(tmp_path, monkeypatch):
+def test_chat_ai_engine_settings_are_file_backed(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
 
     client = TestClient(create_app())
 
-    initial = client.get("/api/v1/chat/runtime")
+    initial = client.get("/api/v1/chat/ai-engines")
     assert initial.status_code == 200
-    assert initial.json()["provider"] == "stub"
+    assert initial.json()["active_engine"] == "stub"
     assert initial.json()["api_keys_configured"]["deepseek"] is False
 
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "secret-test-key")
     updated = client.put(
-        "/api/v1/chat/runtime",
+        "/api/v1/chat/ai-engines",
         json={
-            "provider": "deepseek",
+            "active_engine": "deepseek",
             "deepseek_model": "deepseek-v4-flash",
             "deepseek_thinking": "disabled",
             "openai_model": "gpt-5-nano",
             "fallback_on_error": True,
-            "deepseek_api_key": "secret-test-key",
         },
     )
     assert updated.status_code == 200
     payload = updated.json()
-    assert payload["provider"] == "deepseek"
+    assert payload["active_engine"] == "deepseek"
     assert payload["api_keys_configured"]["deepseek"] is True
     assert "secret-test-key" not in json.dumps(payload)
 
-    runtime_file = workspace / ".aiteamos" / "runtime.json"
-    secrets_file = workspace / ".aiteamos" / "secrets.local.json"
-    assert json.loads(runtime_file.read_text())["provider"] == "deepseek"
-    assert json.loads(secrets_file.read_text())["deepseek_api_key"] == "secret-test-key"
+    ai_engines_file = workspace / ".aiteamos" / "ai_engines.json"
+    saved = json.loads(ai_engines_file.read_text())
+    assert saved["active_engine"] == "deepseek"
+    assert saved["engines"]["deepseek"]["model"] == "deepseek-v4-flash"
+    assert not (workspace / ".aiteamos" / "secrets.local.json").exists()
 
 
-def test_chat_runtime_provider_settings_can_be_updated_independently(tmp_path, monkeypatch):
+def test_chat_ai_engine_settings_can_be_updated_independently(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     client = TestClient(create_app())
 
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
     updated = client.put(
-        "/api/v1/chat/runtime/providers/openai",
-        json={"model": "gpt-5-mini", "api_key": "openai-test-key", "activate": True},
+        "/api/v1/chat/ai-engines/openai",
+        json={"model": "gpt-5-mini", "activate": True},
     )
     assert updated.status_code == 200
     payload = updated.json()
-    assert payload["provider"] == "openai"
+    assert payload["active_engine"] == "openai"
     assert payload["openai_model"] == "gpt-5-mini"
-    assert payload["providers"]["openai"]["active"] is True
-    assert payload["providers"]["openai"]["api_key_configured"] is True
+    assert payload["engines"]["openai"]["active"] is True
+    assert payload["engines"]["openai"]["api_key_configured"] is True
     assert "openai-test-key" not in json.dumps(payload)
 
-    runtime_file = workspace / ".aiteamos" / "runtime.json"
-    secrets_file = workspace / ".aiteamos" / "secrets.local.json"
-    runtime_payload = json.loads(runtime_file.read_text(encoding="utf-8"))
-    assert runtime_payload["providers"]["openai"]["model"] == "gpt-5-mini"
-    assert "deepseek_model" not in runtime_payload
-    assert json.loads(secrets_file.read_text(encoding="utf-8"))["openai_api_key"] == "openai-test-key"
+    ai_engines_file = workspace / ".aiteamos" / "ai_engines.json"
+    saved = json.loads(ai_engines_file.read_text(encoding="utf-8"))
+    assert saved["active_engine"] == "openai"
+    assert saved["engines"]["openai"]["model"] == "gpt-5-mini"
+    assert not (workspace / ".aiteamos" / "secrets.local.json").exists()
 
 
 def test_employee_chat_streams_sse_events(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "stub")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "stub")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -279,9 +280,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -309,7 +310,7 @@ runtime:
 def test_employee_chat_agui_agent_endpoint_roundtrip(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "stub")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "stub")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -321,9 +322,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -367,23 +368,14 @@ runtime:
 def test_employee_chat_streams_deepseek_native_chunks(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_DEEPSEEK_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("AITEAMOS_DEEPSEEK_THINKING", "disabled")
 
-    runtime_dir = workspace / ".aiteamos"
-    employees_dir = runtime_dir / "employees"
+    ai_engine_dir = workspace / ".aiteamos"
+    employees_dir = ai_engine_dir / "employees"
     employees_dir.mkdir(parents=True)
-    (runtime_dir / "runtime.json").write_text(
-        json.dumps({
-            "provider": "deepseek",
-            "deepseek_model": "deepseek-v4-flash",
-            "deepseek_thinking": "disabled",
-            "fallback_on_error": True,
-        }),
-        encoding="utf-8",
-    )
-    (runtime_dir / "secrets.local.json").write_text(
-        json.dumps({"deepseek_api_key": "test-key"}),
-        encoding="utf-8",
-    )
     (employees_dir / "clara.yaml").write_text(
         """
 id: clara
@@ -392,9 +384,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -450,7 +442,7 @@ runtime:
     assert calls[0]["json"]["stream_options"] == {"include_usage": True}
     assert 'event: delta\ndata: {"text": "我是 "}' in body
     assert 'event: delta\ndata: {"text": "Clara"}' in body
-    assert "runtime.deepseek.stream_completed" in body
+    assert "ai_engine.deepseek.stream_completed" in body
 
     provider_threads = json.loads((workspace / ".aiteamos" / "provider_threads.json").read_text())
     state = provider_threads["clara::deepseek-native-stream"]
@@ -461,7 +453,7 @@ runtime:
 def test_employee_chat_lists_employees_with_local_tool(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     employees_dir = workspace / ".aiteamos" / "employees"
@@ -474,9 +466,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -490,9 +482,9 @@ role: AI RD / Implementer
 summary: Implementer
 skills:
   - test-engineering
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: alex
+  engine_identity: alex
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -545,24 +537,22 @@ role: AI RD / Implementer
 summary: Implementer
 skills:
   - test-engineering
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: alex
+  engine_identity: alex
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
     )
-    (skills_dir / "SKILL.md").write_text(
-        """
+    skill_content = """
 # Test Engineering
 
 > Test execution and validation evidence.
 
 ## Procedure
 1. Run tests.
-""".strip(),
-        encoding="utf-8",
-    )
+""".strip()
+    (skills_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
 
     client = TestClient(create_app())
     response = client.get("/api/v1/chat/skills")
@@ -574,6 +564,7 @@ runtime:
             "id": "test-engineering",
             "title": "Test Engineering",
             "description": "Test execution and validation evidence.",
+            "content": skill_content,
             "assigned_employees": ["alex"],
             "resources": [],
             "saved_path": ".aiteamos/skills/test-engineering/SKILL.md",
@@ -584,7 +575,7 @@ runtime:
 def test_employee_chat_creates_and_assigns_skill_with_local_tools(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     employees_dir = workspace / ".aiteamos" / "employees"
@@ -597,9 +588,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -612,9 +603,9 @@ kind: ai
 role: AI RD / Implementer
 summary: Implementer
 skills: []
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: alex
+  engine_identity: alex
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -680,7 +671,7 @@ runtime:
 def test_employee_chat_streams_list_employees_tool(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     employees_dir = workspace / ".aiteamos" / "employees"
@@ -693,9 +684,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -709,9 +700,9 @@ role: AI RD / Implementer
 summary: Implementer
 skills:
   - test-engineering
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: alex
+  engine_identity: alex
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -747,7 +738,7 @@ runtime:
 def test_employee_chat_creates_employee_with_local_tool(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     employees_dir = workspace / ".aiteamos" / "employees"
@@ -760,9 +751,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -810,7 +801,7 @@ runtime:
 def test_employee_chat_creates_employee_from_ai_employee_phrase(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     employees_dir = workspace / ".aiteamos" / "employees"
@@ -823,9 +814,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -863,7 +854,7 @@ runtime:
 def test_employee_chat_uses_deepseek_tool_planner_for_create_employee(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     employees_dir = workspace / ".aiteamos" / "employees"
@@ -876,9 +867,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -955,7 +946,7 @@ runtime:
 def test_employee_chat_edits_employee_profile_with_local_tool(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     employees_dir = workspace / ".aiteamos" / "employees"
@@ -968,9 +959,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -984,9 +975,9 @@ role: AI PV
 summary: Initial PV employee.
 skills:
   - test-engineering
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: victor
+  engine_identity: victor
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -1026,7 +1017,7 @@ runtime:
 def test_employee_chat_deletes_employee_with_local_tool(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     runtime_dir = workspace / ".aiteamos"
@@ -1040,9 +1031,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -1056,9 +1047,9 @@ role: AI PV
 summary: Initial PV employee.
 skills:
   - test-engineering
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: victor
+  engine_identity: victor
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -1101,7 +1092,7 @@ runtime:
 def test_employee_chat_blocks_deleting_clara(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     employees_dir = workspace / ".aiteamos" / "employees"
@@ -1114,9 +1105,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -1149,7 +1140,7 @@ runtime:
 def test_employee_chat_streams_create_employee_tool(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
 
     employees_dir = workspace / ".aiteamos" / "employees"
@@ -1162,9 +1153,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
@@ -1196,10 +1187,10 @@ runtime:
     assert (employees_dir / "riley.yaml").exists()
 
 
-def test_employee_chat_can_use_openai_runtime(tmp_path, monkeypatch):
+def test_employee_chat_can_use_openai_ai_engine(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "openai")
     monkeypatch.setenv("AITEAMOS_OPENAI_ENABLED", "1")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("AITEAMOS_OPENAI_MODEL", "gpt-test")
@@ -1217,9 +1208,9 @@ personality: Calm and explicit
 responsibilities:
   - Explain AITeamOS and route Tickets
 skills: []
-runtime:
+ai_engine:
   mode: openai_responses
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 handoff_rules:
   - Ask for human approval before external actions
@@ -1270,7 +1261,7 @@ handoff_rules:
     payload = response.json()
     assert payload["reply"] == "我是 AITeamOS 的 Clara。"
     assert payload["provider_thread_id"] == "provider-clara-who-are-"
-    assert any(event["event"] == "runtime.openai.completed" for event in payload["trace_events"])
+    assert any(event["event"] == "ai_engine.openai.completed" for event in payload["trace_events"])
     assert calls[0]["url"] == "https://api.openai.com/v1/responses"
     assert calls[0]["json"]["model"] == "gpt-test"
     assert "Role: AI Team OS Manager" in calls[0]["json"]["instructions"]
@@ -1281,10 +1272,10 @@ handoff_rules:
     assert state["openai_previous_response_id"] == "resp-test-1"
 
 
-def test_employee_chat_can_use_deepseek_runtime(tmp_path, monkeypatch):
+def test_employee_chat_can_use_deepseek_ai_engine(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "deepseek")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
     monkeypatch.setenv("AITEAMOS_DEEPSEEK_MODEL", "deepseek-v4-flash")
     monkeypatch.setenv("AITEAMOS_DEEPSEEK_THINKING", "disabled")
@@ -1302,9 +1293,9 @@ personality: Calm and explicit
 responsibilities:
   - Explain AITeamOS and route Tickets
 skills: []
-runtime:
+ai_engine:
   mode: deepseek_chat_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 handoff_rules:
   - Ask for human approval before external actions
@@ -1391,7 +1382,7 @@ handoff_rules:
     payload = response.json()
     assert payload["reply"] == "我是 AITeamOS 的 Clara。"
     assert payload["provider_thread_id"] == "provider-clara-deepseek"
-    assert any(event["event"] == "runtime.deepseek.completed" for event in payload["trace_events"])
+    assert any(event["event"] == "ai_engine.deepseek.completed" for event in payload["trace_events"])
     assert calls[0]["url"] == "https://api.deepseek.com/chat/completions"
     assert calls[0]["json"]["model"] == "deepseek-v4-flash"
     assert calls[0]["json"]["thinking"] == {"type": "disabled"}

@@ -1,15 +1,14 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CapabilitiesPage } from "../pages/capabilities";
 import { SettingsPage } from "../pages/settings";
 
-const runtime = {
-  provider: "deepseek",
+const aiEngines = {
+  active_engine: "deepseek",
   deepseek_model: "deepseek-v4-flash",
   deepseek_thinking: "disabled",
   openai_model: "gpt-5-nano",
   fallback_on_error: true,
-  providers: {
+  engines: {
     stub: {
       id: "stub",
       display_name: "File stub",
@@ -39,10 +38,7 @@ const runtime = {
     },
   },
   api_keys_configured: { deepseek: true, openai: false },
-  saved_paths: {
-    runtime: ".aiteamos/runtime.json",
-    secrets: ".aiteamos/secrets.local.json",
-  },
+  saved_paths: { ai_engines: ".aiteamos/ai_engines.json" },
 };
 
 const employees = [
@@ -53,7 +49,7 @@ const employees = [
     role: "AI Team OS Manager",
     summary: "Coordinator",
     skills: [],
-    runtime_mode: "deepseek_chat_or_file_stub",
+    ai_engine_mode: "deepseek_chat_or_file_stub",
     preserve_provider_thread: true,
     default_thread_id: "employee-clara-default",
   },
@@ -64,6 +60,7 @@ const knowledge = {
   memories_count: 1,
   decisions_count: 0,
   review_queue_count: 2,
+  asset_count: 6,
   saved_paths: {},
 };
 
@@ -100,55 +97,31 @@ const graphitiSettings = {
   llm_provider: "openai",
   password_configured: false,
   openai_api_key_configured: false,
-  uses_runtime_openai_key: false,
-  saved_paths: {
-    settings: ".aiteamos/graphiti.json",
-    secrets: ".aiteamos/secrets.local.json",
-  },
+  uses_shared_openai_key: false,
+  saved_paths: { settings: ".aiteamos/graphiti.json" },
   backend: memory.backend,
-};
-
-const mcpConnectors = [
-  {
-    id: "plane",
-    name: "Plane",
-    status: "planned",
-    transport: "rest",
-    enabled: false,
-    configured: false,
-    description: "Default Ticket/Docs backend.",
-    capabilities: ["tickets.search", "knowledge.docs.search"],
-    permissions: ["tickets:read", "docs:read"],
-    required_settings: ["base_url", "api_token", "workspace_slug"],
-    server: {},
-    updated_at: "2026-06-03T00:00:00Z",
-  },
-];
-
-const mcpStatus = {
-  connector_count: 1,
-  enabled_count: 0,
-  configured_count: 0,
-  ready_count: 0,
-  saved_paths: { registry: ".aiteamos/mcp_connectors.json" },
 };
 
 const capabilityRegistry = {
   status: {
-    capability_count: 6,
-    enabled_count: 3,
-    configured_count: 3,
-    ready_count: 3,
-    local_tool_count: 2,
-    mcp_capability_count: 2,
-    agent_executor_count: 1,
-    saved_paths: { registry: ".aiteamos/mcp_connectors.json" },
+    capability_count: 3,
+    enabled_count: 1,
+    configured_count: 1,
+    ready_count: 1,
+    tool_count: 3,
+    built_in_tool_count: 1,
+    mcp_tool_count: 2,
+    native_api_tool_count: 0,
+    cli_tool_count: 0,
+    ci_tool_count: 0,
+    saved_paths: { registry: ".aiteamos/tool_connectors.json" },
   },
   capabilities: [
     {
       id: "list_employees",
       name: "List employees",
-      kind: "local_tool",
+      kind: "tool",
+      source_kind: "built_in",
       domain: "employees",
       source: "AITeamOS Kernel",
       status: "ready",
@@ -165,125 +138,30 @@ const capabilityRegistry = {
       connector_id: "",
     },
     {
-      id: "create_ticket",
-      name: "Create ticket",
-      kind: "local_tool",
-      domain: "tickets",
-      source: "AITeamOS Kernel",
-      status: "ready",
-      enabled: true,
-      configured: true,
-      description: "Create a local ticket.",
-      owner_scope: "Clara",
-      permissions: ["tickets:write"],
-      required_settings: [],
-      arguments: ["title"],
-      produces: ["ticket"],
-      boundary: "Local P0 ticket.",
-      deep_link: "#/tickets/tickets",
-      connector_id: "",
-    },
-    {
-      id: "mcp:plane",
-      name: "Plane",
-      kind: "mcp_connector",
-      domain: "external",
-      source: "MCP Registry",
+      id: "mcp:github:repo.search",
+      name: "repo.search",
+      kind: "tool",
+      source_kind: "mcp_server",
+      domain: "repo",
+      source: "MCP server: GitHub",
       status: "planned",
       enabled: false,
       configured: false,
-      description: "Plane connector.",
-      owner_scope: "Connector adapter",
-      permissions: ["tickets:read"],
-      required_settings: ["base_url"],
-      arguments: [],
-      produces: ["external_capabilities"],
-      boundary: "Connector exposes external capabilities.",
-      deep_link: "#/settings/mcp-connectors",
-      connector_id: "plane",
-    },
-    {
-      id: "mcp:plane:tickets.search",
-      name: "tickets.search",
-      kind: "mcp_capability",
-      domain: "tickets",
-      source: "MCP connector: Plane",
-      status: "planned",
-      enabled: false,
-      configured: false,
-      description: "Plane exposes tickets.search.",
+      description: "GitHub exposes repo.search.",
       owner_scope: "Authorized employees through connector adapter",
-      permissions: ["tickets:read"],
-      required_settings: ["base_url"],
-      arguments: [],
-      produces: ["external_result"],
-      boundary: "External semantics stay behind the adapter.",
-      deep_link: "#/settings/mcp-connectors",
-      connector_id: "plane",
-    },
-    {
-      id: "mcp:plane:knowledge.docs.search",
-      name: "knowledge.docs.search",
-      kind: "mcp_capability",
-      domain: "knowledge",
-      source: "MCP connector: Plane",
-      status: "planned",
-      enabled: false,
-      configured: false,
-      description: "Plane exposes knowledge.docs.search.",
-      owner_scope: "Authorized employees through connector adapter",
-      permissions: ["docs:read"],
-      required_settings: ["base_url"],
-      arguments: [],
-      produces: ["external_result"],
-      boundary: "External semantics stay behind the adapter.",
-      deep_link: "#/settings/mcp-connectors",
-      connector_id: "plane",
-    },
-    {
-      id: "executor:codex",
-      name: "Codex",
-      kind: "agent_executor",
-      domain: "runtime",
-      source: "AITeamOS Settings",
-      status: "planned",
-      enabled: false,
-      configured: false,
-      description: "Planned coding executor.",
-      owner_scope: "RD/PV/Architect employees",
       permissions: ["repo:read"],
-      required_settings: ["executor_profile"],
+      required_settings: ["owner", "repo"],
       arguments: [],
-      produces: ["ticket_report"],
-      boundary: "Reuse mature agent behavior.",
-      deep_link: "#/settings/agent-executors",
-      connector_id: "",
+      produces: ["external_result"],
+      boundary: "External system semantics stay behind the connector adapter.",
+      deep_link: "#/settings/tool-connectors",
+      connector_id: "github",
     },
   ],
   model: {
-    knowledge: "Facts and history that ground reasoning.",
-    skill: "Method and workflow assigned to employees.",
-    tool: "Deterministic executable action.",
-    mcp: "External tool and resource connector layer.",
-    executor: "Mature agent runtime.",
+    tool: "executable action normalized from built-in code, MCP servers, native APIs, CLIs, CI, or AI engine bridges",
+    connector: "settings-side external capability source",
   },
-};
-
-const planeSettings = {
-  connector_id: "plane",
-  enabled: false,
-  configured: false,
-  base_url: "",
-  email: "",
-  space_key: "",
-  workspace_slug: "",
-  project_id: "",
-  api_token_configured: false,
-  saved_paths: {
-    settings: ".aiteamos/connectors/plane.json",
-    secrets: ".aiteamos/secrets.local.json",
-  },
-  connector: mcpConnectors[0],
 };
 
 const ticketBackendModes = [
@@ -321,6 +199,45 @@ const ticketBackendStatus = {
   supported_modes: ticketBackendModes,
 };
 
+const toolConnectors = [
+  {
+    id: "mcp-server",
+    name: "MCP Server",
+    status: "planned",
+    transport: "mcp",
+    enabled: false,
+    configured: false,
+    description: "Generic MCP server entry point.",
+    capabilities: [],
+    permissions: [],
+    required_settings: ["server_command_or_url"],
+    server: {},
+    updated_at: "2026-06-03T00:00:00Z",
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    status: "planned",
+    transport: "mcp",
+    enabled: false,
+    configured: false,
+    description: "Repository, pull request, and issue connector.",
+    capabilities: ["repo.search", "pull_requests.read"],
+    permissions: ["repo:read"],
+    required_settings: ["owner", "repo"],
+    server: {},
+    updated_at: "2026-06-03T00:00:00Z",
+  },
+];
+
+const toolConnectorStatus = {
+  connector_count: 2,
+  enabled_count: 0,
+  configured_count: 0,
+  ready_count: 0,
+  saved_paths: { registry: ".aiteamos/tool_connectors.json" },
+};
+
 const codeRepositories = [
   {
     id: "repo-aiteamos",
@@ -351,14 +268,28 @@ const codeRepositoryStatus = {
   saved_paths: { registry: ".aiteamos/code_repositories.json" },
 };
 
+const secretsHealth = {
+  items: [
+    {
+      id: "deepseek_api_key",
+      scope: "ai_engine",
+      purpose: "Allows the DeepSeek AI Engine to call the remote API.",
+      env_vars: ["DEEPSEEK_API_KEY"],
+      required_for: "DeepSeek AI Engine",
+      configured: true,
+      how_to_configure: "Set DEEPSEEK_API_KEY before starting the API service.",
+    },
+  ],
+};
+
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.endsWith("/chat/runtime")) {
-          return new Response(JSON.stringify(runtime), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (url.endsWith("/chat/ai-engines")) {
+          return new Response(JSON.stringify(aiEngines), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         if (url.endsWith("/chat/employees")) {
           return new Response(JSON.stringify(employees), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -381,20 +312,20 @@ describe("SettingsPage", () => {
         if (url.endsWith("/tickets/status")) {
           return new Response(JSON.stringify(ticketBackendStatus), { status: 200, headers: { "Content-Type": "application/json" } });
         }
-        if (url.endsWith("/mcp/connectors")) {
-          return new Response(JSON.stringify(mcpConnectors), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (url.endsWith("/tool-connectors/connectors")) {
+          return new Response(JSON.stringify(toolConnectors), { status: 200, headers: { "Content-Type": "application/json" } });
         }
-        if (url.endsWith("/mcp/connectors/plane/settings")) {
-          return new Response(JSON.stringify(planeSettings), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
-        if (url.endsWith("/mcp/status")) {
-          return new Response(JSON.stringify(mcpStatus), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (url.endsWith("/tool-connectors/status")) {
+          return new Response(JSON.stringify(toolConnectorStatus), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         if (url.endsWith("/code-repositories")) {
           return new Response(JSON.stringify(codeRepositories), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         if (url.endsWith("/code-repositories/status")) {
           return new Response(JSON.stringify(codeRepositoryStatus), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.endsWith("/settings/secrets-health")) {
+          return new Response(JSON.stringify(secretsHealth), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         return new Response("not found", { status: 404 });
       }),
@@ -406,34 +337,31 @@ describe("SettingsPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders runtime settings and configured secret state", async () => {
-    render(<SettingsPage selectedSection="runtimes" />);
+  it("renders AI Engine settings and configured secret state", async () => {
+    render(<SettingsPage selectedSection="ai-engines" />);
 
-    expect(await screen.findByText("Runtime Policy")).toBeTruthy();
-    expect(screen.getByLabelText("Runtime provider")).toBeTruthy();
+    expect(await screen.findByText("AI Engine Policy")).toBeTruthy();
+    expect(screen.getByLabelText("Active AI Engine")).toBeTruthy();
     expect(screen.getAllByText("DeepSeek").length).toBeGreaterThan(0);
     expect(screen.getByText("Save DeepSeek")).toBeTruthy();
   });
 
-  it("renders MCP connector section", async () => {
-    render(<SettingsPage selectedSection="mcp-connectors" />);
+  it("renders Ticket Backend settings", async () => {
+    render(<SettingsPage selectedSection="ticket-backend" />);
 
-    expect((await screen.findAllByText("Integrations")).length).toBeGreaterThan(0);
-    expect(screen.getByText("Ticket Backend")).toBeTruthy();
+    expect((await screen.findAllByText("Ticket Backend")).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Ticket backend mode")).toBeTruthy();
     expect(screen.getByLabelText("Local Ticket file")).toBeTruthy();
-    expect(screen.getByText("Plane Connector")).toBeTruthy();
-    expect(screen.getAllByText("Plane").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText("Plane API base URL")).toBeTruthy();
+    expect(screen.getByText("Save Ticket backend")).toBeTruthy();
   });
 
-  it("renders Capability registry page", async () => {
-    render(<CapabilitiesPage />);
+  it("renders Tool Connectors section", async () => {
+    render(<SettingsPage selectedSection="tool-connectors" />);
 
-    expect((await screen.findAllByText("Capabilities")).length).toBeGreaterThan(0);
-    expect(screen.getByText("Capability Model")).toBeTruthy();
-    expect(screen.getByText("Local Tools")).toBeTruthy();
-    expect(screen.getByText("List employees")).toBeTruthy();
-    expect(screen.getByText("MCP Capabilities")).toBeTruthy();
+    expect((await screen.findAllByText("Tool Connectors")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("MCP Server").length).toBeGreaterThan(0);
+    expect(screen.getByText("GitHub")).toBeTruthy();
+    expect(screen.getByText("repo.search")).toBeTruthy();
   });
 
   it("renders Code Repositories settings", async () => {
@@ -442,14 +370,21 @@ describe("SettingsPage", () => {
     expect(await screen.findByLabelText("Repository location")).toBeTruthy();
     expect(screen.getAllByText("Code Repositories").length).toBeGreaterThan(0);
     expect(screen.getAllByText("AITeamOS").length).toBeGreaterThan(0);
-    expect(screen.getByText("Add repository")).toBeTruthy();
   });
 
-  it("renders Knowledge Backend settings", async () => {
-    render(<SettingsPage selectedSection="knowledge-backend" />);
+  it("renders Memory Backend settings", async () => {
+    render(<SettingsPage selectedSection="memory-backend" />);
 
-    expect((await screen.findAllByText("Knowledge Backend")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Memory Backend")).length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Neo4j URI")).toBeTruthy();
     expect(screen.getByText("Save backend")).toBeTruthy();
+  });
+
+  it("renders Secrets & Health as an env-var checklist", async () => {
+    render(<SettingsPage selectedSection="secrets-health" />);
+
+    expect((await screen.findAllByText("Secrets & Health")).length).toBeGreaterThan(0);
+    expect(screen.getByText("DEEPSEEK_API_KEY")).toBeTruthy();
+    expect(screen.getByText("System Health")).toBeTruthy();
   });
 });

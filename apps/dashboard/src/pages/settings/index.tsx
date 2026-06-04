@@ -1,8 +1,6 @@
 import { FormEvent, type Dispatch, type ReactNode, type SetStateAction, useEffect, useMemo, useState } from "react";
 import {
   Activity,
-  Bot,
-  CheckCircle2,
   ClipboardList,
   Database,
   FolderGit2,
@@ -13,25 +11,23 @@ import {
   RefreshCw,
   Save,
   Settings,
-  ShieldCheck,
   SlidersHorizontal,
   Trash2,
-  Wrench,
 } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Select } from "../../components/ui/select";
-import { ErrorState, LoadingState, Status, navigateTo } from "../../components/shared";
+import { ErrorState, LoadingState, Status } from "../../components/shared";
 import { ResizableDetailLayout } from "../../components/resizable-layout";
-import { getCapabilities, type CapabilityRecord, type CapabilityRegistryResponse } from "../../api/capabilities";
+import { getCapabilities, type CapabilityRegistryResponse } from "../../api/capabilities";
 import {
-  getChatRuntime,
+  getChatAiEngines,
   listChatEmployees,
-  updateChatRuntime,
-  updateChatRuntimeProvider,
+  updateChatAiEngine,
+  updateChatAiEngines,
   type ChatEmployeeSummary,
-  type ChatRuntimeProviderUpdateRequest,
-  type ChatRuntimeSettings,
+  type ChatAiEngineSettings,
+  type ChatAiEngineUpdateRequest,
 } from "../../api/chat";
 import { getKnowledgeStatus, type KnowledgeStatusResponse } from "../../api/knowledge";
 import {
@@ -43,16 +39,12 @@ import {
   type MemoryStatusResponse,
 } from "../../api/memory";
 import {
-  checkMcpConnectorHealth,
-  getMcpConnectorSettings,
-  getMcpStatus,
-  listMcpConnectors,
-  updateMcpConnectorSettings,
-  type McpConnector,
-  type McpConnectorHealthResponse,
-  type McpConnectorSettingsResponse,
-  type McpRegistryStatus,
-} from "../../api/mcp";
+  getToolConnectorStatus,
+  listToolConnectors,
+  type ToolConnector,
+  type ToolConnectorRegistryStatus,
+} from "../../api/toolConnectors";
+import { getSecretsHealth, type SecretsHealthResponse } from "../../api/settings";
 import {
   createCodeRepository,
   deleteCodeRepository,
@@ -71,16 +63,14 @@ import {
 } from "../../api/tickets";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "runtime" | "integrations" | "system";
+type SettingsSection = "ai-engines" | "tool-connectors" | "code-repositories" | "ticket-backend" | "memory-backend" | "secrets-health";
 
-type RuntimeForm = {
-  provider: string;
+type AiEngineForm = {
+  activeEngine: string;
   deepseekModel: string;
   deepseekThinking: string;
   openaiModel: string;
   fallbackOnError: boolean;
-  deepseekApiKey: string;
-  openaiApiKey: string;
 };
 
 type GraphitiForm = {
@@ -88,18 +78,8 @@ type GraphitiForm = {
   graphDatabase: string;
   uri: string;
   user: string;
-  password: string;
   groupId: string;
   llmProvider: string;
-  openaiApiKey: string;
-};
-
-type PlaneForm = {
-  enabled: boolean;
-  baseUrl: string;
-  workspaceSlug: string;
-  projectId: string;
-  apiToken: string;
 };
 
 type TicketBackendForm = {
@@ -122,77 +102,43 @@ interface SettingsGroup {
   key: SettingsSection;
   label: string;
   icon: typeof Settings;
-  subsections: { key: string; label: string }[];
 }
 
 const SECTION_GROUPS: SettingsGroup[] = [
-  {
-    key: "runtime",
-    label: "Runtime",
-    icon: SlidersHorizontal,
-    subsections: [
-      { key: "runtimes", label: "LLM Providers" },
-      { key: "agent-executors", label: "Agent Executors" },
-    ],
-  },
-  {
-    key: "integrations",
-    label: "Integrations",
-    icon: Plug,
-    subsections: [
-      { key: "ticket-backend", label: "Ticket Backend" },
-      { key: "mcp-connectors", label: "MCP Connectors" },
-      { key: "code-repositories", label: "Code Repositories" },
-      { key: "knowledge-backend", label: "Knowledge Backend" },
-    ],
-  },
-  {
-    key: "system",
-    label: "System",
-    icon: Activity,
-    subsections: [
-      { key: "secrets", label: "Secrets" },
-      { key: "defaults", label: "Employee Defaults" },
-      { key: "health", label: "Health" },
-    ],
-  },
+  { key: "ai-engines", label: "AI Engines", icon: SlidersHorizontal },
+  { key: "tool-connectors", label: "Tool Connectors", icon: Plug },
+  { key: "code-repositories", label: "Code Repositories", icon: FolderGit2 },
+  { key: "ticket-backend", label: "Ticket Backend", icon: ClipboardList },
+  { key: "memory-backend", label: "Memory Backend", icon: Database },
+  { key: "secrets-health", label: "Secrets & Health", icon: KeyRound },
 ];
+
+const SECTION_DESCRIPTIONS: Record<SettingsSection, string> = {
+  "ai-engines": "Model and agent backends that Clara and Employees use to think and execute.",
+  "tool-connectors": "External tool sources, including MCP servers and adapter-backed integrations.",
+  "code-repositories": "Product and regression repositories that ground code-aware work.",
+  "ticket-backend": "Ticket source of truth and adapter targets for work ledgers.",
+  "memory-backend": "Long-term memory backend configuration for approved memory assets.",
+  "secrets-health": "Read-only environment variable checks and runtime health signals.",
+};
 
 const PROVIDERS = [
   { id: "stub", name: "File stub", kind: "local", description: "Offline deterministic fallback for development." },
-  { id: "deepseek", name: "DeepSeek", kind: "llm_api", description: "Chat Completions provider used for low-cost runtime testing." },
-  { id: "openai", name: "OpenAI / ChatGPT", kind: "llm_api", description: "Responses API runtime for ChatGPT/OpenAI-backed employees." },
-];
-
-const AGENT_EXECUTORS = [
-  { id: "codex", name: "Codex", status: "planned", description: "Bounded coding executor for repo edits, tests, and reports." },
-  { id: "cursor", name: "Cursor", status: "planned", description: "IDE agent executor when an external API/CLI is available." },
-  { id: "qoder", name: "Qoder", status: "planned", description: "External coding-agent runtime candidate." },
-  { id: "claude-code", name: "Claude Code", status: "planned", description: "CLI coding executor candidate." },
+  { id: "deepseek", name: "DeepSeek", kind: "llm_api", description: "Chat Completions engine used for low-cost AI Employee testing." },
+  { id: "openai", name: "OpenAI / ChatGPT", kind: "llm_api", description: "Responses API engine for OpenAI-backed employees." },
 ];
 
 function sectionFromRoute(value?: string | null): SettingsSection {
-  // Map old subsection keys to their parent group for backward compatibility
-  const legacyMap: Record<string, SettingsSection> = {
-    runtimes: "runtime", providers: "runtime", "agent-executors": "runtime",
-    "ticket-backend": "integrations", "mcp-connectors": "integrations", "code-repositories": "integrations",
-    "knowledge-backend": "integrations", capabilities: "integrations",
-    knowledge: "integrations",
-    secrets: "system", defaults: "system", health: "system",
-  };
-  if (value && legacyMap[value]) return legacyMap[value];
-  return SECTION_GROUPS.some((g) => g.key === value) ? (value as SettingsSection) : "runtime";
+  return SECTION_GROUPS.some((g) => g.key === value) ? (value as SettingsSection) : "ai-engines";
 }
 
-function runtimeToForm(runtime: ChatRuntimeSettings): RuntimeForm {
+function aiEnginesToForm(aiEngines: ChatAiEngineSettings): AiEngineForm {
   return {
-    provider: runtime.provider,
-    deepseekModel: runtime.deepseek_model,
-    deepseekThinking: runtime.deepseek_thinking,
-    openaiModel: runtime.openai_model,
-    fallbackOnError: runtime.fallback_on_error,
-    deepseekApiKey: "",
-    openaiApiKey: "",
+    activeEngine: aiEngines.active_engine,
+    deepseekModel: aiEngines.deepseek_model,
+    deepseekThinking: aiEngines.deepseek_thinking,
+    openaiModel: aiEngines.openai_model,
+    fallbackOnError: aiEngines.fallback_on_error,
   };
 }
 
@@ -202,20 +148,8 @@ function graphitiToForm(settings: GraphitiSettingsResponse): GraphitiForm {
     graphDatabase: settings.graph_database || "neo4j",
     uri: settings.uri || "bolt://localhost:7687",
     user: settings.user || "neo4j",
-    password: "",
     groupId: settings.group_id || "aiteamos",
     llmProvider: settings.llm_provider || "openai",
-    openaiApiKey: "",
-  };
-}
-
-function planeToForm(settings: McpConnectorSettingsResponse): PlaneForm {
-  return {
-    enabled: settings.enabled,
-    baseUrl: settings.base_url,
-    workspaceSlug: settings.workspace_slug,
-    projectId: settings.project_id,
-    apiToken: "",
   };
 }
 
@@ -301,24 +235,66 @@ function ConfigRow({
   );
 }
 
-function RuntimesSection({
+function DetailPanel({
+  children,
+  icon: Icon,
+  title,
+}: {
+  children: ReactNode;
+  icon: typeof Settings;
+  title: string;
+}) {
+  return (
+    <section className="rounded-md border bg-background p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <Icon className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">{title}</h3>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function DetailPaths({ paths }: { paths?: Record<string, string> | null }) {
+  const entries = Object.entries(paths ?? {});
+  if (entries.length === 0) {
+    return <div className="text-sm text-muted-foreground">No saved files recorded.</div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {entries.map(([key, value]) => (
+        <div key={key} className="min-w-0">
+          <div className="text-xs uppercase text-muted-foreground">{key.replace(/_/g, " ")}</div>
+          <div className="truncate text-sm font-medium" title={value}>{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyDetail({ children }: { children: ReactNode }) {
+  return <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{children}</div>;
+}
+
+function AiEnginesSection({
   form,
-  runtime,
+  aiEngines,
   saving,
   setForm,
   onPolicySubmit,
-  onProviderSubmit,
+  onEngineSubmit,
 }: {
-  form: RuntimeForm;
-  runtime: ChatRuntimeSettings | null;
+  form: AiEngineForm;
+  aiEngines: ChatAiEngineSettings | null;
   saving: boolean;
-  setForm: Dispatch<SetStateAction<RuntimeForm>>;
+  setForm: Dispatch<SetStateAction<AiEngineForm>>;
   onPolicySubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onProviderSubmit: (providerId: string, payload: ChatRuntimeProviderUpdateRequest) => void;
+  onEngineSubmit: (engineId: string, payload: ChatAiEngineUpdateRequest) => void;
 }) {
-  const deepseek = runtime?.providers?.deepseek;
-  const openai = runtime?.providers?.openai;
-  const stub = runtime?.providers?.stub;
+  const deepseek = aiEngines?.engines?.deepseek;
+  const openai = aiEngines?.engines?.openai;
+  const stub = aiEngines?.engines?.stub;
 
   return (
     <div className="space-y-4">
@@ -326,17 +302,17 @@ function RuntimesSection({
         <div className="border-b px-4 py-3">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Runtime Policy</h3>
+            <h3 className="text-sm font-semibold">AI Engine Policy</h3>
           </div>
         </div>
         <form onSubmit={onPolicySubmit} className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
           <div className="grid gap-4 md:grid-cols-2">
           <label className="block space-y-1">
-            <span className="text-xs uppercase text-muted-foreground">Default provider</span>
+            <span className="text-xs uppercase text-muted-foreground">Active engine</span>
             <Select
-              aria-label="Runtime provider"
-              value={form.provider}
-              onChange={(event) => setForm((current) => ({ ...current, provider: event.target.value }))}
+              aria-label="Active AI Engine"
+              value={form.activeEngine}
+              onChange={(event) => setForm((current) => ({ ...current, activeEngine: event.target.value }))}
             >
               <option value="stub">File stub</option>
               <option value="deepseek">DeepSeek</option>
@@ -345,7 +321,7 @@ function RuntimesSection({
           </label>
 
             <label className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
-              <span>Fallback on provider error</span>
+              <span>Fallback on engine error</span>
               <input
                 aria-label="Fallback on error"
                 type="checkbox"
@@ -356,7 +332,7 @@ function RuntimesSection({
             </label>
           </div>
           <aside className="space-y-3">
-            <Status label="Active" value={runtime?.provider ?? "-"} />
+            <Status label="Active" value={aiEngines?.active_engine ?? "-"} />
             <Button type="submit" disabled={saving} className="w-full">
               <Save className="h-4 w-4" />
               {saving ? "Saving" : "Save policy"}
@@ -379,7 +355,7 @@ function RuntimesSection({
             variant={stub?.active ? "secondary" : "outline"}
             disabled={saving || stub?.active}
             className="mt-4 w-full"
-            onClick={() => onProviderSubmit("stub", { activate: true })}
+            onClick={() => onEngineSubmit("stub", { activate: true })}
           >
             {stub?.active ? "Active" : "Set active"}
           </Button>
@@ -388,10 +364,9 @@ function RuntimesSection({
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            onProviderSubmit("deepseek", {
+            onEngineSubmit("deepseek", {
               model: form.deepseekModel,
               thinking: form.deepseekThinking,
-              api_key: form.deepseekApiKey.trim() || undefined,
             });
           }}
           className={cn("rounded-md border bg-background p-4", deepseek?.active && "border-primary bg-primary/10")}
@@ -399,7 +374,7 @@ function RuntimesSection({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold">DeepSeek</h3>
-              <p className="mt-1 text-sm text-muted-foreground">Low-cost API provider for development and Clara chat testing.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Low-cost LLM API engine for development and Clara chat testing.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {deepseek?.active && <Badge variant="success">active</Badge>}
@@ -427,17 +402,7 @@ function RuntimesSection({
                 <option value="enabled">Enabled</option>
               </Select>
             </label>
-            <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">API key</span>
-              <input
-                aria-label="DeepSeek API key"
-                type="password"
-                value={form.deepseekApiKey}
-                onChange={(event) => setForm((current) => ({ ...current, deepseekApiKey: event.target.value }))}
-                placeholder={deepseek?.api_key_configured ? "Configured" : "Not configured"}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
+            <Status label="DEEPSEEK_API_KEY" value={deepseek?.api_key_configured ? "configured" : "missing"} tone={deepseek?.api_key_configured ? "ok" : "warn"} />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Button type="submit" disabled={saving}>
@@ -448,7 +413,7 @@ function RuntimesSection({
               type="button"
               variant="outline"
               disabled={saving || deepseek?.active}
-              onClick={() => onProviderSubmit("deepseek", { activate: true })}
+              onClick={() => onEngineSubmit("deepseek", { activate: true })}
             >
               {deepseek?.active ? "Active" : "Set active"}
             </Button>
@@ -458,9 +423,8 @@ function RuntimesSection({
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            onProviderSubmit("openai", {
+            onEngineSubmit("openai", {
               model: form.openaiModel,
-              api_key: form.openaiApiKey.trim() || undefined,
             });
           }}
           className={cn("rounded-md border bg-background p-4", openai?.active && "border-primary bg-primary/10")}
@@ -468,7 +432,7 @@ function RuntimesSection({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold">OpenAI / ChatGPT</h3>
-              <p className="mt-1 text-sm text-muted-foreground">OpenAI-backed employee runtime for later ChatGPT integration.</p>
+              <p className="mt-1 text-sm text-muted-foreground">OpenAI-backed AI Engine for ChatGPT/OpenAI execution.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {openai?.active && <Badge variant="success">active</Badge>}
@@ -485,17 +449,7 @@ function RuntimesSection({
                 className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </label>
-            <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">API key</span>
-              <input
-                aria-label="OpenAI API key"
-                type="password"
-                value={form.openaiApiKey}
-                onChange={(event) => setForm((current) => ({ ...current, openaiApiKey: event.target.value }))}
-                placeholder={openai?.api_key_configured ? "Configured" : "Not configured"}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
+            <Status label="OPENAI_API_KEY" value={openai?.api_key_configured ? "configured" : "missing"} tone={openai?.api_key_configured ? "ok" : "warn"} />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Button type="submit" disabled={saving}>
@@ -506,126 +460,13 @@ function RuntimesSection({
               type="button"
               variant="outline"
               disabled={saving || openai?.active}
-              onClick={() => onProviderSubmit("openai", { activate: true })}
+              onClick={() => onEngineSubmit("openai", { activate: true })}
             >
               {openai?.active ? "Active" : "Set active"}
             </Button>
           </div>
         </form>
       </div>
-    </div>
-  );
-}
-
-function capabilityGroupLabel(kind: string): string {
-  if (kind === "local_tool") return "Local Tools";
-  if (kind === "mcp_connector") return "MCP Connectors";
-  if (kind === "mcp_capability") return "MCP Capabilities";
-  if (kind === "agent_executor") return "Agent Executors";
-  return kind;
-}
-
-function groupedCapabilities(capabilities: CapabilityRecord[]): [string, CapabilityRecord[]][] {
-  const order = ["local_tool", "mcp_connector", "mcp_capability", "agent_executor"];
-  const groups = new Map<string, CapabilityRecord[]>();
-  for (const capability of capabilities) {
-    groups.set(capability.kind, [...(groups.get(capability.kind) ?? []), capability]);
-  }
-  return order
-    .filter((kind) => groups.has(kind))
-    .map((kind) => [kind, groups.get(kind) ?? []]);
-}
-
-function CapabilitiesSection({ registry }: { registry: CapabilityRegistryResponse | null }) {
-  const capabilities = registry?.capabilities ?? [];
-  const groups = groupedCapabilities(capabilities);
-  const modelEntries = [
-    ["Knowledge", registry?.model.knowledge ?? "Facts and history that ground reasoning."],
-    ["Skill", registry?.model.skill ?? "Employee methods and workflows."],
-    ["Tool", registry?.model.tool ?? "Executable deterministic actions."],
-    ["MCP", registry?.model.mcp ?? "External tool and resource connector layer."],
-    ["Executor", registry?.model.executor ?? "Mature agent runtime used by employees."],
-  ];
-
-  return (
-    <div className="space-y-4">
-      <section className="rounded-md border bg-background">
-        <div className="border-b px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Wrench className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Capability Model</h3>
-          </div>
-        </div>
-        <div className="grid gap-3 p-4 md:grid-cols-5">
-          {modelEntries.map(([name, description]) => (
-            <div key={name} className="rounded-md border px-3 py-3">
-              <div className="text-sm font-semibold">{name}</div>
-              <div className="mt-1 text-xs leading-5 text-muted-foreground">{description}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-md border bg-background">
-        <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Status label="Capabilities" value={registry?.status.capability_count ?? capabilities.length} />
-          <Status label="Ready" value={registry?.status.ready_count ?? 0} tone={(registry?.status.ready_count ?? 0) > 0 ? "ok" : "warn"} />
-          <Status label="Local tools" value={registry?.status.local_tool_count ?? 0} />
-          <Status label="MCP capabilities" value={registry?.status.mcp_capability_count ?? 0} />
-        </div>
-      </section>
-
-      {groups.map(([kind, items]) => (
-        <section key={kind} className="rounded-md border bg-background">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-            <h3 className="text-sm font-semibold">{capabilityGroupLabel(kind)}</h3>
-            <Badge variant="secondary">{items.length}</Badge>
-          </div>
-          <div className="divide-y">
-            {items.map((capability) => (
-              <div key={capability.id} className="grid gap-3 px-4 py-3 text-sm xl:grid-cols-[minmax(0,1fr)_14rem]">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{capability.name}</span>
-                    <Badge variant="outline">{capability.domain}</Badge>
-                    <Badge variant={statusVariant(capability.status)}>{capability.status}</Badge>
-                    {!capability.enabled && capability.kind !== "agent_executor" && <Badge variant="secondary">disabled</Badge>}
-                  </div>
-                  <div className="mt-1 text-muted-foreground">{capability.description}</div>
-                  {capability.boundary && (
-                    <div className="mt-2 rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
-                      {capability.boundary}
-                    </div>
-                  )}
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {capability.permissions.slice(0, 5).map((permission) => (
-                      <Badge key={permission} variant="outline">{permission}</Badge>
-                    ))}
-                    {capability.required_settings.slice(0, 4).map((setting) => (
-                      <Badge key={setting} variant="secondary">{setting}</Badge>
-                    ))}
-                  </div>
-                </div>
-                <aside className="min-w-0 space-y-2 text-xs text-muted-foreground">
-                  <div>
-                    <div className="uppercase">Source</div>
-                    <div className="truncate font-medium text-foreground" title={capability.source}>{capability.source}</div>
-                  </div>
-                  <div>
-                    <div className="uppercase">Owner scope</div>
-                    <div className="truncate font-medium text-foreground" title={capability.owner_scope}>{capability.owner_scope || "-"}</div>
-                  </div>
-                  {capability.deep_link && (
-                    <a className="inline-flex text-sm font-medium text-primary hover:underline" href={capability.deep_link}>
-                      Open surface
-                    </a>
-                  )}
-                </aside>
-              </div>
-            ))}
-          </div>
-        </section>
-      ))}
     </div>
   );
 }
@@ -662,7 +503,7 @@ function TicketBackendSection({
           <h3 className="text-sm font-semibold">Ticket Backend</h3>
         </div>
       </div>
-      <form onSubmit={onSubmit} className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+      <form onSubmit={onSubmit} className="space-y-4 p-4">
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <label className="block space-y-1">
@@ -709,14 +550,6 @@ function TicketBackendSection({
           </Button>
         </div>
 
-        <aside className="space-y-3">
-          <Status label="Mode" value={status?.mode ?? settings?.mode ?? "-"} />
-          <Status label="Status" value={compactStatus(status?.status)} tone={status?.status === "ready" ? "ok" : "warn"} />
-          <Status label="Tickets" value={status?.ticket_count ?? 0} />
-          <div className="rounded-md border bg-card p-3 text-xs leading-5 text-muted-foreground">
-            {status?.detail ?? "Local file is the active P0 backend. Plane/Jira are Adapter targets, not separate product models."}
-          </div>
-        </aside>
       </form>
     </section>
   );
@@ -727,7 +560,6 @@ function CodeRepositoriesSection({
   repositories,
   saving,
   selectedId,
-  status,
   setForm,
   onDelete,
   onNew,
@@ -738,7 +570,6 @@ function CodeRepositoriesSection({
   repositories: CodeRepository[];
   saving: boolean;
   selectedId: string;
-  status: CodeRepositoryStatus | null;
   setForm: Dispatch<SetStateAction<RepositoryForm>>;
   onDelete: (repoId: string) => void;
   onNew: () => void;
@@ -904,129 +735,12 @@ function CodeRepositoriesSection({
           </form>
         </section>
 
-        <section className="rounded-md border bg-background p-4">
-          <div className="mb-3 text-sm font-semibold">Repository Status</div>
-          <div className="space-y-3">
-            <Status label="Repositories" value={status?.repository_count ?? repositories.length} />
-            <Status label="Enabled" value={status?.enabled_count ?? 0} />
-            <Status label="Ready" value={status?.ready_count ?? 0} />
-            <Status label="Remote" value={status?.remote_count ?? 0} />
-          </div>
-        </section>
       </aside>
     </div>
   );
 }
 
-function PlaneConnectorSection({
-  form,
-  health,
-  saving,
-  settings,
-  setForm,
-  onHealth,
-  onSubmit,
-}: {
-  form: PlaneForm;
-  health: McpConnectorHealthResponse | null;
-  saving: boolean;
-  settings: McpConnectorSettingsResponse | null;
-  setForm: Dispatch<SetStateAction<PlaneForm>>;
-  onHealth: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <section className="rounded-md border bg-background">
-      <div className="border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Plug className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">Plane Connector</h3>
-        </div>
-      </div>
-      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
-        <div className="space-y-4">
-          <form onSubmit={onSubmit} className="space-y-4">
-            <label className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
-              <span>Enabled</span>
-              <input
-                aria-label="Plane enabled"
-                type="checkbox"
-                checked={form.enabled}
-                onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))}
-                className="h-4 w-4"
-              />
-            </label>
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="block space-y-1 md:col-span-2">
-                <span className="text-xs uppercase text-muted-foreground">API base URL</span>
-                <input
-                  aria-label="Plane API base URL"
-                  value={form.baseUrl}
-                  onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))}
-                  placeholder="http://localhost:8082 or https://plane.example.com"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs uppercase text-muted-foreground">Workspace slug</span>
-                <input
-                  aria-label="Plane workspace slug"
-                  value={form.workspaceSlug}
-                  onChange={(event) => setForm((current) => ({ ...current, workspaceSlug: event.target.value }))}
-                  placeholder="my-team"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs uppercase text-muted-foreground">Default project id</span>
-                <input
-                  aria-label="Plane default project id"
-                  value={form.projectId}
-                  onChange={(event) => setForm((current) => ({ ...current, projectId: event.target.value }))}
-                  placeholder="optional"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </label>
-              <label className="block space-y-1 md:col-span-2">
-                <span className="text-xs uppercase text-muted-foreground">API token</span>
-                <input
-                  aria-label="Plane API token"
-                  type="password"
-                  value={form.apiToken}
-                  onChange={(event) => setForm((current) => ({ ...current, apiToken: event.target.value }))}
-                  placeholder={settings?.api_token_configured ? "Configured" : "Not configured"}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={saving}>
-                <Save className="h-4 w-4" />
-                {saving ? "Saving" : "Save Plane"}
-              </Button>
-              <Button type="button" variant="outline" disabled={saving} onClick={onHealth}>
-                <RefreshCw className="h-4 w-4" />
-                Check
-              </Button>
-            </div>
-          </form>
-        </div>
-
-        <aside className="space-y-3">
-          <Status label="Configured" value={settings?.configured ? "yes" : "no"} tone={settings?.configured ? "ok" : "warn"} />
-          <Status label="Token" value={settings?.api_token_configured ? "set" : "missing"} tone={settings?.api_token_configured ? "ok" : "warn"} />
-          <Status label="Health" value={compactStatus(health?.status ?? settings?.connector.status)} tone={health?.status === "ready" ? "ok" : "warn"} />
-          <Status label="Transport" value={settings?.connector.transport ?? "-"} />
-          {health?.detail && (
-            <div className="rounded-md border bg-card p-3 text-xs leading-5 text-muted-foreground">{health.detail}</div>
-          )}
-        </aside>
-      </div>
-    </section>
-  );
-}
-
-function KnowledgeBackendSection({
+function MemoryBackendSection({
   form,
   graphiti,
   saving,
@@ -1044,10 +758,10 @@ function KnowledgeBackendSection({
       <div className="border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <Database className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">Knowledge Backend</h3>
+          <h3 className="text-sm font-semibold">Memory Backend</h3>
         </div>
       </div>
-      <form onSubmit={onSubmit} className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+      <form onSubmit={onSubmit} className="space-y-4 p-4">
         <div className="space-y-4">
           <label className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
             <span>Graphiti enabled</span>
@@ -1099,17 +813,6 @@ function KnowledgeBackendSection({
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Neo4j password</span>
-              <input
-                aria-label="Neo4j password"
-                type="password"
-                value={form.password}
-                onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-                placeholder={graphiti?.password_configured ? "Configured" : "Not configured"}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
-            <label className="block space-y-1">
               <span className="text-xs uppercase text-muted-foreground">Graphiti LLM</span>
               <Select
                 aria-label="Graphiti LLM provider"
@@ -1119,17 +822,8 @@ function KnowledgeBackendSection({
                 <option value="openai">OpenAI</option>
               </Select>
             </label>
-            <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">OpenAI API key</span>
-              <input
-                aria-label="Graphiti OpenAI API key"
-                type="password"
-                value={form.openaiApiKey}
-                onChange={(event) => setForm((current) => ({ ...current, openaiApiKey: event.target.value }))}
-                placeholder={graphiti?.openai_api_key_configured ? "Configured" : "Not configured"}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
+            <Status label="Graphiti password env" value={graphiti?.password_configured ? "configured" : "missing"} tone={graphiti?.password_configured ? "ok" : "warn"} />
+            <Status label="Graphiti LLM key env" value={graphiti?.openai_api_key_configured ? "configured" : "missing"} tone={graphiti?.openai_api_key_configured ? "ok" : "warn"} />
           </div>
 
           <Button type="submit" disabled={saving}>
@@ -1138,12 +832,6 @@ function KnowledgeBackendSection({
           </Button>
         </div>
 
-        <aside className="space-y-3">
-          <Status label="Graphiti" value={compactStatus(graphiti?.backend.status)} tone={graphiti?.backend.status === "ready" ? "ok" : "warn"} />
-          <Status label="Graph DB" value={graphiti?.backend.graph_configured ? "set" : "missing"} tone={graphiti?.backend.graph_configured ? "ok" : "warn"} />
-          <Status label="LLM key" value={graphiti?.backend.llm_configured ? "set" : "missing"} tone={graphiti?.backend.llm_configured ? "ok" : "warn"} />
-          <Status label="Runtime key" value={graphiti?.uses_runtime_openai_key ? "used" : "optional"} />
-        </aside>
       </form>
     </section>
   );
@@ -1151,32 +839,21 @@ function KnowledgeBackendSection({
 
 export function SettingsPage({ selectedSection }: { selectedSection?: string | null }) {
   const [section, setSection] = useState<SettingsSection>(() => sectionFromRoute(selectedSection));
-  const [runtime, setRuntime] = useState<ChatRuntimeSettings | null>(null);
-  const [form, setForm] = useState<RuntimeForm>({
-    provider: "stub",
+  const [aiEngines, setAiEngines] = useState<ChatAiEngineSettings | null>(null);
+  const [form, setForm] = useState<AiEngineForm>({
+    activeEngine: "stub",
     deepseekModel: "deepseek-v4-flash",
     deepseekThinking: "disabled",
     openaiModel: "gpt-5-nano",
     fallbackOnError: true,
-    deepseekApiKey: "",
-    openaiApiKey: "",
   });
   const [graphitiForm, setGraphitiForm] = useState<GraphitiForm>({
     enabled: false,
     graphDatabase: "neo4j",
     uri: "bolt://localhost:7687",
     user: "neo4j",
-    password: "",
     groupId: "aiteamos",
     llmProvider: "openai",
-    openaiApiKey: "",
-  });
-  const [planeForm, setPlaneForm] = useState<PlaneForm>({
-    enabled: false,
-    baseUrl: "",
-    workspaceSlug: "",
-    projectId: "",
-    apiToken: "",
   });
   const [ticketBackendForm, setTicketBackendForm] = useState<TicketBackendForm>({
     mode: "local_file",
@@ -1193,10 +870,10 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
   const [graphiti, setGraphiti] = useState<GraphitiSettingsResponse | null>(null);
   const [ticketBackend, setTicketBackend] = useState<TicketBackendSettings | null>(null);
   const [ticketBackendStatus, setTicketBackendStatus] = useState<TicketBackendStatus | null>(null);
-  const [mcpConnectors, setMcpConnectors] = useState<McpConnector[]>([]);
-  const [planeSettings, setPlaneSettings] = useState<McpConnectorSettingsResponse | null>(null);
-  const [planeHealth, setPlaneHealth] = useState<McpConnectorHealthResponse | null>(null);
-  const [mcpStatus, setMcpStatus] = useState<McpRegistryStatus | null>(null);
+  const [toolConnectors, setToolConnectors] = useState<ToolConnector[]>([]);
+  const [selectedConnectorId, setSelectedConnectorId] = useState("");
+  const [toolConnectorStatus, setToolConnectorStatus] = useState<ToolConnectorRegistryStatus | null>(null);
+  const [secretsHealth, setSecretsHealth] = useState<SecretsHealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1209,13 +886,21 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     () => SECTION_GROUPS.find((g) => g.key === section) ?? SECTION_GROUPS[0]!,
     [section],
   );
+  const selectedRepository = useMemo(
+    () => repositories.find((repository) => repository.id === selectedRepositoryId) ?? null,
+    [repositories, selectedRepositoryId],
+  );
+  const selectedConnector = useMemo(
+    () => toolConnectors.find((connector) => connector.id === selectedConnectorId) ?? toolConnectors[0] ?? null,
+    [toolConnectors, selectedConnectorId],
+  );
 
   async function loadSettings() {
     setLoading(true);
     setError(null);
     try {
       const [
-        loadedRuntime,
+        loadedAiEngines,
         loadedEmployees,
         loadedKnowledge,
         loadedMemory,
@@ -1225,11 +910,11 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         loadedTicketBackendStatus,
         loadedRepositories,
         loadedRepositoryStatus,
-        loadedMcpConnectors,
-        loadedPlaneSettings,
-        loadedMcpStatus,
+        loadedToolConnectors,
+        loadedToolConnectorStatus,
+        loadedSecretsHealth,
       ] = await Promise.all([
-        getChatRuntime(),
+        getChatAiEngines(),
         listChatEmployees(),
         getKnowledgeStatus(),
         getMemoryStatus(),
@@ -1239,12 +924,12 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         getTicketBackendStatus(),
         listCodeRepositories(),
         getCodeRepositoryStatus(),
-        listMcpConnectors(),
-        getMcpConnectorSettings("plane"),
-        getMcpStatus(),
+        listToolConnectors(),
+        getToolConnectorStatus(),
+        getSecretsHealth(),
       ]);
-      setRuntime(loadedRuntime);
-      setForm(runtimeToForm(loadedRuntime));
+      setAiEngines(loadedAiEngines);
+      setForm(aiEnginesToForm(loadedAiEngines));
       setEmployees(loadedEmployees);
       setKnowledge(loadedKnowledge);
       setMemory(loadedMemory);
@@ -1259,10 +944,11 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       const selectedRepository = loadedRepositories.find((repo) => repo.id === selectedRepositoryId) ?? null;
       setSelectedRepositoryId(selectedRepository?.id ?? "");
       setRepositoryForm(selectedRepository ? repositoryToForm(selectedRepository) : emptyRepositoryForm());
-      setMcpConnectors(loadedMcpConnectors);
-      setPlaneSettings(loadedPlaneSettings);
-      setPlaneForm(planeToForm(loadedPlaneSettings));
-      setMcpStatus(loadedMcpStatus);
+      setToolConnectors(loadedToolConnectors);
+      const selectedConnector = loadedToolConnectors.find((connector) => connector.id === selectedConnectorId) ?? loadedToolConnectors[0] ?? null;
+      setSelectedConnectorId(selectedConnector?.id ?? "");
+      setToolConnectorStatus(loadedToolConnectorStatus);
+      setSecretsHealth(loadedSecretsHealth);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings");
     } finally {
@@ -1274,40 +960,38 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     void loadSettings();
   }, []);
 
-  async function handleRuntimePolicySubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleAiEnginePolicySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving) return;
     setSaving(true);
     setError(null);
     try {
-      const updated = await updateChatRuntime({
-        provider: form.provider,
+      const updated = await updateChatAiEngines({
+        active_engine: form.activeEngine,
         deepseek_model: form.deepseekModel,
         deepseek_thinking: form.deepseekThinking,
         openai_model: form.openaiModel,
         fallback_on_error: form.fallbackOnError,
-        deepseek_api_key: form.deepseekApiKey.trim() || undefined,
-        openai_api_key: form.openaiApiKey.trim() || undefined,
       });
-      setRuntime(updated);
-      setForm(runtimeToForm(updated));
+      setAiEngines(updated);
+      setForm(aiEnginesToForm(updated));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save runtime settings");
+      setError(err instanceof Error ? err.message : "Failed to save AI Engine settings");
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleRuntimeProviderSubmit(providerId: string, payload: ChatRuntimeProviderUpdateRequest) {
+  async function handleAiEngineSubmit(engineId: string, payload: ChatAiEngineUpdateRequest) {
     if (saving) return;
     setSaving(true);
     setError(null);
     try {
-      const updated = await updateChatRuntimeProvider(providerId, payload);
-      setRuntime(updated);
-      setForm(runtimeToForm(updated));
+      const updated = await updateChatAiEngine(engineId, payload);
+      setAiEngines(updated);
+      setForm(aiEnginesToForm(updated));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save provider settings");
+      setError(err instanceof Error ? err.message : "Failed to save AI Engine settings");
     } finally {
       setSaving(false);
     }
@@ -1325,8 +1009,6 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       user: graphitiForm.user,
       group_id: graphitiForm.groupId,
       llm_provider: graphitiForm.llmProvider,
-      password: graphitiForm.password.trim() || undefined,
-      openai_api_key: graphitiForm.openaiApiKey.trim() || undefined,
     };
     try {
       const updated = await updateGraphitiSettings(payload);
@@ -1335,7 +1017,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       setGraphitiForm(graphitiToForm(updated));
       setMemory(updatedMemory);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save Knowledge backend settings");
+      setError(err instanceof Error ? err.message : "Failed to save memory backend settings");
     } finally {
       setSaving(false);
     }
@@ -1357,50 +1039,6 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       setTicketBackendStatus(updatedStatus);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save Ticket backend settings");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handlePlaneSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (saving) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const updated = await updateMcpConnectorSettings("plane", {
-        enabled: planeForm.enabled,
-        base_url: planeForm.baseUrl,
-        email: "",
-        workspace_slug: planeForm.workspaceSlug,
-        project_id: planeForm.projectId,
-        api_token: planeForm.apiToken.trim() || undefined,
-      });
-      const [updatedConnectors, updatedStatus] = await Promise.all([
-        listMcpConnectors(),
-        getMcpStatus(),
-      ]);
-      setPlaneSettings(updated);
-      setPlaneForm(planeToForm(updated));
-      setMcpConnectors(updatedConnectors);
-      setMcpStatus(updatedStatus);
-      setPlaneHealth(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save Plane connector");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handlePlaneHealth() {
-    if (saving) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const health = await checkMcpConnectorHealth("plane");
-      setPlaneHealth(health);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to check Plane connector");
     } finally {
       setSaving(false);
     }
@@ -1463,359 +1101,404 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     }
   }
 
+  function renderSettingsDetail(): ReactNode {
+    if (section === "ai-engines") {
+      const engines = Object.values(aiEngines?.engines ?? {});
+
+      return (
+        <aside className="space-y-4">
+          <DetailPanel title="AI Engine Detail" icon={SlidersHorizontal}>
+            <div className="space-y-3">
+              <Status label="Active" value={aiEngines?.active_engine ?? "-"} tone={aiEngines?.active_engine === "stub" ? "warn" : "ok"} />
+              <Status label="Fallback" value={aiEngines?.fallback_on_error ? "enabled" : "disabled"} />
+              {engines.map((engine) => (
+                <div key={engine.id} className="rounded-md border px-3 py-2 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{engine.display_name}</span>
+                    <div className="flex flex-wrap gap-2">
+                      {engine.active && <Badge variant="success">active</Badge>}
+                      <Badge variant={statusVariant(engine.status)}>{engine.status}</Badge>
+                    </div>
+                  </div>
+                  <div className="mt-2 grid gap-2 text-xs text-muted-foreground">
+                    <span>Kind: {engine.kind}</span>
+                    {engine.model && <span>Model: {engine.model}</span>}
+                    {engine.thinking && <span>Thinking: {engine.thinking}</span>}
+                    <span>Secret: {engine.api_key_configured ? "configured" : "missing"}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </DetailPanel>
+
+          <DetailPanel title="Saved Files" icon={Settings}>
+            <DetailPaths paths={aiEngines?.saved_paths} />
+          </DetailPanel>
+        </aside>
+      );
+    }
+
+    if (section === "tool-connectors") {
+      const connectorStatus = selectedConnector
+        ? selectedConnector.enabled && selectedConnector.configured ? "ready" : selectedConnector.status
+        : "-";
+
+      return (
+        <aside className="space-y-4">
+          <DetailPanel title="Connector Detail" icon={Plug}>
+            {selectedConnector ? (
+              <div className="space-y-3">
+                <div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">{selectedConnector.name}</h3>
+                    <Badge variant={statusVariant(connectorStatus)}>{connectorStatus}</Badge>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">{selectedConnector.description}</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                  <Status label="Transport" value={selectedConnector.transport} />
+                  <Status label="Enabled" value={selectedConnector.enabled ? "yes" : "no"} tone={selectedConnector.enabled ? "ok" : "warn"} />
+                  <Status label="Configured" value={selectedConnector.configured ? "yes" : "no"} tone={selectedConnector.configured ? "ok" : "warn"} />
+                  <Status label="Updated" value={selectedConnector.updated_at || "-"} />
+                </div>
+                <div>
+                  <div className="mb-2 text-xs uppercase text-muted-foreground">Capabilities</div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedConnector.capabilities.length === 0 ? (
+                      <Badge variant="secondary">none</Badge>
+                    ) : selectedConnector.capabilities.map((capability) => (
+                      <Badge key={capability} variant="outline">{capability}</Badge>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-2 text-xs uppercase text-muted-foreground">Required settings</div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedConnector.required_settings.length === 0 ? (
+                      <Badge variant="secondary">none</Badge>
+                    ) : selectedConnector.required_settings.map((setting) => (
+                      <Badge key={setting} variant="secondary">{setting}</Badge>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-2 text-xs uppercase text-muted-foreground">Permissions</div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedConnector.permissions.length === 0 ? (
+                      <Badge variant="secondary">none</Badge>
+                    ) : selectedConnector.permissions.map((permission) => (
+                      <Badge key={permission} variant="outline">{permission}</Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <EmptyDetail>No connector selected.</EmptyDetail>
+            )}
+          </DetailPanel>
+
+          <DetailPanel title="Connector Registry" icon={Settings}>
+            <div className="space-y-3">
+              <Status label="Connectors" value={toolConnectorStatus?.connector_count ?? toolConnectors.length} />
+              <Status label="Enabled" value={toolConnectorStatus?.enabled_count ?? 0} />
+              <Status label="Configured" value={toolConnectorStatus?.configured_count ?? 0} />
+              <Status label="Ready" value={toolConnectorStatus?.ready_count ?? 0} tone={(toolConnectorStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
+              <DetailPaths paths={toolConnectorStatus?.saved_paths} />
+            </div>
+          </DetailPanel>
+        </aside>
+      );
+    }
+
+    if (section === "code-repositories") {
+      return (
+        <aside className="space-y-4">
+          <DetailPanel title="Repository Detail" icon={FolderGit2}>
+            {selectedRepository ? (
+              <div className="space-y-3">
+                <div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">{selectedRepository.name}</h3>
+                    <Badge variant={statusVariant(selectedRepository.status)}>{selectedRepository.status}</Badge>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">{selectedRepository.detail || selectedRepository.description || "No detail recorded."}</p>
+                </div>
+                <Status label="Provider" value={selectedRepository.provider} />
+                <Status label="Branch" value={selectedRepository.current_branch || selectedRepository.default_branch || "-"} />
+                <Status label="Git detected" value={selectedRepository.git_detected ? "yes" : "no"} tone={selectedRepository.git_detected ? "ok" : "warn"} />
+                <Status label="Enabled" value={selectedRepository.enabled ? "yes" : "no"} tone={selectedRepository.enabled ? "ok" : "warn"} />
+                <div className="min-w-0">
+                  <div className="text-xs uppercase text-muted-foreground">Location</div>
+                  <div className="truncate text-sm font-medium" title={selectedRepository.location}>{selectedRepository.location}</div>
+                </div>
+                <div className="grid gap-2 text-xs text-muted-foreground">
+                  <span>Plane workspace: {selectedRepository.plane_workspace_slug || "-"}</span>
+                  <span>Plane project: {selectedRepository.plane_project_id || "-"}</span>
+                </div>
+              </div>
+            ) : (
+              <EmptyDetail>Select a repository to inspect its status and source mapping.</EmptyDetail>
+            )}
+          </DetailPanel>
+
+          <DetailPanel title="Repository Registry" icon={GitBranch}>
+            <div className="space-y-3">
+              <Status label="Repositories" value={repositoryStatus?.repository_count ?? repositories.length} />
+              <Status label="Enabled" value={repositoryStatus?.enabled_count ?? 0} />
+              <Status label="Ready" value={repositoryStatus?.ready_count ?? 0} />
+              <Status label="Remote" value={repositoryStatus?.remote_count ?? 0} />
+              <DetailPaths paths={repositoryStatus?.saved_paths} />
+            </div>
+          </DetailPanel>
+        </aside>
+      );
+    }
+
+    if (section === "ticket-backend") {
+      return (
+        <aside className="space-y-4">
+          <DetailPanel title="Ticket Backend Status" icon={ClipboardList}>
+            <div className="space-y-3">
+              <Status label="Mode" value={ticketBackendStatus?.mode ?? ticketBackend?.mode ?? "-"} />
+              <Status label="Status" value={compactStatus(ticketBackendStatus?.status)} tone={ticketBackendStatus?.status === "ready" ? "ok" : "warn"} />
+              <Status label="Tickets" value={ticketBackendStatus?.ticket_count ?? 0} />
+              <div className="min-w-0">
+                <div className="text-xs uppercase text-muted-foreground">Local file</div>
+                <div className="truncate text-sm font-medium" title={ticketBackendStatus?.local_file_path ?? ticketBackend?.local_file_path}>
+                  {ticketBackendStatus?.local_file_path ?? ticketBackend?.local_file_path ?? "-"}
+                </div>
+              </div>
+              <div className="rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
+                {ticketBackendStatus?.detail ?? "Local file is the active P0 backend. Plane/Jira are adapter targets, not separate product models."}
+              </div>
+            </div>
+          </DetailPanel>
+
+          <DetailPanel title="Saved Files" icon={Settings}>
+            <DetailPaths paths={ticketBackendStatus?.saved_paths ?? ticketBackend?.saved_paths} />
+          </DetailPanel>
+        </aside>
+      );
+    }
+
+    if (section === "memory-backend") {
+      const savedPaths = {
+        ...(memory?.saved_paths ?? {}),
+        ...(graphiti?.saved_paths ?? {}),
+      };
+
+      return (
+        <aside className="space-y-4">
+          <DetailPanel title="Memory Backend Status" icon={Database}>
+            <div className="space-y-3">
+              <Status label="Graphiti" value={compactStatus(graphiti?.backend.status ?? memory?.backend.status)} tone={(graphiti?.backend.status ?? memory?.backend.status) === "ready" ? "ok" : "warn"} />
+              <Status label="Graph DB" value={(graphiti?.backend.graph_configured ?? memory?.backend.graph_configured) ? "set" : "missing"} tone={(graphiti?.backend.graph_configured ?? memory?.backend.graph_configured) ? "ok" : "warn"} />
+              <Status label="LLM key" value={(graphiti?.backend.llm_configured ?? memory?.backend.llm_configured) ? "set" : "missing"} tone={(graphiti?.backend.llm_configured ?? memory?.backend.llm_configured) ? "ok" : "warn"} />
+              <Status label="Approved memories" value={memory?.approved_count ?? 0} />
+              <Status label="Pending graphiti" value={memory?.pending_graphiti_count ?? 0} />
+              <Status label="Shared OpenAI key" value={graphiti?.uses_shared_openai_key ? "used" : "optional"} />
+              <div className="rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
+                {graphiti?.backend.detail ?? memory?.backend.detail ?? "Memory backend health has not been checked yet."}
+              </div>
+            </div>
+          </DetailPanel>
+
+          <DetailPanel title="Saved Files" icon={Settings}>
+            <DetailPaths paths={savedPaths} />
+          </DetailPanel>
+        </aside>
+      );
+    }
+
+    const secretItems = secretsHealth?.items ?? [];
+    const configuredSecrets = secretItems.filter((item) => item.configured).length;
+
+    return (
+      <aside className="space-y-4">
+        <DetailPanel title="System Health" icon={Activity}>
+          <div className="grid gap-3">
+            <Status label="AI Engine" value={aiEngines?.active_engine ?? "-"} tone={aiEngines?.active_engine === "stub" ? "warn" : "ok"} />
+            <Status label="Employees" value={employees.length} />
+            <Status label="Knowledge docs" value={knowledge?.docs_count ?? 0} />
+            <Status label="Review items" value={knowledge?.review_queue_count ?? 0} />
+            <Status label="Tools" value={capabilityRegistry?.status.tool_count ?? 0} />
+            <Status label="Tools ready" value={capabilityRegistry?.status.ready_count ?? 0} tone={(capabilityRegistry?.status.ready_count ?? 0) > 0 ? "ok" : "warn"} />
+            <Status label="Ticket backend" value={compactStatus(ticketBackendStatus?.status)} tone={ticketBackendStatus?.status === "ready" ? "ok" : "warn"} />
+            <Status label="Tickets" value={ticketBackendStatus?.ticket_count ?? 0} />
+            <Status label="Tool connectors ready" value={toolConnectorStatus?.ready_count ?? 0} tone={(toolConnectorStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
+            <Status label="Code repositories" value={repositoryStatus?.repository_count ?? repositories.length} />
+            <Status label="Repos ready" value={repositoryStatus?.ready_count ?? 0} tone={(repositoryStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
+            <Status label="Approved memories" value={memory?.approved_count ?? 0} />
+          </div>
+        </DetailPanel>
+
+        <DetailPanel title="Secret Coverage" icon={KeyRound}>
+          <div className="space-y-3">
+            <Status label="Configured" value={configuredSecrets} tone={configuredSecrets === secretItems.length ? "ok" : "warn"} />
+            <Status label="Missing" value={secretItems.length - configuredSecrets} tone={configuredSecrets === secretItems.length ? "ok" : "warn"} />
+            <Status label="Required vars" value={secretItems.reduce((count, item) => count + item.env_vars.length, 0)} />
+          </div>
+        </DetailPanel>
+      </aside>
+    );
+  }
+
   if (loading) return <LoadingState />;
   const ActiveIcon = activeGroup.icon;
 
   return (
     <ResizableDetailLayout
       id="aiteamos-settings-layout"
-      main={(
-        <section className="space-y-4">
-        {/* Group header with refresh */}
-        <div className="rounded-md border bg-background">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-            <div className="flex items-center gap-2">
-              <ActiveIcon className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold">{activeGroup.label}</h3>
-            </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => void loadSettings()}>
-              <RefreshCw className="h-4 w-4" />
-              Refresh
-            </Button>
-          </div>
+	      main={(
+	        <section className="space-y-4">
+	        <div className="rounded-md border bg-background">
+	          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+	            <div>
+	              <div className="flex items-center gap-2">
+	                <ActiveIcon className="h-4 w-4 text-muted-foreground" />
+	                <h3 className="text-sm font-semibold">{activeGroup.label}</h3>
+	              </div>
+	              <p className="mt-1 text-sm text-muted-foreground">{SECTION_DESCRIPTIONS[section]}</p>
+	            </div>
+	            <Button type="button" variant="outline" size="sm" onClick={() => void loadSettings()}>
+	              <RefreshCw className="h-4 w-4" />
+	              Refresh
+	            </Button>
+	          </div>
 
-          {/* Grouped tab navigation */}
-          <div className="flex flex-wrap gap-2 border-b px-4 py-3">
-            {SECTION_GROUPS.map((group) => {
-              const GIcon = group.icon;
-              return (
-                <Button
-                  key={group.key}
-                  type="button"
-                  variant={section === group.key ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => navigateTo("settings", group.key)}
-                >
-                  <GIcon className="h-3.5 w-3.5" />
-                  {group.label}
-                </Button>
-              );
-            })}
-          </div>
-
-          {error && (
-            <div className="border-b p-4">
-              <ErrorState message={error} onRetry={loadSettings} />
-            </div>
-          )}
+	          {error && (
+	            <div className="border-t p-4">
+	              <ErrorState message={error} onRetry={loadSettings} />
+	            </div>
+	          )}
         </div>
 
-        {/* ─── Runtime Group ─── */}
-        {section === "runtime" && (
-          <>
-            <RuntimesSection
-              form={form}
-              runtime={runtime}
-              saving={saving}
-              setForm={setForm}
-              onPolicySubmit={handleRuntimePolicySubmit}
-              onProviderSubmit={(providerId, payload) => void handleRuntimeProviderSubmit(providerId, payload)}
-            />
-            <section className="rounded-md border bg-background">
-              <div className="border-b px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <Bot className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold">Agent Executors</h3>
-                </div>
-              </div>
-              <div className="grid gap-3 p-4">
-                {AGENT_EXECUTORS.map((executor) => (
-                  <ConfigRow
-                    key={executor.id}
-                    name={executor.name}
-                    status={executor.status}
-                    description={executor.description}
-                  />
-                ))}
-              </div>
-            </section>
-          </>
+        {section === "ai-engines" && (
+          <AiEnginesSection
+            form={form}
+            aiEngines={aiEngines}
+            saving={saving}
+            setForm={setForm}
+            onPolicySubmit={handleAiEnginePolicySubmit}
+            onEngineSubmit={(engineId, payload) => void handleAiEngineSubmit(engineId, payload)}
+          />
         )}
 
-        {/* ─── Integrations Group ─── */}
-        {section === "integrations" && (
-          <>
-            <TicketBackendSection
-              form={ticketBackendForm}
-              saving={saving}
-              settings={ticketBackend}
-              status={ticketBackendStatus}
-              setForm={setTicketBackendForm}
-              onSubmit={(event) => void handleTicketBackendSubmit(event)}
-            />
-            <div className="grid gap-3">
-              {mcpConnectors.map((connector) => (
-                <ConfigRow
-                  key={connector.id}
-                  name={connector.name}
-                  kind={connector.transport}
-                  status={connector.enabled && connector.configured ? "ready" : connector.status}
-                  description={connector.description}
-                >
-                  <div className="flex flex-wrap gap-2">
-                    {connector.capabilities.slice(0, 4).map((capability) => (
-                      <Badge key={capability} variant="outline">{capability}</Badge>
-                    ))}
-                    {connector.capabilities.length > 4 && (
-                      <Badge variant="secondary">+{connector.capabilities.length - 4}</Badge>
-                    )}
-                  </div>
-                </ConfigRow>
-              ))}
-              <PlaneConnectorSection
-                form={planeForm}
-                health={planeHealth}
-                saving={saving}
-                settings={planeSettings}
-                setForm={setPlaneForm}
-                onHealth={() => void handlePlaneHealth()}
-                onSubmit={(event) => void handlePlaneSubmit(event)}
-              />
-            </div>
-            <CodeRepositoriesSection
-              form={repositoryForm}
-              repositories={repositories}
-              saving={saving}
-              selectedId={selectedRepositoryId}
-              status={repositoryStatus}
-              setForm={setRepositoryForm}
-              onDelete={(repoId) => void handleRepositoryDelete(repoId)}
-              onNew={() => {
-                setSelectedRepositoryId("");
-                setRepositoryForm(emptyRepositoryForm());
-              }}
-              onSelect={(repository) => {
-                setSelectedRepositoryId(repository.id);
-                setRepositoryForm(repositoryToForm(repository));
-              }}
-              onSubmit={(event) => void handleRepositorySubmit(event)}
-            />
-            <KnowledgeBackendSection
-              form={graphitiForm}
-              graphiti={graphiti}
-              saving={saving}
-              setForm={setGraphitiForm}
-              onSubmit={handleGraphitiSubmit}
-            />
-          </>
+        {section === "ticket-backend" && (
+          <TicketBackendSection
+            form={ticketBackendForm}
+            saving={saving}
+            settings={ticketBackend}
+            status={ticketBackendStatus}
+            setForm={setTicketBackendForm}
+            onSubmit={(event) => void handleTicketBackendSubmit(event)}
+          />
         )}
 
-        {/* ─── System Group ─── */}
-        {section === "system" && (
-          <div className="space-y-4">
-            {/* Secrets */}
-            <section className="rounded-md border bg-background">
-              <div className="border-b px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold">Secrets</h3>
-                </div>
-              </div>
-              <div className="grid gap-3 p-4">
-                <ConfigRow
-                  name="DeepSeek API key"
-                  status={runtime?.api_keys_configured.deepseek ? "configured" : "missing"}
-                  description="Stored in the local ignored secrets file through the Runtime form."
-                />
-                <ConfigRow
-                  name="OpenAI API key"
-                  status={runtime?.api_keys_configured.openai ? "configured" : "missing"}
-                  description="Stored in the local ignored secrets file through the Runtime form."
-                />
-                <ConfigRow
-                  name="Graphiti Neo4j password"
-                  status={graphiti?.password_configured ? "configured" : "missing"}
-                  description="Stored in the local ignored secrets file through the Knowledge Backend form."
-                />
-                <ConfigRow
-                  name="Graphiti OpenAI API key"
-                  status={graphiti?.openai_api_key_configured ? "configured" : "missing"}
-                  description={graphiti?.uses_runtime_openai_key ? "Using the Runtime OpenAI key." : "Optional dedicated key for Graphiti ingestion."}
-                />
-                <ConfigRow
-                  name="Plane API token"
-                  status={planeSettings?.api_token_configured ? "configured" : "missing"}
-                  description="Stored in the local ignored secrets file through the MCP Connectors form."
-                />
-              </div>
-            </section>
+	        {section === "tool-connectors" && (
+	          <section className="rounded-md border bg-background">
+	            <div className="border-b px-4 py-3">
+	              <div className="flex items-center gap-2">
+	                <Plug className="h-4 w-4 text-muted-foreground" />
+	                <h3 className="text-sm font-semibold">Tool Connectors</h3>
+	              </div>
+	            </div>
+	            <div className="grid gap-3 p-4">
+	              {toolConnectors.length === 0 ? (
+	                <EmptyDetail>No tool connectors configured.</EmptyDetail>
+	              ) : toolConnectors.map((connector) => {
+	                const connectorStatus = connector.enabled && connector.configured ? "ready" : connector.status;
+	                return (
+	                  <button
+	                    key={connector.id}
+	                    type="button"
+	                    onClick={() => setSelectedConnectorId(connector.id)}
+	                    className={cn(
+	                      "rounded-md border px-4 py-3 text-left transition-colors",
+	                      selectedConnector?.id === connector.id ? "border-primary bg-primary/10" : "bg-background hover:bg-muted/60",
+	                    )}
+	                  >
+	                    <div className="flex flex-wrap items-start justify-between gap-3">
+	                      <div className="min-w-0">
+	                        <div className="font-medium">{connector.name}</div>
+	                        <div className="mt-1 text-sm text-muted-foreground">{connector.description}</div>
+	                      </div>
+	                      <div className="flex shrink-0 flex-wrap gap-2">
+	                        <Badge variant="outline">{connector.transport}</Badge>
+	                        <Badge variant={statusVariant(connectorStatus)}>{connectorStatus}</Badge>
+	                      </div>
+	                    </div>
+	                    <div className="mt-3 flex flex-wrap gap-2">
+	                      {connector.capabilities.slice(0, 4).map((capability) => (
+	                        <Badge key={capability} variant="outline">{capability}</Badge>
+	                      ))}
+	                      {connector.capabilities.length === 0 && <Badge variant="secondary">no tools</Badge>}
+	                      {connector.capabilities.length > 4 && (
+	                        <Badge variant="secondary">+{connector.capabilities.length - 4}</Badge>
+	                      )}
+	                    </div>
+	                  </button>
+	                );
+	              })}
+	            </div>
+	          </section>
+	        )}
 
-            {/* Employee Defaults */}
-            <section className="rounded-md border bg-background">
-              <div className="border-b px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold">Employee Defaults</h3>
-                </div>
-              </div>
-              <div>
-                {employees.length === 0 ? (
-                  <p className="px-4 py-6 text-center text-sm text-muted-foreground">No employees configured.</p>
-                ) : (
-                  employees.map((employee) => (
-                    <div key={employee.id} className="grid gap-2 border-b px-4 py-3 text-sm last:border-b-0 md:grid-cols-[minmax(0,1fr)_12rem_10rem]">
-                      <div>
-                        <div className="font-medium">{employee.display_name}</div>
-                        <div className="text-muted-foreground">{employee.role}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs uppercase text-muted-foreground">Runtime mode</div>
-                        <div className="font-medium">{employee.runtime_mode}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs uppercase text-muted-foreground">Thread</div>
-                        <div className="truncate font-medium" title={employee.default_thread_id}>{employee.default_thread_id}</div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-
-            {/* Health */}
-            <section className="rounded-md border bg-background">
-              <div className="border-b px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold">System Health</h3>
-                </div>
-              </div>
-              <div className="grid gap-3 p-4 md:grid-cols-2">
-                <Status label="Runtime" value={runtime?.provider ?? "-"} tone={runtime?.provider === "stub" ? "warn" : "ok"} />
-                <Status label="Employees" value={employees.length} />
-                <Status label="Knowledge docs" value={knowledge?.docs_count ?? 0} />
-                <Status label="Review items" value={knowledge?.review_queue_count ?? 0} />
-                <Status label="Capabilities" value={capabilityRegistry?.status.capability_count ?? 0} />
-                <Status label="Capability ready" value={capabilityRegistry?.status.ready_count ?? 0} tone={(capabilityRegistry?.status.ready_count ?? 0) > 0 ? "ok" : "warn"} />
-                <Status label="Ticket backend" value={compactStatus(ticketBackendStatus?.status)} tone={ticketBackendStatus?.status === "ready" ? "ok" : "warn"} />
-                <Status label="Tickets" value={ticketBackendStatus?.ticket_count ?? 0} />
-                <Status label="MCP ready" value={mcpStatus?.ready_count ?? 0} tone={(mcpStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
-                <Status label="Code repositories" value={repositoryStatus?.repository_count ?? repositories.length} />
-                <Status label="Repos ready" value={repositoryStatus?.ready_count ?? 0} tone={(repositoryStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
-                <Status label="Approved memories" value={memory?.approved_count ?? 0} />
-                <section className="rounded-md border bg-background p-4 md:col-span-2">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold">Graphiti Memory Backend</h3>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {graphiti?.backend.detail ?? memory?.backend.detail ?? "Memory backend status is unavailable."}
-                      </p>
-                    </div>
-                    <Badge variant={statusVariant(graphiti?.backend.status ?? memory?.backend.status ?? "missing")}>
-                      {graphiti?.backend.status ?? memory?.backend.status ?? "-"}
-                    </Badge>
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-4">
-                    <Status
-                      label="Package"
-                      value={(graphiti?.backend.package_installed ?? memory?.backend.package_installed) ? "installed" : "missing"}
-                      tone={(graphiti?.backend.package_installed ?? memory?.backend.package_installed) ? "ok" : "warn"}
-                    />
-                    <Status
-                      label="Enabled"
-                      value={(graphiti?.backend.enabled ?? memory?.backend.enabled) ? "yes" : "no"}
-                      tone={(graphiti?.backend.enabled ?? memory?.backend.enabled) ? "ok" : "warn"}
-                    />
-                    <Status
-                      label="Neo4j config"
-                      value={(graphiti?.backend.graph_configured ?? memory?.backend.graph_configured) ? "set" : "missing"}
-                      tone={(graphiti?.backend.graph_configured ?? memory?.backend.graph_configured) ? "ok" : "warn"}
-                    />
-                    <Status
-                      label="LLM key"
-                      value={(graphiti?.backend.llm_configured ?? memory?.backend.llm_configured) ? "set" : "missing"}
-                      tone={(graphiti?.backend.llm_configured ?? memory?.backend.llm_configured) ? "ok" : "warn"}
-                    />
-                  </div>
-                </section>
-              </div>
-            </section>
-          </div>
+        {section === "code-repositories" && (
+          <CodeRepositoriesSection
+            form={repositoryForm}
+	            repositories={repositories}
+	            saving={saving}
+	            selectedId={selectedRepositoryId}
+	            setForm={setRepositoryForm}
+            onDelete={(repoId) => void handleRepositoryDelete(repoId)}
+            onNew={() => {
+              setSelectedRepositoryId("");
+              setRepositoryForm(emptyRepositoryForm());
+            }}
+            onSelect={(repository) => {
+              setSelectedRepositoryId(repository.id);
+              setRepositoryForm(repositoryToForm(repository));
+            }}
+            onSubmit={(event) => void handleRepositorySubmit(event)}
+          />
         )}
+
+        {section === "memory-backend" && (
+          <MemoryBackendSection
+            form={graphitiForm}
+            graphiti={graphiti}
+            saving={saving}
+            setForm={setGraphitiForm}
+            onSubmit={handleGraphitiSubmit}
+          />
+        )}
+
+	        {section === "secrets-health" && (
+	          <section className="rounded-md border bg-background">
+	            <div className="border-b px-4 py-3">
+	              <div className="flex items-center gap-2">
+	                <KeyRound className="h-4 w-4 text-muted-foreground" />
+	                <h3 className="text-sm font-semibold">Secrets & Health</h3>
+	              </div>
+	            </div>
+	            <div className="grid gap-3 p-4">
+	              {(secretsHealth?.items ?? []).map((item) => (
+	                <ConfigRow
+	                  key={item.id}
+	                  name={item.env_vars.join(" / ")}
+	                  kind={item.scope}
+	                  status={item.configured ? "configured" : "missing"}
+	                  description={`${item.purpose} ${item.how_to_configure}`}
+	                />
+	              ))}
+	            </div>
+	          </section>
+	        )}
         </section>
       )}
 
-      detail={(
-        <aside className="space-y-4">
-        <section className="rounded-md border bg-background p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <Settings className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Overview</h3>
-          </div>
-          <div className="space-y-3">
-            <Status label="Provider" value={runtime?.provider ?? "-"} />
-            <Status label="Employees" value={employees.length} />
-            <Status label="Docs" value={knowledge?.docs_count ?? 0} />
-            <Status label="Tickets" value={ticketBackendStatus?.ticket_count ?? 0} />
-            <Status label="Capabilities" value={capabilityRegistry?.status.capability_count ?? 0} />
-            <Status label="Repos" value={repositoryStatus?.repository_count ?? repositories.length} />
-            <Status label="MCP" value={mcpStatus?.connector_count ?? 0} />
-            <Status label="Graphiti" value={compactStatus(graphiti?.backend.status ?? memory?.backend.status)} />
-          </div>
-        </section>
-
-        <section className="rounded-md border bg-background p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Files</h3>
-          </div>
-          <div className="space-y-3">
-            {Object.entries(runtime?.saved_paths ?? {}).map(([key, value]) => (
-              <div key={key} className="min-w-0">
-                <div className="text-xs uppercase text-muted-foreground">{key}</div>
-                <div className="truncate text-sm font-medium" title={value}>{value}</div>
-              </div>
-            ))}
-            {Object.entries(mcpStatus?.saved_paths ?? {}).map(([key, value]) => (
-              <div key={`mcp-${key}`} className="min-w-0">
-                <div className="text-xs uppercase text-muted-foreground">mcp {key}</div>
-                <div className="truncate text-sm font-medium" title={value}>{value}</div>
-              </div>
-            ))}
-            {Object.entries(capabilityRegistry?.status.saved_paths ?? {}).map(([key, value]) => (
-              <div key={`capability-${key}`} className="min-w-0">
-                <div className="text-xs uppercase text-muted-foreground">capability {key}</div>
-                <div className="truncate text-sm font-medium" title={value}>{value}</div>
-              </div>
-            ))}
-            {Object.entries(ticketBackendStatus?.saved_paths ?? ticketBackend?.saved_paths ?? {}).map(([key, value]) => (
-              <div key={`ticket-${key}`} className="min-w-0">
-                <div className="text-xs uppercase text-muted-foreground">ticket {key}</div>
-                <div className="truncate text-sm font-medium" title={value}>{value}</div>
-              </div>
-            ))}
-            {Object.entries(repositoryStatus?.saved_paths ?? {}).map(([key, value]) => (
-              <div key={`repo-${key}`} className="min-w-0">
-                <div className="text-xs uppercase text-muted-foreground">repo {key}</div>
-                <div className="truncate text-sm font-medium" title={value}>{value}</div>
-              </div>
-            ))}
-            {Object.entries(planeSettings?.saved_paths ?? {}).map(([key, value]) => (
-              <div key={`plane-${key}`} className="min-w-0">
-                <div className="text-xs uppercase text-muted-foreground">plane {key}</div>
-                <div className="truncate text-sm font-medium" title={value}>{value}</div>
-              </div>
-            ))}
-            {Object.entries(graphiti?.saved_paths ?? {}).map(([key, value]) => (
-              <div key={`graphiti-${key}`} className="min-w-0">
-                <div className="text-xs uppercase text-muted-foreground">graphiti {key}</div>
-                <div className="truncate text-sm font-medium" title={value}>{value}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-        </aside>
-      )}
-    />
-  );
-}
+	      detail={renderSettingsDetail()}
+	    />
+	  );
+	}

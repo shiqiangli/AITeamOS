@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-try:  # Optional at runtime so local development works before Neo4j is configured.
+try:  # Optional so local development works before Neo4j is configured.
     from graphiti_core import Graphiti
     from graphiti_core.nodes import EpisodeType
 except ImportError:  # pragma: no cover - depends on optional environment install.
@@ -74,7 +74,7 @@ class GraphitiSettingsResponse(BaseModel):
     llm_provider: str = "openai"
     password_configured: bool = False
     openai_api_key_configured: bool = False
-    uses_runtime_openai_key: bool = False
+    uses_shared_openai_key: bool = False
     saved_paths: dict[str, str] = Field(default_factory=dict)
     backend: GraphitiBackendStatus
 
@@ -84,10 +84,8 @@ class GraphitiSettingsUpdateRequest(BaseModel):
     graph_database: str = "neo4j"
     uri: str = "bolt://localhost:7687"
     user: str = "neo4j"
-    password: str | None = None
     group_id: str = "aiteamos"
     llm_provider: str = "openai"
-    openai_api_key: str | None = None
 
 
 class MemoryCandidate(BaseModel):
@@ -186,10 +184,6 @@ def _graphiti_settings_path() -> Path:
     return _workspace_dir() / "graphiti.json"
 
 
-def _secrets_path() -> Path:
-    return _workspace_dir() / "secrets.local.json"
-
-
 def _relative(path: Path) -> str:
     try:
         return str(path.relative_to(_workspace_root()))
@@ -253,15 +247,13 @@ def _bool_setting(value: Any, default: bool = False) -> bool:
 
 def _graphiti_config() -> dict[str, str]:
     settings = _read_json_object(_graphiti_settings_path())
-    secrets = _read_json_object(_secrets_path())
 
     explicit_enabled = os.environ.get("AITEAMOS_GRAPHITI_ENABLED", "").strip().lower()
     backend = os.environ.get("AITEAMOS_MEMORY_BACKEND", "").strip().lower()
     uri = str(settings.get("uri") or os.environ.get("AITEAMOS_GRAPHITI_URI") or os.environ.get("NEO4J_URI") or "")
     user = str(settings.get("user") or os.environ.get("AITEAMOS_GRAPHITI_USER") or os.environ.get("NEO4J_USER") or "neo4j")
     password = str(
-        secrets.get("graphiti_neo4j_password")
-        or os.environ.get("AITEAMOS_GRAPHITI_PASSWORD")
+        os.environ.get("AITEAMOS_GRAPHITI_PASSWORD")
         or os.environ.get("NEO4J_PASSWORD")
         or ""
     )
@@ -269,12 +261,11 @@ def _graphiti_config() -> dict[str, str]:
     graph_database = str(settings.get("graph_database") or "neo4j").strip().lower() or "neo4j"
     llm_provider = str(settings.get("llm_provider") or "openai").strip().lower() or "openai"
     openai_api_key = str(
-        secrets.get("graphiti_openai_api_key")
-        or secrets.get("openai_api_key")
+        os.environ.get("AITEAMOS_GRAPHITI_OPENAI_API_KEY")
         or os.environ.get("OPENAI_API_KEY")
         or ""
     )
-    uses_runtime_openai_key = bool(secrets.get("openai_api_key")) and not bool(secrets.get("graphiti_openai_api_key"))
+    uses_shared_openai_key = bool(os.environ.get("OPENAI_API_KEY")) and not bool(os.environ.get("AITEAMOS_GRAPHITI_OPENAI_API_KEY"))
     file_enabled = settings.get("enabled")
     enabled = (
         _bool_setting(file_enabled)
@@ -289,7 +280,7 @@ def _graphiti_config() -> dict[str, str]:
         "graph_database": graph_database,
         "llm_provider": llm_provider,
         "openai_api_key": openai_api_key,
-        "uses_runtime_openai_key": "true" if uses_runtime_openai_key else "false",
+        "uses_shared_openai_key": "true" if uses_shared_openai_key else "false",
         "enabled": "true" if enabled else "false",
     }
 
@@ -307,10 +298,10 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
         detail = "Graphiti is not enabled; local memory mirror is active."
     elif not graph_configured:
         status = "not_configured"
-        detail = "Set Graphiti Neo4j URI, user, and password in Settings."
+        detail = "Set Graphiti Neo4j URI/user in Settings and password via AITEAMOS_GRAPHITI_PASSWORD or NEO4J_PASSWORD."
     elif not llm_configured:
         status = "llm_not_configured"
-        detail = "Set an OpenAI API key for Graphiti ingestion and graph search."
+        detail = "Set AITEAMOS_GRAPHITI_OPENAI_API_KEY or OPENAI_API_KEY for Graphiti ingestion and graph search."
     elif not package_installed:
         status = "package_missing"
         detail = "Install the graphiti optional dependency to enable ingestion and graph search."
@@ -346,10 +337,9 @@ def graphiti_settings_response() -> GraphitiSettingsResponse:
         llm_provider=config["llm_provider"],
         password_configured=bool(config["password"]),
         openai_api_key_configured=bool(config["openai_api_key"]),
-        uses_runtime_openai_key=config["uses_runtime_openai_key"] == "true",
+        uses_shared_openai_key=config["uses_shared_openai_key"] == "true",
         saved_paths={
             "settings": _relative(_graphiti_settings_path()),
-            "secrets": _relative(_secrets_path()),
         },
         backend=graphiti_backend_status(),
     )
@@ -376,14 +366,6 @@ def update_graphiti_settings(request: GraphitiSettingsUpdateRequest) -> Graphiti
         },
     )
 
-    secrets = _read_json_object(_secrets_path())
-    if request.password is not None and request.password.strip():
-        secrets["graphiti_neo4j_password"] = request.password.strip()
-    if request.openai_api_key is not None and request.openai_api_key.strip():
-        secrets["graphiti_openai_api_key"] = request.openai_api_key.strip()
-    if secrets:
-        _write_json(_secrets_path(), secrets)
-
     return graphiti_settings_response()
 
 
@@ -405,7 +387,6 @@ def memory_status() -> MemoryStatusResponse:
             "approved": _relative(_approved_path()),
             "graphiti_state": _relative(_state_path()),
             "graphiti_settings": _relative(_graphiti_settings_path()),
-            "secrets": _relative(_secrets_path()),
         },
     )
 

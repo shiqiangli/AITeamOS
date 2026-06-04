@@ -57,7 +57,7 @@ def test_memory_candidate_approval_and_search_are_file_backed(tmp_path, monkeypa
     assert json.loads(approved_file.read_text(encoding="utf-8"))[0]["id"] == candidate_id
 
 
-def test_graphiti_settings_are_file_backed_and_keep_secrets_local(tmp_path, monkeypatch):
+def test_graphiti_settings_are_file_backed_and_read_secrets_from_env(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.delenv("AITEAMOS_GRAPHITI_ENABLED", raising=False)
@@ -72,6 +72,8 @@ def test_graphiti_settings_are_file_backed_and_keep_secrets_local(tmp_path, monk
     assert initial.json()["enabled"] is False
     assert initial.json()["password_configured"] is False
 
+    monkeypatch.setenv("AITEAMOS_GRAPHITI_PASSWORD", "neo4j-test-password")
+    monkeypatch.setenv("AITEAMOS_GRAPHITI_OPENAI_API_KEY", "openai-test-key")
     updated = client.put(
         "/api/v1/memory/graphiti/settings",
         json={
@@ -79,10 +81,8 @@ def test_graphiti_settings_are_file_backed_and_keep_secrets_local(tmp_path, monk
             "graph_database": "neo4j",
             "uri": "bolt://localhost:7687",
             "user": "neo4j",
-            "password": "neo4j-test-password",
             "group_id": "aiteamos-test",
             "llm_provider": "openai",
-            "openai_api_key": "openai-test-key",
         },
     )
     assert updated.status_code == 200
@@ -97,20 +97,18 @@ def test_graphiti_settings_are_file_backed_and_keep_secrets_local(tmp_path, monk
     assert "openai-test-key" not in json.dumps(payload)
 
     settings_file = workspace / ".aiteamos" / "graphiti.json"
-    secrets_file = workspace / ".aiteamos" / "secrets.local.json"
     settings_payload = json.loads(settings_file.read_text(encoding="utf-8"))
-    secrets_payload = json.loads(secrets_file.read_text(encoding="utf-8"))
     assert settings_payload["uri"] == "bolt://localhost:7687"
     assert settings_payload["group_id"] == "aiteamos-test"
     assert "password" not in settings_payload
-    assert secrets_payload["graphiti_neo4j_password"] == "neo4j-test-password"
-    assert secrets_payload["graphiti_openai_api_key"] == "openai-test-key"
+    assert "openai_api_key" not in settings_payload
+    assert not (workspace / ".aiteamos" / "secrets.local.json").exists()
 
 
 def test_chat_proposes_memory_candidate_and_recalls_approved_memory(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
-    monkeypatch.setenv("AITEAMOS_MODEL_PROVIDER", "stub")
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "stub")
 
     employees_dir = workspace / ".aiteamos" / "employees"
     employees_dir.mkdir(parents=True)
@@ -122,9 +120,9 @@ kind: ai
 role: AI Team OS Manager
 summary: Coordinator
 skills: []
-runtime:
+ai_engine:
   mode: external_or_file_stub
-  provider_identity: clara
+  engine_identity: clara
   preserve_provider_thread: true
 """.strip(),
         encoding="utf-8",
