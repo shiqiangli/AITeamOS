@@ -18,7 +18,7 @@ from .read import (
     knowledge_routes,
     memory_routes,
     repository_routes,
-    settings_routes,
+    system_status_routes,
     ticket_routes,
     tool_connector_routes,
 )
@@ -35,6 +35,6 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(tool_connector_routes.router)
     app.include_router(memory_routes.router)
     app.include_router(repository_routes.router)
-    app.include_router(settings_routes.router)
+    app.include_router(system_status_routes.router)
     app.include_router(ticket_routes.router)
-    logger.info("Assets, capability, chat, knowledge, tool connector, memory, repository, settings, and ticket routes registered")
+    logger.info("Assets, capability, chat, knowledge, tool connector, memory, repository, system status, and ticket routes registered")

@@ -17,6 +17,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from .ai_engine_catalog import AI_ENGINE_CATALOG, GRAPHITI_AI_ENGINE_IDS
+
 try:  # Optional so local development works before Neo4j is configured.
     from graphiti_core import Graphiti
     from graphiti_core.nodes import EpisodeType
@@ -60,9 +62,11 @@ class GraphitiBackendStatus(BaseModel):
     graph_database: str = "neo4j"
     uri: str = ""
     user: str = ""
-    llm_provider: str = "openai"
+    llm_ai_engine: str = "openai"
+    llm_ai_engine_name: str = "ChatGPT / OpenAI API"
+    llm_api_key_env: str = "OPENAI_API_KEY"
     password_configured: bool = False
-    openai_api_key_configured: bool = False
+    llm_api_key_configured: bool = False
 
 
 class GraphitiSettingsResponse(BaseModel):
@@ -71,10 +75,11 @@ class GraphitiSettingsResponse(BaseModel):
     uri: str = ""
     user: str = "neo4j"
     group_id: str = "aiteamos"
-    llm_provider: str = "openai"
+    llm_ai_engine: str = "openai"
+    llm_ai_engine_name: str = "ChatGPT / OpenAI API"
+    llm_api_key_env: str = "OPENAI_API_KEY"
     password_configured: bool = False
-    openai_api_key_configured: bool = False
-    uses_shared_openai_key: bool = False
+    llm_api_key_configured: bool = False
     saved_paths: dict[str, str] = Field(default_factory=dict)
     backend: GraphitiBackendStatus
 
@@ -85,7 +90,7 @@ class GraphitiSettingsUpdateRequest(BaseModel):
     uri: str = "bolt://localhost:7687"
     user: str = "neo4j"
     group_id: str = "aiteamos"
-    llm_provider: str = "openai"
+    llm_ai_engine: str = "openai"
 
 
 class MemoryCandidate(BaseModel):
@@ -184,6 +189,10 @@ def _graphiti_settings_path() -> Path:
     return _workspace_dir() / "graphiti.json"
 
 
+def _ai_engine_settings_path() -> Path:
+    return _workspace_dir() / "ai_engines.json"
+
+
 def _relative(path: Path) -> str:
     try:
         return str(path.relative_to(_workspace_root()))
@@ -245,6 +254,52 @@ def _bool_setting(value: Any, default: bool = False) -> bool:
     return bool(value)
 
 
+def _normalize_graphiti_ai_engine(value: Any) -> str:
+    engine_id = str(value or "openai").strip().lower()
+    return engine_id if engine_id in GRAPHITI_AI_ENGINE_IDS else "openai"
+
+
+def _engine_file_config(engine_id: str, file_config: dict[str, Any]) -> dict[str, Any]:
+    engines = file_config.get("engines") if isinstance(file_config.get("engines"), dict) else {}
+    engine_config = engines.get(engine_id) if isinstance(engines.get(engine_id), dict) else {}
+    return dict(engine_config)
+
+
+def _ai_engine_config(engine_id: str) -> dict[str, str]:
+    catalog = AI_ENGINE_CATALOG.get(engine_id, {})
+    file_config = _read_json_object(_ai_engine_settings_path())
+    engine_config = _engine_file_config(engine_id, file_config)
+    env_prefix = engine_id.upper().replace("-", "_")
+    model = (
+        engine_config.get("model")
+        or file_config.get(f"{engine_id}_model")
+        or os.environ.get(f"AITEAMOS_{env_prefix}_MODEL")
+        or catalog.get("default_model")
+        or ""
+    )
+    base_url = (
+        engine_config.get("base_url")
+        or file_config.get(f"{engine_id}_base_url")
+        or os.environ.get(f"AITEAMOS_{env_prefix}_BASE_URL")
+        or catalog.get("default_base_url")
+        or ""
+    )
+    api_key_env = (
+        engine_config.get("api_key_env")
+        or file_config.get(f"{engine_id}_api_key_env")
+        or catalog.get("default_api_key_env")
+        or ""
+    )
+    return {
+        "id": engine_id,
+        "display_name": str(catalog.get("display_name") or engine_id),
+        "model": str(model),
+        "base_url": str(base_url),
+        "api_key_env": str(api_key_env),
+        "api_key": str(os.environ.get(str(api_key_env)) or "") if api_key_env else "",
+    }
+
+
 def _graphiti_config() -> dict[str, str]:
     settings = _read_json_object(_graphiti_settings_path())
 
@@ -259,13 +314,13 @@ def _graphiti_config() -> dict[str, str]:
     )
     group_id = str(settings.get("group_id") or os.environ.get("AITEAMOS_GRAPHITI_GROUP_ID") or "aiteamos")
     graph_database = str(settings.get("graph_database") or "neo4j").strip().lower() or "neo4j"
-    llm_provider = str(settings.get("llm_provider") or "openai").strip().lower() or "openai"
-    openai_api_key = str(
-        os.environ.get("AITEAMOS_GRAPHITI_OPENAI_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-        or ""
+    llm_ai_engine = _normalize_graphiti_ai_engine(
+        settings.get("llm_ai_engine")
+        or settings.get("llm_provider")
+        or os.environ.get("AITEAMOS_GRAPHITI_AI_ENGINE")
+        or "openai"
     )
-    uses_shared_openai_key = bool(os.environ.get("OPENAI_API_KEY")) and not bool(os.environ.get("AITEAMOS_GRAPHITI_OPENAI_API_KEY"))
+    llm_engine = _ai_engine_config(llm_ai_engine)
     file_enabled = settings.get("enabled")
     enabled = (
         _bool_setting(file_enabled)
@@ -278,9 +333,12 @@ def _graphiti_config() -> dict[str, str]:
         "password": password,
         "group_id": group_id,
         "graph_database": graph_database,
-        "llm_provider": llm_provider,
-        "openai_api_key": openai_api_key,
-        "uses_shared_openai_key": "true" if uses_shared_openai_key else "false",
+        "llm_ai_engine": llm_ai_engine,
+        "llm_ai_engine_name": llm_engine["display_name"],
+        "llm_model": llm_engine["model"],
+        "llm_base_url": llm_engine["base_url"],
+        "llm_api_key_env": llm_engine["api_key_env"],
+        "llm_api_key": llm_engine["api_key"],
         "enabled": "true" if enabled else "false",
     }
 
@@ -289,7 +347,7 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
     config = _graphiti_config()
     enabled = config["enabled"] == "true"
     graph_configured = bool(config["uri"] and config["user"] and config["password"])
-    llm_configured = config["llm_provider"] == "openai" and bool(config["openai_api_key"])
+    llm_configured = bool(config["llm_api_key"])
     configured = graph_configured and llm_configured
     graphiti_cls, episode_type = _graphiti_package()
     package_installed = graphiti_cls is not None and episode_type is not None
@@ -301,13 +359,13 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
         detail = "Set Graphiti Neo4j URI/user in Settings and password via AITEAMOS_GRAPHITI_PASSWORD or NEO4J_PASSWORD."
     elif not llm_configured:
         status = "llm_not_configured"
-        detail = "Set AITEAMOS_GRAPHITI_OPENAI_API_KEY or OPENAI_API_KEY for Graphiti ingestion and graph search."
+        detail = f"Set {config['llm_api_key_env'] or 'the selected AI Engine API key env'} for Graphiti ingestion and graph search."
     elif not package_installed:
         status = "package_missing"
         detail = "Install the graphiti optional dependency to enable ingestion and graph search."
     else:
         status = "ready"
-        detail = "Graphiti is configured; approved memory can be ingested."
+        detail = f"Graphiti is configured with {config['llm_ai_engine_name']}; approved memory can be ingested."
     return GraphitiBackendStatus(
         enabled=enabled,
         configured=configured,
@@ -320,9 +378,11 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
         graph_database=config["graph_database"],
         uri=config["uri"],
         user=config["user"],
-        llm_provider=config["llm_provider"],
+        llm_ai_engine=config["llm_ai_engine"],
+        llm_ai_engine_name=config["llm_ai_engine_name"],
+        llm_api_key_env=config["llm_api_key_env"],
         password_configured=bool(config["password"]),
-        openai_api_key_configured=bool(config["openai_api_key"]),
+        llm_api_key_configured=bool(config["llm_api_key"]),
     )
 
 
@@ -334,10 +394,11 @@ def graphiti_settings_response() -> GraphitiSettingsResponse:
         uri=config["uri"],
         user=config["user"],
         group_id=config["group_id"],
-        llm_provider=config["llm_provider"],
+        llm_ai_engine=config["llm_ai_engine"],
+        llm_ai_engine_name=config["llm_ai_engine_name"],
+        llm_api_key_env=config["llm_api_key_env"],
         password_configured=bool(config["password"]),
-        openai_api_key_configured=bool(config["openai_api_key"]),
-        uses_shared_openai_key=config["uses_shared_openai_key"] == "true",
+        llm_api_key_configured=bool(config["llm_api_key"]),
         saved_paths={
             "settings": _relative(_graphiti_settings_path()),
         },
@@ -349,9 +410,9 @@ def update_graphiti_settings(request: GraphitiSettingsUpdateRequest) -> Graphiti
     graph_database = request.graph_database.strip().lower() or "neo4j"
     if graph_database != "neo4j":
         raise ValueError("Only Neo4j is supported as the Graphiti graph database in this build.")
-    llm_provider = request.llm_provider.strip().lower() or "openai"
-    if llm_provider != "openai":
-        raise ValueError("Only OpenAI-compatible default Graphiti mode is configurable in this build.")
+    llm_ai_engine = request.llm_ai_engine.strip().lower() or "openai"
+    if llm_ai_engine not in GRAPHITI_AI_ENGINE_IDS:
+        raise ValueError("Select a Graphiti-compatible AI Engine from Settings / AI Engines.")
 
     _write_json(
         _graphiti_settings_path(),
@@ -361,7 +422,7 @@ def update_graphiti_settings(request: GraphitiSettingsUpdateRequest) -> Graphiti
             "uri": request.uri.strip() or "bolt://localhost:7687",
             "user": request.user.strip() or "neo4j",
             "group_id": request.group_id.strip() or "aiteamos",
-            "llm_provider": llm_provider,
+            "llm_ai_engine": llm_ai_engine,
             "updated_at": _now(),
         },
     )
@@ -455,9 +516,14 @@ async def _maybe_await(value: Any) -> Any:
 
 
 def _set_graphiti_environment(config: dict[str, str]) -> dict[str, str | None]:
-    previous = {"OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY")}
-    if config["llm_provider"] == "openai" and config["openai_api_key"]:
-        os.environ["OPENAI_API_KEY"] = config["openai_api_key"]
+    previous = {
+        "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY"),
+        "OPENAI_BASE_URL": os.environ.get("OPENAI_BASE_URL"),
+    }
+    if config["llm_api_key"]:
+        os.environ["OPENAI_API_KEY"] = config["llm_api_key"]
+    if config["llm_base_url"]:
+        os.environ["OPENAI_BASE_URL"] = config["llm_base_url"]
     return previous
 
 

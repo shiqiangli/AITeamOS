@@ -265,6 +265,83 @@ def test_chat_ai_engine_settings_can_be_updated_independently(tmp_path, monkeypa
     assert not (workspace / ".aiteamos" / "secrets.local.json").exists()
 
 
+def test_employee_default_ai_engine_settings_are_file_backed(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+
+    employees_dir = workspace / ".aiteamos" / "employees"
+    employees_dir.mkdir(parents=True)
+    (employees_dir / "alex.yaml").write_text(
+        """
+id: alex
+display_name: Alex
+kind: ai
+role: AI RD / Implementer
+summary: Implementer
+skills: []
+ai_engine:
+  mode: external_or_file_stub
+  engine_identity: alex
+  preserve_provider_thread: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    client = TestClient(create_app())
+    initial = client.get("/api/v1/chat/employees")
+    assert initial.status_code == 200
+    alex = next(employee for employee in initial.json() if employee["id"] == "alex")
+    assert alex["default_ai_engine"] == "system"
+
+    updated = client.put("/api/v1/chat/employees/alex/ai-engine", json={"default_ai_engine": "openai"})
+    assert updated.status_code == 200
+    assert updated.json()["default_ai_engine"] == "openai"
+
+    profile_text = (employees_dir / "alex.yaml").read_text(encoding="utf-8")
+    assert "default_engine: openai" in profile_text
+
+    invalid = client.put("/api/v1/chat/employees/alex/ai-engine", json={"default_ai_engine": "not-a-real-engine"})
+    assert invalid.status_code == 400
+
+
+def test_employee_default_ai_engine_overrides_global_engine_for_chat(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    employees_dir = workspace / ".aiteamos" / "employees"
+    employees_dir.mkdir(parents=True)
+    (employees_dir / "alex.yaml").write_text(
+        """
+id: alex
+display_name: Alex
+kind: ai
+role: AI RD / Implementer
+summary: Implementer
+skills: []
+ai_engine:
+  mode: external_or_file_stub
+  engine_identity: alex
+  default_engine: stub
+  preserve_provider_thread: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={"message": "Help with rd-1", "target_employee_id": "alex", "thread_id": "alex-default-engine"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["target_employee"]["default_ai_engine"] == "stub"
+    assert payload["run_metadata"]["ai_engine"]["selected_ai_engine"] == "stub"
+    assert payload["run_metadata"]["ai_engine"]["actual_ai_engine"] == "stub"
+
+
 def test_employee_chat_streams_sse_events(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))

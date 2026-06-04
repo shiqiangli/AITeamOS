@@ -4,6 +4,7 @@
 
 import { type ReactNode, useId } from "react";
 import {
+  Activity,
   Archive,
   ClipboardList,
   MessageSquare,
@@ -283,7 +284,7 @@ export const NAV_ITEMS: NavItem[] = [
       { key: "code-repositories", label: "Code Repositories" },
       { key: "ticket-backend", label: "Ticket Backend" },
       { key: "memory-backend", label: "Memory Backend" },
-      { key: "secrets-health", label: "Secrets & Health" },
     ],
   },
+  { key: "system-status", label: "System Status", icon: Activity },
 ];

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "../pages/settings";
 
@@ -12,32 +12,87 @@ const aiEngines = {
     stub: {
       id: "stub",
       display_name: "File stub",
-      kind: "local",
+      kind: "local_model",
+      description: "Local deterministic fallback.",
+      support_status: "supported",
+      config_status: "configured",
+      auth_kind: "none",
+      enabled: true,
+      editable: true,
       active: false,
       api_key_configured: true,
-      status: "available",
+      status: "configured",
+      secret_env_vars: [],
+      capabilities: ["offline"],
+      model_options: [],
+      thinking_options: [],
+      config_fields: [],
+      runtime_options: [],
+      health_detail: "Ready for Chat selection.",
     },
     deepseek: {
       id: "deepseek",
       display_name: "DeepSeek",
       kind: "llm_api",
+      description: "Low-cost LLM API engine.",
+      support_status: "supported",
+      config_status: "configured",
+      auth_kind: "bearer",
+      base_url: "https://api.deepseek.com",
+      api_key_env: "DEEPSEEK_API_KEY",
       model: "deepseek-v4-flash",
       thinking: "disabled",
+      enabled: true,
+      editable: true,
       active: true,
       api_key_configured: true,
       status: "configured",
+      secret_env_vars: ["DEEPSEEK_API_KEY"],
+      capabilities: ["chat", "reasoning"],
+      model_options: ["deepseek-v4-flash"],
+      thinking_options: ["disabled", "enabled"],
+      config_fields: [
+        { id: "model", label: "Default model", kind: "text", value: "deepseek-v4-flash", placeholder: "", options: [], required: true, secret: false, read_only: false, help: "" },
+        { id: "thinking", label: "Thinking", kind: "select", value: "disabled", placeholder: "", options: ["disabled", "enabled"], required: false, secret: false, read_only: false, help: "" },
+        { id: "base_url", label: "Base URL", kind: "text", value: "https://api.deepseek.com", placeholder: "", options: [], required: true, secret: false, read_only: false, help: "" },
+        { id: "api_key_env", label: "API key env", kind: "text", value: "DEEPSEEK_API_KEY", placeholder: "", options: [], required: true, secret: true, read_only: false, help: "" },
+      ],
+      runtime_options: [
+        { id: "thinking", label: "Reasoning", kind: "select", value: "disabled", placeholder: "", options: ["disabled", "enabled"], required: false, secret: false, read_only: false, help: "" },
+      ],
+      health_detail: "Ready for Chat selection.",
     },
     openai: {
       id: "openai",
-      display_name: "OpenAI / ChatGPT",
+      display_name: "ChatGPT / OpenAI API",
       kind: "llm_api",
+      description: "OpenAI Responses API engine.",
+      support_status: "supported",
+      config_status: "missing_secret",
+      auth_kind: "bearer",
+      base_url: "https://api.openai.com/v1",
+      api_key_env: "OPENAI_API_KEY",
       model: "gpt-5-nano",
+      enabled: true,
+      editable: true,
       active: false,
       api_key_configured: false,
-      status: "missing",
+      status: "missing_secret",
+      secret_env_vars: ["OPENAI_API_KEY"],
+      capabilities: ["chat", "responses", "graphiti_llm"],
+      model_options: ["gpt-5-nano"],
+      thinking_options: [],
+      config_fields: [
+        { id: "model", label: "Default model", kind: "text", value: "gpt-5-nano", placeholder: "", options: [], required: true, secret: false, read_only: false, help: "" },
+        { id: "base_url", label: "Base URL", kind: "text", value: "https://api.openai.com/v1", placeholder: "", options: [], required: true, secret: false, read_only: false, help: "" },
+        { id: "api_key_env", label: "API key env", kind: "text", value: "OPENAI_API_KEY", placeholder: "", options: [], required: true, secret: true, read_only: false, help: "" },
+      ],
+      runtime_options: [],
+      health_detail: "Configuration is saved, but the referenced API key environment variable is missing.",
     },
   },
   api_keys_configured: { deepseek: true, openai: false },
+  catalog_order: ["stub", "deepseek", "openai"],
   saved_paths: { ai_engines: ".aiteamos/ai_engines.json" },
 };
 
@@ -78,9 +133,11 @@ const memory = {
     graph_database: "neo4j",
     uri: "",
     user: "neo4j",
-    llm_provider: "openai",
+    llm_ai_engine: "openai",
+    llm_ai_engine_name: "ChatGPT / OpenAI API",
+    llm_api_key_env: "OPENAI_API_KEY",
     password_configured: false,
-    openai_api_key_configured: false,
+    llm_api_key_configured: false,
   },
   candidate_count: 2,
   approved_count: 1,
@@ -94,10 +151,11 @@ const graphitiSettings = {
   uri: "bolt://localhost:7687",
   user: "neo4j",
   group_id: "aiteamos",
-  llm_provider: "openai",
+  llm_ai_engine: "openai",
+  llm_ai_engine_name: "ChatGPT / OpenAI API",
+  llm_api_key_env: "OPENAI_API_KEY",
   password_configured: false,
-  openai_api_key_configured: false,
-  uses_shared_openai_key: false,
+  llm_api_key_configured: false,
   saved_paths: { settings: ".aiteamos/graphiti.json" },
   backend: memory.backend,
 };
@@ -268,20 +326,6 @@ const codeRepositoryStatus = {
   saved_paths: { registry: ".aiteamos/code_repositories.json" },
 };
 
-const secretsHealth = {
-  items: [
-    {
-      id: "deepseek_api_key",
-      scope: "ai_engine",
-      purpose: "Allows the DeepSeek AI Engine to call the remote API.",
-      env_vars: ["DEEPSEEK_API_KEY"],
-      required_for: "DeepSeek AI Engine",
-      configured: true,
-      how_to_configure: "Set DEEPSEEK_API_KEY before starting the API service.",
-    },
-  ],
-};
-
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -324,9 +368,6 @@ describe("SettingsPage", () => {
         if (url.endsWith("/code-repositories/status")) {
           return new Response(JSON.stringify(codeRepositoryStatus), { status: 200, headers: { "Content-Type": "application/json" } });
         }
-        if (url.endsWith("/settings/secrets-health")) {
-          return new Response(JSON.stringify(secretsHealth), { status: 200, headers: { "Content-Type": "application/json" } });
-        }
         return new Response("not found", { status: 404 });
       }),
     );
@@ -340,10 +381,12 @@ describe("SettingsPage", () => {
   it("renders AI Engine settings and configured secret state", async () => {
     render(<SettingsPage selectedSection="ai-engines" />);
 
-    expect(await screen.findByText("AI Engine Policy")).toBeTruthy();
-    expect(screen.getByLabelText("Active AI Engine")).toBeTruthy();
+    expect(await screen.findByText("AI Engines")).toBeTruthy();
+    expect(screen.getByText("Missing secrets")).toBeTruthy();
+    expect(screen.getByText("Engine Catalog")).toBeTruthy();
     expect(screen.getAllByText("DeepSeek").length).toBeGreaterThan(0);
-    expect(screen.getByText("Save DeepSeek")).toBeTruthy();
+    expect(screen.getByText("Save engine")).toBeTruthy();
+    expect(screen.getByLabelText("API key env")).toBeTruthy();
   });
 
   it("renders Ticket Backend settings", async () => {
@@ -367,9 +410,15 @@ describe("SettingsPage", () => {
   it("renders Code Repositories settings", async () => {
     render(<SettingsPage selectedSection="code-repositories" />);
 
-    expect(await screen.findByLabelText("Repository location")).toBeTruthy();
+    expect(await screen.findByText("Repository List")).toBeTruthy();
     expect(screen.getAllByText("Code Repositories").length).toBeGreaterThan(0);
     expect(screen.getAllByText("AITeamOS").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Add" }).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Config" }));
+
+    expect(await screen.findByLabelText("Repository location")).toBeTruthy();
+    expect(screen.getByText("Configure Repository")).toBeTruthy();
   });
 
   it("renders Memory Backend settings", async () => {
@@ -380,11 +429,4 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Save backend")).toBeTruthy();
   });
 
-  it("renders Secrets & Health as an env-var checklist", async () => {
-    render(<SettingsPage selectedSection="secrets-health" />);
-
-    expect((await screen.findAllByText("Secrets & Health")).length).toBeGreaterThan(0);
-    expect(screen.getByText("DEEPSEEK_API_KEY")).toBeTruthy();
-    expect(screen.getByText("System Health")).toBeTruthy();
-  });
 });

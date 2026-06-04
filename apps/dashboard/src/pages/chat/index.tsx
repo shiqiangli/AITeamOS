@@ -85,6 +85,10 @@ function defaultThreadIdForEmployee(employee: ChatEmployeeSummary | null): strin
   return employee.default_thread_id || `employee-${safeThreadComponent(employee.id)}-default`;
 }
 
+function isSelectableAiEngine(engine: ChatAiEngineRecord): boolean {
+  return (engine.support_status ?? "supported") === "supported";
+}
+
 function messageIdForConversation(message: ConversationMessage, index: number): string {
   return safeThreadComponent(`${message.run_id || "message"}-${message.role}-${index}`);
 }
@@ -300,6 +304,7 @@ function AiteamosThread({
   aiEngineReady,
   aiEngineSaving,
   onAiEngineChange,
+  onAiEngineThinkingChange,
   ticketKey,
   onTicketKeyChange,
 }: {
@@ -311,9 +316,13 @@ function AiteamosThread({
   aiEngineReady: boolean;
   aiEngineSaving: boolean;
   onAiEngineChange: (engineId: string) => void;
+  onAiEngineThinkingChange: (thinking: string) => void;
   ticketKey: string;
   onTicketKeyChange: (value: string) => void;
 }) {
+  const activeAiEngine = aiEngineRecords.find((engine) => engine.id === aiEngines?.active_engine) ?? aiEngineRecords[0] ?? null;
+  const thinkingOptions = activeAiEngine?.thinking_options ?? [];
+
   return (
     <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
       <ThreadPrimitive.Viewport className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
@@ -358,6 +367,23 @@ function AiteamosThread({
                 </Select>
               </div>
             </label>
+
+            {thinkingOptions.length > 0 && (
+              <label className="min-w-0 flex-[0_1_8rem]">
+                <span className="mb-1 block text-[10px] font-medium uppercase leading-none text-muted-foreground">Reasoning</span>
+                <Select
+                  aria-label="Reasoning for next reply"
+                  value={activeAiEngine?.thinking ?? thinkingOptions[0] ?? "disabled"}
+                  onChange={(event) => onAiEngineThinkingChange(event.target.value)}
+                  disabled={aiEngineSaving}
+                  className="h-9 text-xs"
+                >
+                  {thinkingOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </Select>
+              </label>
+            )}
 
             <label className="min-w-0 flex-[1_1_9rem]">
               <span className="mb-1 block text-[10px] font-medium uppercase leading-none text-muted-foreground">Ticket</span>
@@ -662,8 +688,12 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
     [capabilityRegistry, selectedEmployee],
   );
   const aiEngineRecords = useMemo(
-    () => Object.values(aiEngines?.engines ?? {}),
+    () => Object.values(aiEngines?.engines ?? {}).filter(isSelectableAiEngine),
     [aiEngines],
+  );
+  const activeAiEngineRecord = useMemo(
+    () => aiEngineRecords.find((engine) => engine.id === aiEngines?.active_engine) ?? null,
+    [aiEngineRecords, aiEngines],
   );
   const activeThreadId = threadId || defaultThreadIdForEmployee(selectedEmployee);
   const activeThread = useMemo(
@@ -838,8 +868,28 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
     }
   }
 
+  async function switchAiEngineThinking(nextThinking: string) {
+    const activeEngine = aiEngines?.active_engine;
+    if (!activeEngine || aiEngineSaving) return;
+    const current = aiEngines?.engines?.[activeEngine]?.thinking ?? "";
+    if (nextThinking === current) return;
+    setAiEngineSaving(true);
+    setError(null);
+    try {
+      setAiEngines(await updateChatAiEngine(activeEngine, { thinking: nextThinking }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update AI Engine reasoning");
+    } finally {
+      setAiEngineSaving(false);
+    }
+  }
+
   if (loading) return <LoadingState />;
-  const aiEngineReady = Boolean(aiEngines?.active_engine && aiEngines.active_engine !== "stub");
+  const aiEngineReady = Boolean(
+    aiEngines?.active_engine
+    && aiEngines.active_engine !== "stub"
+    && (activeAiEngineRecord?.config_status ?? activeAiEngineRecord?.status) === "configured",
+  );
   const runMetadataRecord = asRecord(runMetadata);
   const runAiEngine = asRecord(runMetadataRecord.ai_engine);
   const runEmployee = asRecord(runMetadataRecord.employee);
@@ -966,6 +1016,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
                 aiEngineReady={aiEngineReady}
                 aiEngineSaving={aiEngineSaving}
                 onAiEngineChange={(engineId) => void switchAiEngine(engineId)}
+                onAiEngineThinkingChange={(thinking) => void switchAiEngineThinking(thinking)}
                 ticketKey={ticketKey}
                 onTicketKeyChange={setTicketKey}
               />

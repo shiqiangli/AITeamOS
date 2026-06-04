@@ -8,6 +8,7 @@ export interface ChatEmployeeSummary {
   summary: string;
   skills: string[];
   ai_engine_mode: string;
+  default_ai_engine: string;
   preserve_provider_thread: boolean;
   default_thread_id: string;
 }
@@ -88,18 +89,47 @@ export interface ChatAiEngineSettings {
   fallback_on_error: boolean;
   engines: Record<string, ChatAiEngineRecord>;
   api_keys_configured: Record<string, boolean>;
+  catalog_order: string[];
   saved_paths: Record<string, string>;
+}
+
+export interface ChatAiEngineConfigField {
+  id: string;
+  label: string;
+  kind: string;
+  value?: string | boolean | null;
+  placeholder: string;
+  options: string[];
+  required: boolean;
+  secret: boolean;
+  read_only: boolean;
+  help: string;
 }
 
 export interface ChatAiEngineRecord {
   id: string;
   display_name: string;
   kind: string;
+  description: string;
+  support_status: string;
+  config_status: string;
+  auth_kind: string;
+  base_url?: string | null;
+  api_key_env?: string | null;
   model?: string | null;
   thinking?: string | null;
+  enabled: boolean;
+  editable: boolean;
   active: boolean;
   api_key_configured: boolean;
   status: string;
+  secret_env_vars: string[];
+  capabilities: string[];
+  model_options: string[];
+  thinking_options: string[];
+  config_fields: ChatAiEngineConfigField[];
+  runtime_options: ChatAiEngineConfigField[];
+  health_detail: string;
 }
 
 export interface ChatAiEngineSettingsRequest {
@@ -113,7 +143,14 @@ export interface ChatAiEngineSettingsRequest {
 export interface ChatAiEngineUpdateRequest {
   model?: string | null;
   thinking?: string | null;
+  base_url?: string | null;
+  api_key_env?: string | null;
+  enabled?: boolean | null;
   activate?: boolean;
+}
+
+export interface ChatEmployeeAiEngineUpdateRequest {
+  default_ai_engine: string;
 }
 
 export function listChatEmployees(): Promise<ChatEmployeeSummary[]> {
@@ -140,6 +177,16 @@ export function updateChatAiEngine(
   payload: ChatAiEngineUpdateRequest,
 ): Promise<ChatAiEngineSettings> {
   return apiRequest<ChatAiEngineSettings>(`/chat/ai-engines/${encodeURIComponent(engineId)}`, {
+    method: "PUT",
+    body: payload,
+  });
+}
+
+export function updateChatEmployeeAiEngine(
+  employeeId: string,
+  payload: ChatEmployeeAiEngineUpdateRequest,
+): Promise<ChatEmployeeSummary> {
+  return apiRequest<ChatEmployeeSummary>(`/chat/employees/${encodeURIComponent(employeeId)}/ai-engine`, {
     method: "PUT",
     body: payload,
   });

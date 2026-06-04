@@ -73,7 +73,7 @@ def test_graphiti_settings_are_file_backed_and_read_secrets_from_env(tmp_path, m
     assert initial.json()["password_configured"] is False
 
     monkeypatch.setenv("AITEAMOS_GRAPHITI_PASSWORD", "neo4j-test-password")
-    monkeypatch.setenv("AITEAMOS_GRAPHITI_OPENAI_API_KEY", "openai-test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
     updated = client.put(
         "/api/v1/memory/graphiti/settings",
         json={
@@ -82,14 +82,15 @@ def test_graphiti_settings_are_file_backed_and_read_secrets_from_env(tmp_path, m
             "uri": "bolt://localhost:7687",
             "user": "neo4j",
             "group_id": "aiteamos-test",
-            "llm_provider": "openai",
+            "llm_ai_engine": "openai",
         },
     )
     assert updated.status_code == 200
     payload = updated.json()
     assert payload["enabled"] is True
+    assert payload["llm_ai_engine"] == "openai"
     assert payload["password_configured"] is True
-    assert payload["openai_api_key_configured"] is True
+    assert payload["llm_api_key_configured"] is True
     assert payload["backend"]["graph_configured"] is True
     assert payload["backend"]["llm_configured"] is True
     assert payload["backend"]["status"] in {"ready", "package_missing"}
@@ -100,6 +101,7 @@ def test_graphiti_settings_are_file_backed_and_read_secrets_from_env(tmp_path, m
     settings_payload = json.loads(settings_file.read_text(encoding="utf-8"))
     assert settings_payload["uri"] == "bolt://localhost:7687"
     assert settings_payload["group_id"] == "aiteamos-test"
+    assert settings_payload["llm_ai_engine"] == "openai"
     assert "password" not in settings_payload
     assert "openai_api_key" not in settings_payload
     assert not (workspace / ".aiteamos" / "secrets.local.json").exists()

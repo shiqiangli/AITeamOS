@@ -13,9 +13,11 @@ export interface GraphitiBackendStatus {
   graph_database: string;
   uri: string;
   user: string;
-  llm_provider: string;
+  llm_ai_engine: string;
+  llm_ai_engine_name: string;
+  llm_api_key_env: string;
   password_configured: boolean;
-  openai_api_key_configured: boolean;
+  llm_api_key_configured: boolean;
 }
 
 export interface GraphitiSettingsResponse {
@@ -24,10 +26,11 @@ export interface GraphitiSettingsResponse {
   uri: string;
   user: string;
   group_id: string;
-  llm_provider: string;
+  llm_ai_engine: string;
+  llm_ai_engine_name: string;
+  llm_api_key_env: string;
   password_configured: boolean;
-  openai_api_key_configured: boolean;
-  uses_shared_openai_key: boolean;
+  llm_api_key_configured: boolean;
   saved_paths: Record<string, string>;
   backend: GraphitiBackendStatus;
 }
@@ -38,7 +41,7 @@ export interface GraphitiSettingsUpdateRequest {
   uri: string;
   user: string;
   group_id: string;
-  llm_provider: string;
+  llm_ai_engine: string;
 }
 
 export interface MemoryCandidate {

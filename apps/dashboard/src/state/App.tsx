@@ -13,6 +13,7 @@ import { ChatPage } from "../pages/chat";
 import { AssetsPage } from "../pages/assets";
 import { EmployeesPage } from "../pages/employees";
 import { SettingsPage } from "../pages/settings";
+import { SystemStatusPage } from "../pages/system-status";
 import { TicketsPage } from "../pages/tickets";
 
 /** Lightweight hook to fetch sidebar nav counts for Assets sub-items */
@@ -71,6 +72,8 @@ function PageBody({ route }: { route: RouteState }) {
       return <AssetsPage selectedArea={route.id} selectedDetail={route.detail} />;
     case "settings":
       return <SettingsPage selectedSection={route.id} />;
+    case "system-status":
+      return <SystemStatusPage />;
     default:
       return <NotFoundPage />;
   }

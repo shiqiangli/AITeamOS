@@ -44,6 +44,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
+from .ai_engine_catalog import AI_ENGINE_CATALOG, SUPPORTED_AI_ENGINE_IDS
 from .capability_service import local_chat_tool_ids, local_chat_tool_prompt, local_chat_tool_union
 from .knowledge_service import knowledge_snippets, search_knowledge_sync
 from .memory_service import propose_memory_from_chat_turn, recall_memory_snippets
@@ -142,6 +143,7 @@ class ChatEmployeeSummary(BaseModel):
     summary: str = ""
     skills: list[str] = Field(default_factory=list)
     ai_engine_mode: str = "external_or_file_stub"
+    default_ai_engine: str = "system"
     preserve_provider_thread: bool = True
     default_thread_id: str = ""
 
@@ -223,20 +225,51 @@ class ChatThreadActivateRequest(BaseModel):
     employee_id: str | None = None
 
 
+class ChatAiEngineConfigField(BaseModel):
+    id: str
+    label: str
+    kind: str = "text"
+    value: str | bool | None = None
+    placeholder: str = ""
+    options: list[str] = Field(default_factory=list)
+    required: bool = False
+    secret: bool = False
+    read_only: bool = False
+    help: str = ""
+
+
 class ChatAiEngineRecord(BaseModel):
     id: str
     display_name: str
     kind: str
+    description: str = ""
+    support_status: str = "supported"
+    config_status: str = "not_configured"
+    auth_kind: str = "none"
+    base_url: str | None = None
+    api_key_env: str | None = None
     model: str | None = None
     thinking: str | None = None
+    enabled: bool = True
+    editable: bool = True
     active: bool = False
     api_key_configured: bool = False
     status: str = "missing"
+    secret_env_vars: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    model_options: list[str] = Field(default_factory=list)
+    thinking_options: list[str] = Field(default_factory=list)
+    config_fields: list[ChatAiEngineConfigField] = Field(default_factory=list)
+    runtime_options: list[ChatAiEngineConfigField] = Field(default_factory=list)
+    health_detail: str = ""
 
 
 class ChatAiEngineUpdateRequest(BaseModel):
     model: str | None = None
     thinking: str | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
+    enabled: bool | None = None
     activate: bool = False
 
 
@@ -248,6 +281,7 @@ class ChatAiEngineSettings(BaseModel):
     fallback_on_error: bool = True
     engines: dict[str, ChatAiEngineRecord] = Field(default_factory=dict)
     api_keys_configured: dict[str, bool] = Field(default_factory=dict)
+    catalog_order: list[str] = Field(default_factory=list)
     saved_paths: dict[str, str] = Field(default_factory=dict)
 
 
@@ -257,6 +291,10 @@ class ChatAiEngineSettingsRequest(BaseModel):
     deepseek_thinking: str = "disabled"
     openai_model: str = "gpt-5-nano"
     fallback_on_error: bool = True
+
+
+class ChatEmployeeAiEngineUpdateRequest(BaseModel):
+    default_ai_engine: str = "system"
 
 
 class ChatToolPlan(BaseModel):
@@ -279,6 +317,7 @@ class ChatRunContext:
     request: ChatMessageRequest
     selected_profile: dict[str, Any]
     employee: ChatEmployeeSummary
+    selected_ai_engine: str
     thread_id: str
     run_id: str
     ticket_keys: list[str]
@@ -310,6 +349,7 @@ def _ai_engine_settings_path() -> Path:
     return _workspace_dir() / "ai_engines.json"
 
 
+
 def _read_json_file(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -325,13 +365,33 @@ def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
 
 def _normalize_ai_engine(value: str | None) -> str:
     engine = (value or "stub").strip().lower()
-    return engine if engine in {"stub", "deepseek", "openai"} else "stub"
+    return engine if engine in SUPPORTED_AI_ENGINE_IDS else "stub"
+
+
+def _normalize_employee_default_ai_engine(value: str | None) -> str:
+    engine = (value or "system").strip().lower()
+    if engine in {"", "active", "default", "global", "settings", "system_default"}:
+        return "system"
+    if engine in {"fallback", "file_stub", "file-stub"}:
+        return "stub"
+    return engine if engine in {"system", *SUPPORTED_AI_ENGINE_IDS} else "system"
+
+
+def _require_employee_default_ai_engine(value: str) -> str:
+    raw = (value or "").strip().lower()
+    engine = _normalize_employee_default_ai_engine(value)
+    allowed = {"", "active", "default", "global", "settings", "system", "system_default", "fallback", "file_stub", "file-stub", *SUPPORTED_AI_ENGINE_IDS}
+    if raw in allowed:
+        return engine
+    raise HTTPException(status_code=400, detail=f"Unsupported Employee default AI Engine: {value}")
 
 
 def _require_ai_engine(value: str) -> str:
     engine = (value or "").strip().lower()
-    if engine not in {"stub", "deepseek", "openai"}:
+    if engine not in AI_ENGINE_CATALOG:
         raise HTTPException(status_code=400, detail=f"Unsupported AI Engine: {value}")
+    if engine not in SUPPORTED_AI_ENGINE_IDS:
+        raise HTTPException(status_code=400, detail=f"AI Engine is not configurable yet: {value}")
     return engine
 
 
@@ -354,33 +414,63 @@ def _normalize_bool(value: Any, default: bool) -> bool:
     return bool(value)
 
 
+def _engine_file_config(engine_id: str, file_config: dict[str, Any]) -> dict[str, Any]:
+    engines = file_config.get("engines") if isinstance(file_config.get("engines"), dict) else {}
+    engine_config = engines.get(engine_id) if isinstance(engines.get(engine_id), dict) else {}
+    return dict(engine_config)
+
+
+def _engine_config(engine_id: str, file_config: dict[str, Any]) -> dict[str, Any]:
+    catalog = AI_ENGINE_CATALOG[engine_id]
+    engine_file_config = _engine_file_config(engine_id, file_config)
+    model = (
+        engine_file_config.get("model")
+        or file_config.get(f"{engine_id}_model")
+        or os.environ.get(f"AITEAMOS_{engine_id.upper().replace('-', '_')}_MODEL")
+        or catalog.get("default_model")
+        or ""
+    )
+    thinking = (
+        engine_file_config.get("thinking")
+        or file_config.get(f"{engine_id}_thinking")
+        or os.environ.get(f"AITEAMOS_{engine_id.upper().replace('-', '_')}_THINKING")
+        or catalog.get("default_thinking")
+        or ""
+    )
+    base_url = (
+        engine_file_config.get("base_url")
+        or file_config.get(f"{engine_id}_base_url")
+        or os.environ.get(f"AITEAMOS_{engine_id.upper().replace('-', '_')}_BASE_URL")
+        or catalog.get("default_base_url")
+        or ""
+    )
+    api_key_env = (
+        engine_file_config.get("api_key_env")
+        or file_config.get(f"{engine_id}_api_key_env")
+        or catalog.get("default_api_key_env")
+        or ""
+    )
+    return {
+        **engine_file_config,
+        "model": str(model),
+        "thinking": _normalize_thinking(str(thinking)) if engine_id == "deepseek" else str(thinking),
+        "base_url": str(base_url),
+        "api_key_env": str(api_key_env),
+        "enabled": _normalize_bool(engine_file_config.get("enabled"), True),
+    }
+
+
 def _ai_engine_config() -> dict[str, Any]:
     file_config = _read_json_file(_ai_engine_settings_path())
-    engines = file_config.get("engines") if isinstance(file_config.get("engines"), dict) else {}
-    deepseek_config = engines.get("deepseek") if isinstance(engines.get("deepseek"), dict) else {}
-    openai_config = engines.get("openai") if isinstance(engines.get("openai"), dict) else {}
+    engine_configs = {
+        engine_id: _engine_config(engine_id, file_config)
+        for engine_id in AI_ENGINE_CATALOG
+    }
     return {
         "active_engine": _normalize_ai_engine(file_config.get("active_engine") or os.environ.get("AITEAMOS_AI_ENGINE")),
-        "deepseek_model": str(
-            deepseek_config.get("model")
-            or file_config.get("deepseek_model")
-            or os.environ.get("AITEAMOS_DEEPSEEK_MODEL")
-            or "deepseek-v4-flash"
-        ),
-        "deepseek_thinking": _normalize_thinking(
-            str(
-                deepseek_config.get("thinking")
-                or file_config.get("deepseek_thinking")
-                or os.environ.get("AITEAMOS_DEEPSEEK_THINKING")
-                or "disabled"
-            )
-        ),
-        "openai_model": str(
-            openai_config.get("model")
-            or file_config.get("openai_model")
-            or os.environ.get("AITEAMOS_OPENAI_MODEL")
-            or "gpt-5-nano"
-        ),
+        "deepseek_model": str(engine_configs["deepseek"]["model"] or "deepseek-v4-flash"),
+        "deepseek_thinking": _normalize_thinking(str(engine_configs["deepseek"]["thinking"] or "disabled")),
+        "openai_model": str(engine_configs["openai"]["model"] or "gpt-5-nano"),
         "fallback_on_error": _normalize_bool(
             file_config.get(
                 "fallback_on_error",
@@ -388,64 +478,154 @@ def _ai_engine_config() -> dict[str, Any]:
             ),
             True,
         ),
+        "engine_configs": engine_configs,
     }
 
 
 def _ai_engine_secrets() -> dict[str, str]:
+    config = _ai_engine_config()
+    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
+
+    def env_value(engine_id: str) -> str:
+        engine_config = engine_configs.get(engine_id) if isinstance(engine_configs.get(engine_id), dict) else {}
+        env_name = str(engine_config.get("api_key_env") or AI_ENGINE_CATALOG[engine_id].get("default_api_key_env") or "")
+        return str(os.environ.get(env_name) or "") if env_name else ""
+
     return {
-        "deepseek_api_key": str(os.environ.get("DEEPSEEK_API_KEY") or ""),
-        "openai_api_key": str(os.environ.get("OPENAI_API_KEY") or ""),
+        "deepseek_api_key": env_value("deepseek"),
+        "openai_api_key": env_value("openai"),
     }
+
+
+def _secret_configured(engine_id: str, engine_config: dict[str, Any]) -> bool:
+    api_key_env = str(engine_config.get("api_key_env") or "")
+    if not api_key_env:
+        return True
+    return bool(os.environ.get(api_key_env))
+
+
+def _field_value(engine_config: dict[str, Any], field_id: str) -> str | bool | None:
+    if field_id == "enabled":
+        return bool(engine_config.get("enabled", True))
+    value = engine_config.get(field_id)
+    return str(value) if value is not None else ""
+
+
+def _config_fields(
+    *,
+    catalog: dict[str, Any],
+    engine_config: dict[str, Any],
+    editable: bool,
+    field_key: str,
+) -> list[ChatAiEngineConfigField]:
+    fields = catalog.get(field_key) if isinstance(catalog.get(field_key), list) else []
+    result: list[ChatAiEngineConfigField] = []
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+        field_id = str(field.get("id") or "")
+        if not field_id:
+            continue
+        result.append(
+            ChatAiEngineConfigField(
+                id=field_id,
+                label=str(field.get("label") or field_id.replace("_", " ").title()),
+                kind=str(field.get("kind") or "text"),
+                value=_field_value(engine_config, field_id),
+                placeholder=str(field.get("placeholder") or ""),
+                options=[str(option) for option in field.get("options", [])],
+                required=bool(field.get("required", False)),
+                secret=bool(field.get("secret", False)),
+                read_only=bool(field.get("read_only", False)) or not editable,
+                help=str(field.get("help") or ""),
+            )
+        )
+    return result
 
 
 def _ai_engine_records(config: dict[str, Any], secrets: dict[str, str]) -> dict[str, ChatAiEngineRecord]:
     active_engine = str(config["active_engine"])
-    deepseek_key_configured = bool(secrets["deepseek_api_key"])
-    openai_key_configured = bool(secrets["openai_api_key"])
-    return {
-        "stub": ChatAiEngineRecord(
-            id="stub",
-            display_name="File stub",
-            kind="local",
-            active=active_engine == "stub",
-            api_key_configured=True,
-            status="active" if active_engine == "stub" else "available",
-        ),
-        "deepseek": ChatAiEngineRecord(
-            id="deepseek",
-            display_name="DeepSeek",
-            kind="llm_api",
-            model=str(config["deepseek_model"]),
-            thinking=str(config["deepseek_thinking"]),
-            active=active_engine == "deepseek",
-            api_key_configured=deepseek_key_configured,
-            status="configured" if deepseek_key_configured else "missing",
-        ),
-        "openai": ChatAiEngineRecord(
-            id="openai",
-            display_name="OpenAI / ChatGPT",
-            kind="llm_api",
-            model=str(config["openai_model"]),
-            active=active_engine == "openai",
-            api_key_configured=openai_key_configured,
-            status="configured" if openai_key_configured else "missing",
-        ),
-    }
+    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
+    records: dict[str, ChatAiEngineRecord] = {}
+    for engine_id, catalog in AI_ENGINE_CATALOG.items():
+        engine_config = engine_configs.get(engine_id) if isinstance(engine_configs.get(engine_id), dict) else {}
+        support_status = str(catalog.get("support_status") or "planned")
+        editable = support_status == "supported"
+        api_key_configured = _secret_configured(engine_id, engine_config)
+        if support_status == "planned":
+            config_status = "planned"
+        elif support_status == "deprecated":
+            config_status = "deprecated"
+        elif api_key_configured:
+            config_status = "configured"
+        else:
+            config_status = "missing_secret"
+        secret_env_vars = [str(engine_config["api_key_env"])] if engine_config.get("api_key_env") else []
+        health_detail = {
+            "configured": "Ready for Chat selection.",
+            "missing_secret": "Configuration is saved, but the referenced API key environment variable is missing.",
+            "planned": "Catalog entry is visible for planning, but the adapter is not enabled yet.",
+            "deprecated": "Catalog entry is retained for existing installations but cannot be newly configured.",
+        }.get(config_status, "Status has not been checked.")
+        records[engine_id] = ChatAiEngineRecord(
+            id=engine_id,
+            display_name=str(catalog.get("display_name") or engine_id),
+            kind=str(catalog.get("kind") or "llm_api"),
+            description=str(catalog.get("description") or ""),
+            support_status=support_status,
+            config_status=config_status,
+            auth_kind=str(catalog.get("auth_kind") or "none"),
+            base_url=str(engine_config.get("base_url") or "") or None,
+            api_key_env=str(engine_config.get("api_key_env") or "") or None,
+            model=str(engine_config.get("model") or "") or None,
+            thinking=str(engine_config.get("thinking") or "") or None,
+            enabled=bool(engine_config.get("enabled", True)),
+            editable=editable,
+            active=active_engine == engine_id,
+            api_key_configured=api_key_configured,
+            status=config_status,
+            secret_env_vars=secret_env_vars,
+            capabilities=[str(capability) for capability in catalog.get("capabilities", [])],
+            model_options=[str(option) for option in catalog.get("model_options", [])],
+            thinking_options=[str(option) for option in catalog.get("thinking_options", [])],
+            config_fields=_config_fields(catalog=catalog, engine_config=engine_config, editable=editable, field_key="config_fields"),
+            runtime_options=_config_fields(catalog=catalog, engine_config=engine_config, editable=editable, field_key="runtime_options"),
+            health_detail=health_detail,
+        )
+    return records
 
 
 def _ai_engine_file_payload(config: dict[str, Any]) -> dict[str, Any]:
+    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
+    if "deepseek_model" in config or "deepseek_thinking" in config or "openai_model" in config:
+        engine_configs = dict(engine_configs)
+        engine_configs["deepseek"] = {
+            **dict(engine_configs.get("deepseek") or {}),
+            "model": str(config.get("deepseek_model") or "deepseek-v4-flash"),
+            "thinking": _normalize_thinking(str(config.get("deepseek_thinking") or "disabled")),
+        }
+        engine_configs["openai"] = {
+            **dict(engine_configs.get("openai") or {}),
+            "model": str(config.get("openai_model") or "gpt-5-nano"),
+        }
+
+    persisted_engines: dict[str, dict[str, Any]] = {}
+    for engine_id in AI_ENGINE_CATALOG:
+        if engine_id not in SUPPORTED_AI_ENGINE_IDS:
+            continue
+        engine_config = engine_configs.get(engine_id) if isinstance(engine_configs.get(engine_id), dict) else {}
+        persisted: dict[str, Any] = {}
+        for key in ("model", "thinking", "base_url", "api_key_env", "enabled", "command", "workspace", "profile"):
+            value = engine_config.get(key)
+            if value is not None and value != "":
+                persisted[key] = value
+        if persisted:
+            persisted_engines[engine_id] = persisted
+
     return {
         "active_engine": _normalize_ai_engine(str(config.get("active_engine"))),
         "fallback_on_error": bool(config.get("fallback_on_error", True)),
-        "engines": {
-            "deepseek": {
-                "model": str(config.get("deepseek_model") or "deepseek-v4-flash"),
-                "thinking": _normalize_thinking(str(config.get("deepseek_thinking") or "disabled")),
-            },
-            "openai": {
-                "model": str(config.get("openai_model") or "gpt-5-nano"),
-            },
-        },
+        "engines": persisted_engines,
         "updated_at": _now(),
     }
 
@@ -453,13 +633,15 @@ def _ai_engine_file_payload(config: dict[str, Any]) -> dict[str, Any]:
 def _ai_engine_settings_response() -> ChatAiEngineSettings:
     config = _ai_engine_config()
     secrets = _ai_engine_secrets()
+    records = _ai_engine_records(config, secrets)
     return ChatAiEngineSettings(
         **config,
-        engines=_ai_engine_records(config, secrets),
+        engines=records,
         api_keys_configured={
-            "deepseek": bool(secrets["deepseek_api_key"]),
-            "openai": bool(secrets["openai_api_key"]),
+            engine_id: record.api_key_configured
+            for engine_id, record in records.items()
         },
+        catalog_order=list(AI_ENGINE_CATALOG.keys()),
         saved_paths={
             "ai_engines": str(_ai_engine_settings_path().relative_to(_workspace_root())),
         },
@@ -528,6 +710,17 @@ def _normalize_employee_profile(profile: dict[str, Any], path: Path) -> dict[str
         normalized["ai_engine"] = ai_engine
         normalized["system"] = {"protected": True, "bootstrap": True}
 
+    kind = str(normalized.get("kind") or "ai")
+    ai_engine = normalized.get("ai_engine") if isinstance(normalized.get("ai_engine"), dict) else {}
+    ai_engine = dict(ai_engine)
+    ai_engine.setdefault("mode", "human" if kind == "human" else "external_or_file_stub")
+    ai_engine.setdefault("engine_identity", profile_id)
+    ai_engine.setdefault("preserve_provider_thread", True)
+    ai_engine["default_engine"] = _normalize_employee_default_ai_engine(
+        str(ai_engine.get("default_engine") or ai_engine.get("default_ai_engine") or "system")
+    )
+    normalized["ai_engine"] = ai_engine
+
     return normalized
 
 
@@ -581,6 +774,7 @@ def _default_clara_profile() -> dict[str, Any]:
         "ai_engine": {
             "mode": "external_or_file_stub",
             "engine_identity": CLARA_SYSTEM_EMPLOYEE_ID,
+            "default_engine": "system",
             "preserve_provider_thread": True,
         },
         "permissions": [
@@ -611,6 +805,7 @@ def _employee_summary(profile: dict[str, Any]) -> ChatEmployeeSummary:
         summary=str(profile.get("summary", "")),
         skills=[str(skill) for skill in profile.get("skills", [])],
         ai_engine_mode=str(ai_engine.get("mode", "external_or_file_stub")),
+        default_ai_engine=_normalize_employee_default_ai_engine(str(ai_engine.get("default_engine") or "system")),
         preserve_provider_thread=bool(ai_engine.get("preserve_provider_thread", True)),
         default_thread_id=_employee_default_thread_id(employee_id),
     )
@@ -978,7 +1173,7 @@ def _normalize_tool_plan(payload: dict[str, Any], *, source: str) -> ChatToolPla
 def _should_use_llm_tool_planner(context: ChatRunContext) -> bool:
     if not _TOOL_PLANNING_SIGNAL_RE.search(context.request.message):
         return False
-    if _active_ai_engine() != "deepseek":
+    if context.selected_ai_engine != "deepseek":
         return False
     return bool(_ai_engine_secrets()["deepseek_api_key"])
 
@@ -1055,7 +1250,7 @@ async def _call_deepseek_tool_planner(context: ChatRunContext) -> ChatToolPlan:
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            "https://api.deepseek.com/chat/completions",
+            f"{_deepseek_base_url()}/chat/completions",
             headers={
                 "Authorization": f"Bearer {_ai_engine_secrets()['deepseek_api_key']}",
                 "Content-Type": "application/json",
@@ -1247,6 +1442,7 @@ def _build_employee_profile(
         "ai_engine": {
             "mode": ai_engine_mode,
             "engine_identity": employee_id,
+            "default_engine": "system",
             "preserve_provider_thread": True,
         },
         "permissions": _default_permissions(kind, role),
@@ -3540,16 +3736,28 @@ def _find_skill(skill_id_or_name: str) -> ChatSkillSummary | None:
     return _skill_summary(path) if path.exists() else None
 
 
-def _openai_enabled() -> bool:
-    return _active_ai_engine() == "openai"
+def _openai_enabled(engine: str | None = None) -> bool:
+    return (engine or _active_ai_engine()) == "openai"
 
 
 def _active_ai_engine() -> str:
     return str(_ai_engine_config()["active_engine"])
 
 
+def _selected_ai_engine_for_employee(employee: ChatEmployeeSummary) -> str:
+    default_engine = _normalize_employee_default_ai_engine(employee.default_ai_engine)
+    return _active_ai_engine() if default_engine == "system" else default_engine
+
+
 def _openai_model() -> str:
     return str(_ai_engine_config()["openai_model"])
+
+
+def _openai_base_url() -> str:
+    config = _ai_engine_config()
+    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
+    openai_config = engine_configs.get("openai") if isinstance(engine_configs.get("openai"), dict) else {}
+    return str(openai_config.get("base_url") or "https://api.openai.com/v1").rstrip("/")
 
 
 def _openai_max_output_tokens() -> int:
@@ -3564,12 +3772,19 @@ def _openai_fallback_on_error() -> bool:
     return _ai_engine_fallback_on_error()
 
 
-def _deepseek_enabled() -> bool:
-    return _active_ai_engine() == "deepseek"
+def _deepseek_enabled(engine: str | None = None) -> bool:
+    return (engine or _active_ai_engine()) == "deepseek"
 
 
 def _deepseek_model() -> str:
     return str(_ai_engine_config()["deepseek_model"])
+
+
+def _deepseek_base_url() -> str:
+    config = _ai_engine_config()
+    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
+    deepseek_config = engine_configs.get("deepseek") if isinstance(engine_configs.get("deepseek"), dict) else {}
+    return str(deepseek_config.get("base_url") or "https://api.deepseek.com").rstrip("/")
 
 
 def _deepseek_max_tokens() -> int:
@@ -3658,6 +3873,7 @@ def _chat_completion_history(messages: list[ConversationMessage]) -> list[dict[s
 
 async def _call_openai_agent(
     *,
+    ai_engine_id: str,
     employee_profile: dict[str, Any],
     employee: ChatEmployeeSummary,
     message: str,
@@ -3667,7 +3883,7 @@ async def _call_openai_agent(
     provider_state: dict[str, Any],
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
     api_key = _ai_engine_secrets()["openai_api_key"]
-    if not _openai_enabled() or not api_key:
+    if not _openai_enabled(ai_engine_id) or not api_key:
         raise RuntimeError("OpenAI AI Engine is not enabled")
 
     request_body: dict[str, Any] = {
@@ -3689,7 +3905,7 @@ async def _call_openai_agent(
 
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.post(
-            "https://api.openai.com/v1/responses",
+            f"{_openai_base_url()}/responses",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -3733,6 +3949,7 @@ async def _call_openai_agent(
 
 async def _call_deepseek_agent(
     *,
+    ai_engine_id: str,
     employee_profile: dict[str, Any],
     employee: ChatEmployeeSummary,
     message: str,
@@ -3743,7 +3960,7 @@ async def _call_deepseek_agent(
     provider_state: dict[str, Any],
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
     api_key = _ai_engine_secrets()["deepseek_api_key"]
-    if not _deepseek_enabled() or not api_key:
+    if not _deepseek_enabled(ai_engine_id) or not api_key:
         raise RuntimeError("DeepSeek AI Engine is not enabled")
 
     request_body: dict[str, Any] = {
@@ -3769,7 +3986,7 @@ async def _call_deepseek_agent(
 
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.post(
-            "https://api.deepseek.com/chat/completions",
+            f"{_deepseek_base_url()}/chat/completions",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -3820,7 +4037,7 @@ async def _stream_deepseek_agent(
     context: ChatRunContext,
 ) -> AsyncIterator[tuple[str, str | dict[str, Any]]]:
     api_key = _ai_engine_secrets()["deepseek_api_key"]
-    if not _deepseek_enabled() or not api_key:
+    if not _deepseek_enabled(context.selected_ai_engine) or not api_key:
         raise RuntimeError("DeepSeek AI Engine is not enabled")
 
     request_body: dict[str, Any] = {
@@ -3853,7 +4070,7 @@ async def _stream_deepseek_agent(
     async with httpx.AsyncClient(timeout=60) as client:
         async with client.stream(
             "POST",
-            "https://api.deepseek.com/chat/completions",
+            f"{_deepseek_base_url()}/chat/completions",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -3998,7 +4215,7 @@ def _build_run_metadata(
 ) -> dict[str, Any]:
     tool_calls = _tool_calls_from_trace_events(trace_events)
     ai_engine_event = _ai_engine_event_metadata(trace_events)
-    selected_ai_engine = _active_ai_engine()
+    selected_ai_engine = context.selected_ai_engine
     if tool_calls:
         actual_ai_engine = "built_in_tool"
     elif ai_engine_event.get("event") == "ai_engine.stub.completed":
@@ -4017,6 +4234,7 @@ def _build_run_metadata(
         "ticket_keys": context.ticket_keys,
         "ai_engine": {
             "selected_ai_engine": selected_ai_engine,
+            "employee_default_ai_engine": context.employee.default_ai_engine,
             "actual_ai_engine": actual_ai_engine,
             "model": ai_engine_event.get("model") or _selected_ai_engine_model(selected_ai_engine),
             "provider_thread_id": final_provider_thread_id,
@@ -4048,7 +4266,7 @@ def _build_reply(
         f"{employee.display_name} received the request.\n\n"
         f"Role: {employee.role}\n"
         f"Ticket: {ticket_text}\n"
-        f"AI Engine: {employee.ai_engine_mode}; provider thread: {provider_thread_id}\n"
+        f"AI Engine: {employee.ai_engine_mode}; default: {employee.default_ai_engine}; provider thread: {provider_thread_id}\n"
         f"Context gate: {skill_text}; {memory_text}\n\n"
         "P0 file-backed run completed: I loaded the addressed employee profile, "
         "resolved the reusable provider thread mapping, captured the conversation, "
@@ -4068,6 +4286,7 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
         message=request.message,
     )
     employee = _employee_summary(selected)
+    selected_ai_engine = _selected_ai_engine_for_employee(employee)
 
     thread_id = request.thread_id or _employee_default_thread_id(employee.id)
     thread_id = _require_safe_id(thread_id, field="thread_id")
@@ -4098,7 +4317,12 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
         ChatTraceEvent(
             event="employee.selected",
             detail=f"Routed to {employee.display_name}.",
-            data={"employee_id": employee.id, "role": employee.role},
+            data={
+                "employee_id": employee.id,
+                "role": employee.role,
+                "default_ai_engine": employee.default_ai_engine,
+                "selected_ai_engine": selected_ai_engine,
+            },
         ),
         ChatTraceEvent(
             event="context.loaded",
@@ -4127,6 +4351,7 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
         request=request,
         selected_profile=selected,
         employee=employee,
+        selected_ai_engine=selected_ai_engine,
         thread_id=thread_id,
         run_id=run_id,
         ticket_keys=ticket_keys,
@@ -4190,7 +4415,8 @@ def _persist_chat_response(
                 "target_employee_id": context.employee.id,
                 "ticket_keys": context.ticket_keys,
                 "ai_engine": {
-                    "selected_ai_engine": _active_ai_engine(),
+                    "selected_ai_engine": context.selected_ai_engine,
+                    "employee_default_ai_engine": context.employee.default_ai_engine,
                 },
             }
         },
@@ -4368,6 +4594,28 @@ async def list_chat_employees() -> list[ChatEmployeeSummary]:
     return [_employee_summary(profile) for profile in _load_employees()]
 
 
+@router.put("/employees/{employee_id}/ai-engine", response_model=ChatEmployeeSummary)
+async def update_chat_employee_ai_engine(
+    employee_id: str,
+    request: ChatEmployeeAiEngineUpdateRequest,
+) -> ChatEmployeeSummary:
+    safe_employee_id = _require_safe_id(employee_id, field="employee_id")
+    found = _find_employee_profile(safe_employee_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    profile_path, profile = found
+    default_ai_engine = _require_employee_default_ai_engine(request.default_ai_engine)
+    ai_engine = profile.get("ai_engine") if isinstance(profile.get("ai_engine"), dict) else {}
+    ai_engine = dict(ai_engine)
+    ai_engine["default_engine"] = default_ai_engine
+    profile["ai_engine"] = ai_engine
+    profile["updated_at"] = _now()
+    normalized = _normalize_employee_profile(profile, profile_path)
+    _write_yaml(profile_path, normalized)
+    return _employee_summary(normalized)
+
+
 @router.get("/skills", response_model=list[ChatSkillSummary])
 async def list_chat_skills() -> list[ChatSkillSummary]:
     return sorted(_load_skills(), key=lambda skill: skill.id)
@@ -4380,12 +4628,21 @@ async def get_chat_ai_engines() -> ChatAiEngineSettings:
 
 @router.put("/ai-engines", response_model=ChatAiEngineSettings)
 async def update_chat_ai_engines(request: ChatAiEngineSettingsRequest) -> ChatAiEngineSettings:
-    ai_engine_config = {
+    current = _ai_engine_config()
+    engine_configs = dict(current.get("engine_configs") or {})
+    engine_configs["deepseek"] = {
+        **dict(engine_configs.get("deepseek") or {}),
+        "model": request.deepseek_model.strip() or "deepseek-v4-flash",
+        "thinking": _normalize_thinking(request.deepseek_thinking),
+    }
+    engine_configs["openai"] = {
+        **dict(engine_configs.get("openai") or {}),
+        "model": request.openai_model.strip() or "gpt-5-nano",
+    }
+    ai_engine_config: dict[str, Any] = {
         "active_engine": _normalize_ai_engine(request.active_engine),
-        "deepseek_model": request.deepseek_model.strip() or "deepseek-v4-flash",
-        "deepseek_thinking": _normalize_thinking(request.deepseek_thinking),
-        "openai_model": request.openai_model.strip() or "gpt-5-nano",
         "fallback_on_error": request.fallback_on_error,
+        "engine_configs": engine_configs,
     }
     _write_json_file(_ai_engine_settings_path(), _ai_engine_file_payload(ai_engine_config))
 
@@ -4400,17 +4657,30 @@ async def update_chat_ai_engine(
     engine = _require_ai_engine(engine_id)
     current = _ai_engine_config()
     next_config = dict(current)
+    engine_configs = dict(current.get("engine_configs") or {})
+    engine_config = dict(engine_configs.get(engine) or {})
 
     if request.activate:
         next_config["active_engine"] = engine
 
+    if request.model is not None:
+        engine_config["model"] = request.model.strip() or str(AI_ENGINE_CATALOG[engine].get("default_model") or "")
+    if request.thinking is not None and engine == "deepseek":
+        engine_config["thinking"] = _normalize_thinking(request.thinking)
+    if request.base_url is not None:
+        engine_config["base_url"] = request.base_url.strip() or str(AI_ENGINE_CATALOG[engine].get("default_base_url") or "")
+    if request.api_key_env is not None:
+        engine_config["api_key_env"] = request.api_key_env.strip() or str(AI_ENGINE_CATALOG[engine].get("default_api_key_env") or "")
+    if request.enabled is not None:
+        engine_config["enabled"] = bool(request.enabled)
+
+    engine_configs[engine] = engine_config
+    next_config["engine_configs"] = engine_configs
     if engine == "deepseek":
-        if request.model is not None:
-            next_config["deepseek_model"] = request.model.strip() or "deepseek-v4-flash"
-        if request.thinking is not None:
-            next_config["deepseek_thinking"] = _normalize_thinking(request.thinking)
-    elif engine == "openai" and request.model is not None:
-        next_config["openai_model"] = request.model.strip() or "gpt-5-nano"
+        next_config["deepseek_model"] = str(engine_config.get("model") or "deepseek-v4-flash")
+        next_config["deepseek_thinking"] = _normalize_thinking(str(engine_config.get("thinking") or "disabled"))
+    elif engine == "openai":
+        next_config["openai_model"] = str(engine_config.get("model") or "gpt-5-nano")
 
     _write_json_file(_ai_engine_settings_path(), _ai_engine_file_payload(next_config))
 
@@ -4667,10 +4937,11 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
     if local_tool_response is not None:
         return local_tool_response
 
-    ai_engine_id = _active_ai_engine()
+    ai_engine_id = context.selected_ai_engine
     try:
         if ai_engine_id == "deepseek":
             reply, provider_state, ai_engine_metadata = await _call_deepseek_agent(
+                ai_engine_id=ai_engine_id,
                 employee_profile=context.selected_profile,
                 employee=context.employee,
                 message=context.request.message,
@@ -4685,8 +4956,9 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
                 detail="Generated response through DeepSeek Chat Completions API.",
                 data=ai_engine_metadata,
             )
-        elif ai_engine_id == "openai" or _openai_enabled():
+        elif ai_engine_id == "openai":
             reply, provider_state, ai_engine_metadata = await _call_openai_agent(
+                ai_engine_id=ai_engine_id,
                 employee_profile=context.selected_profile,
                 employee=context.employee,
                 message=context.request.message,
@@ -4852,13 +5124,13 @@ async def _stream_chat_turn(
         if response is not None:
             yield "final", response
             return
-        if _active_ai_engine() == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
+        if context.selected_ai_engine == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
             async for event, payload in _stream_deepseek_agent(context):
                 yield event, payload
             return
 
-    if _active_ai_engine() == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
-        context = _prepare_chat_run(request)
+    context = _prepare_chat_run(request)
+    if context.selected_ai_engine == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
         async for event, payload in _stream_deepseek_agent(context):
             yield event, payload
         return
@@ -4940,7 +5212,7 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                 context = _prepare_chat_run(request)
                 response = await _maybe_complete_local_tool(context)
                 if response is None:
-                    if _active_ai_engine() == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
+                    if context.selected_ai_engine == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
                         yield _sse_payload(
                             "start",
                             {
@@ -4974,8 +5246,8 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                     yield _sse_payload("final", response.model_dump())
                     return
 
-            if _active_ai_engine() == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
-                context = _prepare_chat_run(request)
+            context = _prepare_chat_run(request)
+            if context.selected_ai_engine == "deepseek" and _ai_engine_secrets()["deepseek_api_key"]:
                 yield _sse_payload(
                     "start",
                     {

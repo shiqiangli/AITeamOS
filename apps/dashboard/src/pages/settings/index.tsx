@@ -17,19 +17,24 @@ import {
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Select } from "../../components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { ErrorState, LoadingState, Status } from "../../components/shared";
 import { ResizableDetailLayout } from "../../components/resizable-layout";
-import { getCapabilities, type CapabilityRegistryResponse } from "../../api/capabilities";
 import {
   getChatAiEngines,
-  listChatEmployees,
   updateChatAiEngine,
   updateChatAiEngines,
-  type ChatEmployeeSummary,
+  type ChatAiEngineConfigField,
+  type ChatAiEngineRecord,
   type ChatAiEngineSettings,
   type ChatAiEngineUpdateRequest,
 } from "../../api/chat";
-import { getKnowledgeStatus, type KnowledgeStatusResponse } from "../../api/knowledge";
 import {
   getGraphitiSettings,
   getMemoryStatus,
@@ -44,7 +49,6 @@ import {
   type ToolConnector,
   type ToolConnectorRegistryStatus,
 } from "../../api/toolConnectors";
-import { getSecretsHealth, type SecretsHealthResponse } from "../../api/settings";
 import {
   createCodeRepository,
   deleteCodeRepository,
@@ -63,14 +67,19 @@ import {
 } from "../../api/tickets";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "ai-engines" | "tool-connectors" | "code-repositories" | "ticket-backend" | "memory-backend" | "secrets-health";
+type SettingsSection = "ai-engines" | "tool-connectors" | "code-repositories" | "ticket-backend" | "memory-backend";
 
 type AiEngineForm = {
   activeEngine: string;
-  deepseekModel: string;
-  deepseekThinking: string;
-  openaiModel: string;
   fallbackOnError: boolean;
+};
+
+type AiEngineDraft = {
+  model: string;
+  thinking: string;
+  base_url: string;
+  api_key_env: string;
+  enabled: boolean;
 };
 
 type GraphitiForm = {
@@ -79,7 +88,7 @@ type GraphitiForm = {
   uri: string;
   user: string;
   groupId: string;
-  llmProvider: string;
+  llmAiEngine: string;
 };
 
 type TicketBackendForm = {
@@ -110,7 +119,6 @@ const SECTION_GROUPS: SettingsGroup[] = [
   { key: "code-repositories", label: "Code Repositories", icon: FolderGit2 },
   { key: "ticket-backend", label: "Ticket Backend", icon: ClipboardList },
   { key: "memory-backend", label: "Memory Backend", icon: Database },
-  { key: "secrets-health", label: "Secrets & Health", icon: KeyRound },
 ];
 
 const SECTION_DESCRIPTIONS: Record<SettingsSection, string> = {
@@ -119,14 +127,7 @@ const SECTION_DESCRIPTIONS: Record<SettingsSection, string> = {
   "code-repositories": "Product and regression repositories that ground code-aware work.",
   "ticket-backend": "Ticket source of truth and adapter targets for work ledgers.",
   "memory-backend": "Long-term memory backend configuration for approved memory assets.",
-  "secrets-health": "Read-only environment variable checks and runtime health signals.",
 };
-
-const PROVIDERS = [
-  { id: "stub", name: "File stub", kind: "local", description: "Offline deterministic fallback for development." },
-  { id: "deepseek", name: "DeepSeek", kind: "llm_api", description: "Chat Completions engine used for low-cost AI Employee testing." },
-  { id: "openai", name: "OpenAI / ChatGPT", kind: "llm_api", description: "Responses API engine for OpenAI-backed employees." },
-];
 
 function sectionFromRoute(value?: string | null): SettingsSection {
   return SECTION_GROUPS.some((g) => g.key === value) ? (value as SettingsSection) : "ai-engines";
@@ -135,11 +136,49 @@ function sectionFromRoute(value?: string | null): SettingsSection {
 function aiEnginesToForm(aiEngines: ChatAiEngineSettings): AiEngineForm {
   return {
     activeEngine: aiEngines.active_engine,
-    deepseekModel: aiEngines.deepseek_model,
-    deepseekThinking: aiEngines.deepseek_thinking,
-    openaiModel: aiEngines.openai_model,
     fallbackOnError: aiEngines.fallback_on_error,
   };
+}
+
+function aiEngineFieldValue(engine: ChatAiEngineRecord, fieldId: keyof AiEngineDraft): string | boolean {
+  if (fieldId === "enabled") return engine.enabled;
+  const field = engine.config_fields?.find((item) => item.id === fieldId);
+  const value = field?.value ?? engine[fieldId] ?? "";
+  return typeof value === "boolean" ? value : String(value);
+}
+
+function aiEnginesToDrafts(aiEngines: ChatAiEngineSettings): Record<string, AiEngineDraft> {
+  return Object.fromEntries(
+    orderedAiEngineRecords(aiEngines).map((engine) => [
+      engine.id,
+      {
+        model: String(aiEngineFieldValue(engine, "model")),
+        thinking: String(aiEngineFieldValue(engine, "thinking")),
+        base_url: String(aiEngineFieldValue(engine, "base_url")),
+        api_key_env: String(aiEngineFieldValue(engine, "api_key_env")),
+        enabled: Boolean(aiEngineFieldValue(engine, "enabled")),
+      },
+    ]),
+  );
+}
+
+function orderedAiEngineRecords(aiEngines: ChatAiEngineSettings | null): ChatAiEngineRecord[] {
+  const engines = aiEngines?.engines ?? {};
+  const ordered = (aiEngines?.catalog_order ?? [])
+    .map((engineId) => engines[engineId])
+    .filter((engine): engine is ChatAiEngineRecord => Boolean(engine));
+  const seen = new Set(ordered.map((engine) => engine.id));
+  return [
+    ...ordered,
+    ...Object.values(engines).filter((engine) => !seen.has(engine.id)),
+  ];
+}
+
+function graphitiCompatibleAiEngines(aiEngines: ChatAiEngineSettings | null): ChatAiEngineRecord[] {
+  return orderedAiEngineRecords(aiEngines).filter((engine) => (
+    engine.support_status === "supported"
+    && engine.capabilities.includes("graphiti_llm")
+  ));
 }
 
 function graphitiToForm(settings: GraphitiSettingsResponse): GraphitiForm {
@@ -149,7 +188,7 @@ function graphitiToForm(settings: GraphitiSettingsResponse): GraphitiForm {
     uri: settings.uri || "bolt://localhost:7687",
     user: settings.user || "neo4j",
     groupId: settings.group_id || "aiteamos",
-    llmProvider: settings.llm_provider || "openai",
+    llmAiEngine: settings.llm_ai_engine || "openai",
   };
 }
 
@@ -191,7 +230,7 @@ function statusVariant(status: string): "default" | "secondary" | "warning" | "s
     return "success";
   }
   if (status === "planned" || status === "held") return "warning";
-  if (status === "missing" || status === "failed" || status === "invalid") return "danger";
+  if (status === "missing" || status === "missing_secret" || status === "failed" || status === "invalid") return "danger";
   return "secondary";
 }
 
@@ -277,50 +316,289 @@ function EmptyDetail({ children }: { children: ReactNode }) {
   return <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{children}</div>;
 }
 
-function AiEnginesSection({
-  form,
-  aiEngines,
-  saving,
-  setForm,
-  onPolicySubmit,
-  onEngineSubmit,
+function SummaryMetric({
+  label,
+  tone,
+  value,
 }: {
-  form: AiEngineForm;
-  aiEngines: ChatAiEngineSettings | null;
-  saving: boolean;
-  setForm: Dispatch<SetStateAction<AiEngineForm>>;
-  onPolicySubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onEngineSubmit: (engineId: string, payload: ChatAiEngineUpdateRequest) => void;
+  label: string;
+  tone?: "ok" | "warn";
+  value: ReactNode;
 }) {
-  const deepseek = aiEngines?.engines?.deepseek;
-  const openai = aiEngines?.engines?.openai;
-  const stub = aiEngines?.engines?.stub;
+  const toneClass =
+    tone === "ok"
+      ? "text-green-600"
+      : tone === "warn"
+      ? "text-orange-500"
+      : "text-foreground";
+  return (
+    <div className="min-w-0 rounded-md border bg-card px-3 py-2">
+      <div className="text-[10px] font-medium uppercase text-muted-foreground">{label}</div>
+      <div className={cn("mt-0.5 truncate text-sm font-semibold", toneClass)}>{value}</div>
+    </div>
+  );
+}
+
+function updateAiEngineDraft(
+  setDrafts: Dispatch<SetStateAction<Record<string, AiEngineDraft>>>,
+  engineId: string,
+  fieldId: keyof AiEngineDraft,
+  value: string | boolean,
+) {
+  setDrafts((current) => {
+    const currentDraft = current[engineId] ?? {
+      model: "",
+      thinking: "",
+      base_url: "",
+      api_key_env: "",
+      enabled: true,
+    };
+    return {
+      ...current,
+      [engineId]: {
+        ...currentDraft,
+        [fieldId]: value,
+      },
+    };
+  });
+}
+
+function aiEngineUpdatePayload(draft: AiEngineDraft | undefined): ChatAiEngineUpdateRequest {
+  return {
+    model: draft?.model ?? "",
+    thinking: draft?.thinking ?? "",
+    base_url: draft?.base_url ?? "",
+    api_key_env: draft?.api_key_env ?? "",
+    enabled: draft?.enabled ?? true,
+  };
+}
+
+function AiEngineFieldControl({
+  draft,
+  engine,
+  field,
+  onChange,
+}: {
+  draft: AiEngineDraft;
+  engine: ChatAiEngineRecord;
+  field: ChatAiEngineConfigField;
+  onChange: (fieldId: keyof AiEngineDraft, value: string | boolean) => void;
+}) {
+  const fieldId = field.id as keyof AiEngineDraft;
+  const disabled = field.read_only || !engine.editable;
+  const value = field.id in draft ? draft[fieldId] : field.value;
+
+  if (field.kind === "select") {
+    return (
+      <label className="block space-y-1">
+        <span className="text-xs uppercase text-muted-foreground">{field.label}</span>
+        <Select
+          aria-label={field.label}
+          value={String(value ?? "")}
+          disabled={disabled}
+          onChange={(event) => onChange(fieldId, event.target.value)}
+        >
+          {(field.options ?? []).map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </Select>
+      </label>
+    );
+  }
+
+  if (field.kind === "toggle") {
+    return (
+      <label className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
+        <span>{field.label}</span>
+        <input
+          aria-label={field.label}
+          type="checkbox"
+          checked={Boolean(value)}
+          disabled={disabled}
+          onChange={(event) => onChange(fieldId, event.target.checked)}
+          className="h-4 w-4"
+        />
+      </label>
+    );
+  }
+
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs uppercase text-muted-foreground">{field.label}</span>
+      <input
+        aria-label={field.label}
+        value={String(value ?? "")}
+        disabled={disabled}
+        onChange={(event) => onChange(fieldId, event.target.value)}
+        placeholder={field.placeholder}
+        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm disabled:bg-muted disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+      {field.help && <span className="text-xs text-muted-foreground">{field.help}</span>}
+    </label>
+  );
+}
+
+function AiEngineDetailPanel({
+  draft,
+  engine,
+  saving,
+  setDrafts,
+  onActivate,
+  onSave,
+}: {
+  draft: AiEngineDraft;
+  engine: ChatAiEngineRecord | null;
+  saving: boolean;
+  setDrafts: Dispatch<SetStateAction<Record<string, AiEngineDraft>>>;
+  onActivate: (engineId: string) => void;
+  onSave: (engineId: string) => void;
+}) {
+  if (!engine) return <EmptyDetail>Select an AI Engine to inspect its configuration.</EmptyDetail>;
+  const supportStatus = engine.support_status ?? "supported";
+  const configStatus = engine.config_status ?? engine.status;
+  const editable = (engine.editable ?? true) && supportStatus === "supported";
+  const configFields = engine.config_fields ?? [];
+  const capabilities = engine.capabilities ?? [];
+  const secretEnvVars = engine.secret_env_vars ?? (engine.api_key_env ? [engine.api_key_env] : []);
 
   return (
     <div className="space-y-4">
-      <section className="rounded-md border bg-background">
-        <div className="border-b px-4 py-3">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">AI Engine Policy</h3>
+      <DetailPanel title="Engine Configuration" icon={SlidersHorizontal}>
+        <div className="space-y-4">
+          <div>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold">{engine.display_name}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">{engine.description}</p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                {engine.active && <Badge variant="success">active</Badge>}
+                <Badge variant="outline">{engine.kind}</Badge>
+                <Badge variant={statusVariant(supportStatus)}>{supportStatus}</Badge>
+                <Badge variant={statusVariant(configStatus)}>{configStatus.replace(/_/g, " ")}</Badge>
+              </div>
+            </div>
+            <div className="mt-3 rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
+              {engine.health_detail || "Status has not been checked yet."}
+            </div>
           </div>
-        </div>
-        <form onSubmit={onPolicySubmit} className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
-          <div className="grid gap-4 md:grid-cols-2">
-          <label className="block space-y-1">
-            <span className="text-xs uppercase text-muted-foreground">Active engine</span>
-            <Select
-              aria-label="Active AI Engine"
-              value={form.activeEngine}
-              onChange={(event) => setForm((current) => ({ ...current, activeEngine: event.target.value }))}
-            >
-              <option value="stub">File stub</option>
-              <option value="deepseek">DeepSeek</option>
-              <option value="openai">OpenAI</option>
-            </Select>
-          </label>
 
-            <label className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+            <Status label="Auth" value={engine.auth_kind} />
+            <Status label="Secret" value={engine.api_key_configured ? "configured" : "missing"} tone={engine.api_key_configured ? "ok" : "warn"} />
+          </div>
+
+          {configFields.length > 0 ? (
+            <form
+              className="space-y-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (editable) onSave(engine.id);
+              }}
+            >
+              {configFields.map((field) => (
+                <AiEngineFieldControl
+                  key={field.id}
+                  draft={draft}
+                  engine={engine}
+                  field={field}
+                  onChange={(fieldId, value) => updateAiEngineDraft(setDrafts, engine.id, fieldId, value)}
+                />
+              ))}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button type="submit" disabled={saving || !editable}>
+                  <Save className="h-4 w-4" />
+                  Save engine
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={saving || !editable || engine.active}
+                  onClick={() => onActivate(engine.id)}
+                >
+                  {engine.active ? "Active" : "Set active"}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="space-y-3">
+              <EmptyDetail>This engine does not need provider configuration.</EmptyDetail>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving || !editable || engine.active}
+                onClick={() => onActivate(engine.id)}
+              >
+                {engine.active ? "Active" : "Set active"}
+              </Button>
+            </div>
+          )}
+        </div>
+      </DetailPanel>
+
+      <DetailPanel title="Capabilities" icon={Activity}>
+        <div className="flex flex-wrap gap-2">
+          {capabilities.length === 0 ? (
+            <Badge variant="secondary">none</Badge>
+          ) : capabilities.map((capability) => (
+            <Badge key={capability} variant="outline">{capability}</Badge>
+          ))}
+        </div>
+      </DetailPanel>
+
+      <DetailPanel title="Secret Reference" icon={KeyRound}>
+        <div className="space-y-3">
+          {secretEnvVars.length === 0 ? (
+            <EmptyDetail>No API key environment variable is required.</EmptyDetail>
+          ) : secretEnvVars.map((envVar) => (
+            <Status key={envVar} label={envVar} value={engine.api_key_configured ? "configured" : "missing"} tone={engine.api_key_configured ? "ok" : "warn"} />
+          ))}
+        </div>
+      </DetailPanel>
+    </div>
+  );
+}
+
+function AiEnginesSection({
+  detail,
+  form,
+  aiEngines,
+  selectedId,
+  saving,
+  setForm,
+  onSelect,
+  onPolicySubmit,
+  onActivate,
+}: {
+  detail: ReactNode;
+  form: AiEngineForm;
+  aiEngines: ChatAiEngineSettings | null;
+  selectedId: string;
+  saving: boolean;
+  setForm: Dispatch<SetStateAction<AiEngineForm>>;
+  onPolicySubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSelect: (engineId: string) => void;
+  onActivate: (engineId: string) => void;
+}) {
+  const engines = orderedAiEngineRecords(aiEngines);
+  const configuredCount = engines.filter((engine) => engine.config_status === "configured").length;
+  const missingSecretCount = engines.filter((engine) => (engine.config_status ?? engine.status) === "missing_secret").length;
+  const plannedCount = engines.filter((engine) => engine.support_status === "planned").length;
+  const activeEngineName = aiEngines?.engines?.[form.activeEngine]?.display_name ?? form.activeEngine;
+
+  return (
+    <div className="space-y-3">
+      <section className="sticky top-0 z-20 rounded-md border bg-background/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85">
+        <form onSubmit={onPolicySubmit} className="grid gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <SummaryMetric label="Active" value={activeEngineName} tone={form.activeEngine === "stub" ? "warn" : "ok"} />
+            <SummaryMetric label="Configured" value={configuredCount} tone={configuredCount > 1 ? "ok" : "warn"} />
+            <SummaryMetric label="Missing secrets" value={missingSecretCount} tone={missingSecretCount === 0 ? "ok" : "warn"} />
+            <SummaryMetric label="Planned" value={plannedCount} />
+            <SummaryMetric label="Fallback" value={form.fallbackOnError ? "enabled" : "disabled"} />
+          </div>
+          <div className="flex min-w-[13rem] flex-wrap items-center gap-2 xl:justify-end">
+            <label className="flex h-9 items-center justify-between gap-3 rounded-md border px-3 text-sm">
               <span>Fallback on engine error</span>
               <input
                 aria-label="Fallback on error"
@@ -330,142 +608,85 @@ function AiEnginesSection({
                 className="h-4 w-4"
               />
             </label>
-          </div>
-          <aside className="space-y-3">
-            <Status label="Active" value={aiEngines?.active_engine ?? "-"} />
-            <Button type="submit" disabled={saving} className="w-full">
+            <Button type="submit" size="sm" disabled={saving}>
               <Save className="h-4 w-4" />
-              {saving ? "Saving" : "Save policy"}
+              Save policy
             </Button>
-          </aside>
+          </div>
         </form>
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <section className={cn("rounded-md border bg-background p-4", stub?.active && "border-primary bg-primary/10")}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold">File stub</h3>
-              <p className="mt-1 text-sm text-muted-foreground">Local deterministic fallback for offline development.</p>
-            </div>
-            <Badge variant={statusVariant(stub?.active ? "active" : "available")}>{stub?.active ? "active" : "available"}</Badge>
+      <div className="grid min-h-[26rem] gap-3 xl:h-[calc(100vh-20rem)] xl:grid-cols-[minmax(20rem,0.95fr)_minmax(24rem,1.05fr)]">
+        <section className="flex min-h-0 min-w-0 flex-col rounded-md border bg-background">
+          <div className="shrink-0 border-b px-3 py-2">
+            <h3 className="text-sm font-semibold">Engine Catalog</h3>
           </div>
-          <Button
-            type="button"
-            variant={stub?.active ? "secondary" : "outline"}
-            disabled={saving || stub?.active}
-            className="mt-4 w-full"
-            onClick={() => onEngineSubmit("stub", { activate: true })}
-          >
-            {stub?.active ? "Active" : "Set active"}
-          </Button>
+          <div className="min-h-0 flex-1 divide-y overflow-y-auto">
+            {engines.map((engine) => {
+              const selected = selectedId === engine.id;
+              const supportStatus = engine.support_status ?? "supported";
+              const disabled = supportStatus !== "supported";
+              const capabilities = engine.capabilities ?? [];
+              return (
+                <div
+                  key={engine.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onSelect(engine.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") onSelect(engine.id);
+                  }}
+                  className={cn(
+                    "grid w-full cursor-pointer gap-2 px-3 py-2.5 text-left transition-colors",
+                    selected ? "bg-primary/10" : "hover:bg-muted/60",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{engine.display_name}</span>
+                        {engine.active && <Badge variant="success">active</Badge>}
+                      </div>
+                      <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{engine.description}</div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                      <Badge variant="outline">{engine.kind}</Badge>
+                      <Badge variant={statusVariant(supportStatus)}>{supportStatus}</Badge>
+                      <Badge variant={statusVariant(engine.config_status ?? engine.status)}>{(engine.config_status ?? engine.status).replace(/_/g, " ")}</Badge>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {capabilities.slice(0, 3).map((capability) => (
+                      <Badge key={capability} variant="secondary">{capability}</Badge>
+                    ))}
+                    {capabilities.length > 3 && <Badge variant="secondary">+{capabilities.length - 3}</Badge>}
+                    <div className="ml-auto">
+                      {supportStatus === "supported" && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={engine.active ? "secondary" : "outline"}
+                          disabled={saving || engine.active}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onActivate(engine.id);
+                          }}
+                        >
+                          {engine.active ? "Active" : "Set active"}
+                        </Button>
+                      )}
+                      {disabled && <Badge variant="outline">read only</Badge>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </section>
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onEngineSubmit("deepseek", {
-              model: form.deepseekModel,
-              thinking: form.deepseekThinking,
-            });
-          }}
-          className={cn("rounded-md border bg-background p-4", deepseek?.active && "border-primary bg-primary/10")}
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold">DeepSeek</h3>
-              <p className="mt-1 text-sm text-muted-foreground">Low-cost LLM API engine for development and Clara chat testing.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {deepseek?.active && <Badge variant="success">active</Badge>}
-              <Badge variant={statusVariant(deepseek?.status ?? "missing")}>{deepseek?.status ?? "missing"}</Badge>
-            </div>
-          </div>
-          <div className="mt-4 space-y-3">
-            <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Model</span>
-              <input
-                aria-label="DeepSeek model"
-                value={form.deepseekModel}
-                onChange={(event) => setForm((current) => ({ ...current, deepseekModel: event.target.value }))}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Thinking</span>
-              <Select
-                aria-label="DeepSeek thinking"
-                value={form.deepseekThinking}
-                onChange={(event) => setForm((current) => ({ ...current, deepseekThinking: event.target.value }))}
-              >
-                <option value="disabled">Disabled</option>
-                <option value="enabled">Enabled</option>
-              </Select>
-            </label>
-            <Status label="DEEPSEEK_API_KEY" value={deepseek?.api_key_configured ? "configured" : "missing"} tone={deepseek?.api_key_configured ? "ok" : "warn"} />
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button type="submit" disabled={saving}>
-              <Save className="h-4 w-4" />
-              Save DeepSeek
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={saving || deepseek?.active}
-              onClick={() => onEngineSubmit("deepseek", { activate: true })}
-            >
-              {deepseek?.active ? "Active" : "Set active"}
-            </Button>
-          </div>
-        </form>
-
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onEngineSubmit("openai", {
-              model: form.openaiModel,
-            });
-          }}
-          className={cn("rounded-md border bg-background p-4", openai?.active && "border-primary bg-primary/10")}
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold">OpenAI / ChatGPT</h3>
-              <p className="mt-1 text-sm text-muted-foreground">OpenAI-backed AI Engine for ChatGPT/OpenAI execution.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {openai?.active && <Badge variant="success">active</Badge>}
-              <Badge variant={statusVariant(openai?.status ?? "missing")}>{openai?.status ?? "missing"}</Badge>
-            </div>
-          </div>
-          <div className="mt-4 space-y-3">
-            <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Model</span>
-              <input
-                aria-label="OpenAI model"
-                value={form.openaiModel}
-                onChange={(event) => setForm((current) => ({ ...current, openaiModel: event.target.value }))}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
-            <Status label="OPENAI_API_KEY" value={openai?.api_key_configured ? "configured" : "missing"} tone={openai?.api_key_configured ? "ok" : "warn"} />
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button type="submit" disabled={saving}>
-              <Save className="h-4 w-4" />
-              Save OpenAI
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={saving || openai?.active}
-              onClick={() => onEngineSubmit("openai", { activate: true })}
-            >
-              {openai?.active ? "Active" : "Set active"}
-            </Button>
-          </div>
-        </form>
+        <aside className="min-h-0 min-w-0 space-y-3 overflow-y-auto pr-1">
+          {detail}
+        </aside>
       </div>
     </div>
   );
@@ -556,37 +777,80 @@ function TicketBackendSection({
 }
 
 function CodeRepositoriesSection({
+  dialogOpen,
   form,
   repositories,
+  repositoryStatus,
   saving,
   selectedId,
+  setDialogOpen,
   setForm,
   onDelete,
   onNew,
   onSelect,
   onSubmit,
 }: {
+  dialogOpen: boolean;
   form: RepositoryForm;
   repositories: CodeRepository[];
+  repositoryStatus: CodeRepositoryStatus | null;
   saving: boolean;
   selectedId: string;
+  setDialogOpen: Dispatch<SetStateAction<boolean>>;
   setForm: Dispatch<SetStateAction<RepositoryForm>>;
   onDelete: (repoId: string) => void;
   onNew: () => void;
   onSelect: (repository: CodeRepository) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const selectedRepository = repositories.find((repository) => repository.id === selectedId) ?? null;
+  const enabledCount = repositoryStatus?.enabled_count ?? repositories.filter((repository) => repository.enabled).length;
+  const readyCount = repositoryStatus?.ready_count ?? repositories.filter((repository) => repository.status === "ready").length;
+  const localCount = repositoryStatus?.local_count ?? repositories.filter((repository) => repository.provider === "local").length;
+  const remoteCount = repositoryStatus?.remote_count ?? Math.max(repositories.length - localCount, 0);
+
+  function openNewRepository() {
+    onNew();
+    setDialogOpen(true);
+  }
+
+  function openRepositoryConfig(repository: CodeRepository) {
+    onSelect(repository);
+    setDialogOpen(true);
+  }
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+    <div className="space-y-3">
+      <section className="sticky top-0 z-20 rounded-md border bg-background/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85">
+        <div className="grid gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <SummaryMetric label="Repositories" value={repositoryStatus?.repository_count ?? repositories.length} />
+            <SummaryMetric label="Enabled" value={enabledCount} tone={enabledCount > 0 ? "ok" : "warn"} />
+            <SummaryMetric label="Ready" value={readyCount} tone={readyCount > 0 ? "ok" : "warn"} />
+            <SummaryMetric label="Local" value={localCount} />
+            <SummaryMetric label="Remote" value={remoteCount} />
+          </div>
+          <div className="flex items-center justify-end">
+            <Button type="button" size="sm" onClick={openNewRepository}>
+              <Plus className="h-4 w-4" />
+              Add
+            </Button>
+          </div>
+        </div>
+      </section>
+
       <section className="rounded-md border bg-background">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-          <div className="flex items-center gap-2">
-            <FolderGit2 className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Code Repositories</h3>
+          <div>
+            <div className="flex items-center gap-2">
+              <FolderGit2 className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold">Repository List</h3>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">Code context mappings used by Clara and Employees when creating or executing Tickets.</p>
           </div>
-          <Button type="button" size="sm" variant="outline" onClick={onNew}>
+          <Button type="button" size="sm" variant="outline" onClick={openNewRepository}>
             <Plus className="h-4 w-4" />
-            New
+            Add
           </Button>
         </div>
 
@@ -597,16 +861,14 @@ function CodeRepositoriesSection({
         ) : (
           <div className="divide-y">
             {repositories.map((repository) => (
-              <button
+              <div
                 key={repository.id}
-                type="button"
-                onClick={() => onSelect(repository)}
                 className={cn(
-                  "grid w-full gap-2 px-4 py-3 text-left text-sm transition-colors",
+                  "grid gap-3 px-4 py-3 text-sm transition-colors",
                   selectedId === repository.id ? "bg-primary/10" : "hover:bg-muted/60",
                 )}
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-medium">{repository.name}</div>
                     <div className="mt-1 truncate text-xs text-muted-foreground">{repository.location}</div>
@@ -621,18 +883,38 @@ function CodeRepositoriesSection({
                   <span className="truncate">Workspace: {repository.plane_workspace_slug || "-"}</span>
                   <span className="truncate">Project: {repository.plane_project_id || "-"}</span>
                 </div>
-              </button>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span>Git: {repository.git_detected ? "detected" : "not detected"}</span>
+                    <span>Enabled: {repository.enabled ? "yes" : "no"}</span>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => openRepositoryConfig(repository)}>
+                      <Settings className="h-4 w-4" />
+                      Config
+                    </Button>
+                    <Button type="button" size="sm" variant="danger" disabled={saving} onClick={() => onDelete(repository.id)}>
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         )}
       </section>
 
-      <aside className="space-y-4">
-        <section className="rounded-md border bg-background p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <GitBranch className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">{selectedId ? "Edit Repository" : "Add Repository"}</h3>
-          </div>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{selectedId ? "Configure Repository" : "Add Repository"}</DialogTitle>
+            <DialogDescription>
+              {selectedRepository
+                ? "Update the code context mapping used by Tickets and Employee repo tools."
+                : "Add a local path or Git URL that AITeamOS can attach to Ticket flow."}
+            </DialogDescription>
+          </DialogHeader>
           <form onSubmit={onSubmit} className="space-y-3">
             <label className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
               <span>Enabled</span>
@@ -725,17 +1007,13 @@ function CodeRepositoriesSection({
                 <Save className="h-4 w-4" />
                 {saving ? "Saving" : selectedId ? "Save repository" : "Add repository"}
               </Button>
-              {selectedId && (
-                <Button type="button" variant="danger" disabled={saving} onClick={() => onDelete(selectedId)}>
-                  <Trash2 className="h-4 w-4" />
-                  Delete
-                </Button>
-              )}
+              <Button type="button" variant="outline" disabled={saving} onClick={() => setDialogOpen(false)}>
+                Cancel
+              </Button>
             </div>
           </form>
-        </section>
-
-      </aside>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -743,97 +1021,153 @@ function CodeRepositoriesSection({
 function MemoryBackendSection({
   form,
   graphiti,
+  aiEngines,
+  memory,
   saving,
   setForm,
   onSubmit,
 }: {
   form: GraphitiForm;
   graphiti: GraphitiSettingsResponse | null;
+  aiEngines: ChatAiEngineSettings | null;
+  memory: MemoryStatusResponse | null;
   saving: boolean;
   setForm: Dispatch<SetStateAction<GraphitiForm>>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const backendStatus = graphiti?.backend.status ?? memory?.backend.status ?? "unknown";
+  const graphConfigured = graphiti?.backend.graph_configured ?? memory?.backend.graph_configured ?? false;
+  const llmConfigured = graphiti?.backend.llm_configured ?? memory?.backend.llm_configured ?? false;
+  const compatibleEngines = graphitiCompatibleAiEngines(aiEngines);
+  const selectedCompatibleEngine = compatibleEngines.find((engine) => engine.id === form.llmAiEngine) ?? null;
+  const selectedEngineLabel = selectedCompatibleEngine?.display_name ?? graphiti?.llm_ai_engine_name ?? form.llmAiEngine;
+  const selectedEngineMissing = form.llmAiEngine && compatibleEngines.length > 0 && !selectedCompatibleEngine;
+  const savedPaths = {
+    ...(memory?.saved_paths ?? {}),
+    ...(graphiti?.saved_paths ?? {}),
+  };
+
   return (
-    <section className="rounded-md border bg-background">
-      <div className="border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Database className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">Memory Backend</h3>
+    <div className="space-y-3">
+      <section className="rounded-md border bg-background">
+        <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-5">
+          <SummaryMetric label="Graphiti" value={compactStatus(backendStatus)} tone={backendStatus === "ready" ? "ok" : "warn"} />
+          <SummaryMetric label="Graph DB" value={graphConfigured ? "set" : "missing"} tone={graphConfigured ? "ok" : "warn"} />
+          <SummaryMetric label="AI key" value={llmConfigured ? "set" : "missing"} tone={llmConfigured ? "ok" : "warn"} />
+          <SummaryMetric label="Approved memories" value={memory?.approved_count ?? 0} />
+          <SummaryMetric label="Pending graphiti" value={memory?.pending_graphiti_count ?? 0} />
         </div>
-      </div>
-      <form onSubmit={onSubmit} className="space-y-4 p-4">
-        <div className="space-y-4">
-          <label className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
-            <span>Graphiti enabled</span>
-            <input
-              aria-label="Graphiti enabled"
-              type="checkbox"
-              checked={form.enabled}
-              onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))}
-              className="h-4 w-4"
-            />
-          </label>
+      </section>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Graph database</span>
-              <Select
-                aria-label="Graph database"
-                value={form.graphDatabase}
-                onChange={(event) => setForm((current) => ({ ...current, graphDatabase: event.target.value }))}
-              >
-                <option value="neo4j">Neo4j</option>
-              </Select>
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Group id</span>
-              <input
-                aria-label="Graphiti group id"
-                value={form.groupId}
-                onChange={(event) => setForm((current) => ({ ...current, groupId: event.target.value }))}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
-            <label className="block space-y-1 md:col-span-2">
-              <span className="text-xs uppercase text-muted-foreground">Neo4j URI</span>
-              <input
-                aria-label="Neo4j URI"
-                value={form.uri}
-                onChange={(event) => setForm((current) => ({ ...current, uri: event.target.value }))}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Neo4j user</span>
-              <input
-                aria-label="Neo4j user"
-                value={form.user}
-                onChange={(event) => setForm((current) => ({ ...current, user: event.target.value }))}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Graphiti LLM</span>
-              <Select
-                aria-label="Graphiti LLM provider"
-                value={form.llmProvider}
-                onChange={(event) => setForm((current) => ({ ...current, llmProvider: event.target.value }))}
-              >
-                <option value="openai">OpenAI</option>
-              </Select>
-            </label>
-            <Status label="Graphiti password env" value={graphiti?.password_configured ? "configured" : "missing"} tone={graphiti?.password_configured ? "ok" : "warn"} />
-            <Status label="Graphiti LLM key env" value={graphiti?.openai_api_key_configured ? "configured" : "missing"} tone={graphiti?.openai_api_key_configured ? "ok" : "warn"} />
+      <section className="rounded-md border bg-background">
+        <div className="border-b px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Database className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">Memory Backend</h3>
           </div>
-
-          <Button type="submit" disabled={saving}>
-            <Save className="h-4 w-4" />
-            {saving ? "Saving" : "Save backend"}
-          </Button>
         </div>
+        <form onSubmit={onSubmit} className="space-y-4 p-4">
+          <div className="space-y-4">
+            <label className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
+              <span>Graphiti enabled</span>
+              <input
+                aria-label="Graphiti enabled"
+                type="checkbox"
+                checked={form.enabled}
+                onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))}
+                className="h-4 w-4"
+              />
+            </label>
 
-      </form>
-    </section>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="block space-y-1">
+                <span className="text-xs uppercase text-muted-foreground">Graph database</span>
+                <Select
+                  aria-label="Graph database"
+                  value={form.graphDatabase}
+                  onChange={(event) => setForm((current) => ({ ...current, graphDatabase: event.target.value }))}
+                >
+                  <option value="neo4j">Neo4j</option>
+                </Select>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs uppercase text-muted-foreground">Group id</span>
+                <input
+                  aria-label="Graphiti group id"
+                  value={form.groupId}
+                  onChange={(event) => setForm((current) => ({ ...current, groupId: event.target.value }))}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </label>
+              <label className="block space-y-1 md:col-span-2">
+                <span className="text-xs uppercase text-muted-foreground">Neo4j URI</span>
+                <input
+                  aria-label="Neo4j URI"
+                  value={form.uri}
+                  onChange={(event) => setForm((current) => ({ ...current, uri: event.target.value }))}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs uppercase text-muted-foreground">Neo4j user</span>
+                <input
+                  aria-label="Neo4j user"
+                  value={form.user}
+                  onChange={(event) => setForm((current) => ({ ...current, user: event.target.value }))}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs uppercase text-muted-foreground">Graphiti AI Engine</span>
+                <Select
+                  aria-label="Graphiti AI Engine"
+                  value={form.llmAiEngine}
+                  onChange={(event) => setForm((current) => ({ ...current, llmAiEngine: event.target.value }))}
+                >
+                  {selectedEngineMissing && (
+                    <option value={form.llmAiEngine}>{selectedEngineLabel}</option>
+                  )}
+                  {compatibleEngines.length === 0 ? (
+                    <option value={form.llmAiEngine}>No compatible AI Engine</option>
+                  ) : compatibleEngines.map((engine) => (
+                    <option key={engine.id} value={engine.id}>
+                      {engine.display_name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <Status label="Graphiti password env" value={graphiti?.password_configured ? "configured" : "missing"} tone={graphiti?.password_configured ? "ok" : "warn"} />
+              <Status label="Graphiti AI key env" value={graphiti?.llm_api_key_configured ? "configured" : "missing"} tone={graphiti?.llm_api_key_configured ? "ok" : "warn"} />
+            </div>
+
+            <Button type="submit" disabled={saving}>
+              <Save className="h-4 w-4" />
+              {saving ? "Saving" : "Save backend"}
+            </Button>
+          </div>
+        </form>
+      </section>
+
+      <section className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.7fr)]">
+        <DetailPanel title="Backend Health" icon={Activity}>
+          <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-3">
+              <Status label="AI Engine" value={selectedEngineLabel} />
+              <Status label="API key env" value={graphiti?.llm_api_key_env || "-"} tone={llmConfigured ? "ok" : "warn"} />
+              <Status label="Candidates" value={memory?.candidate_count ?? 0} />
+              <Status label="Approved" value={memory?.approved_count ?? 0} />
+            </div>
+            <div className="rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
+              {graphiti?.backend.detail ?? memory?.backend.detail ?? "Memory backend health has not been checked yet."}
+            </div>
+          </div>
+        </DetailPanel>
+
+        <DetailPanel title="Saved Files" icon={Settings}>
+          <DetailPaths paths={savedPaths} />
+        </DetailPanel>
+      </section>
+    </div>
   );
 }
 
@@ -842,18 +1176,17 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
   const [aiEngines, setAiEngines] = useState<ChatAiEngineSettings | null>(null);
   const [form, setForm] = useState<AiEngineForm>({
     activeEngine: "stub",
-    deepseekModel: "deepseek-v4-flash",
-    deepseekThinking: "disabled",
-    openaiModel: "gpt-5-nano",
     fallbackOnError: true,
   });
+  const [selectedAiEngineId, setSelectedAiEngineId] = useState("deepseek");
+  const [aiEngineDrafts, setAiEngineDrafts] = useState<Record<string, AiEngineDraft>>({});
   const [graphitiForm, setGraphitiForm] = useState<GraphitiForm>({
     enabled: false,
     graphDatabase: "neo4j",
     uri: "bolt://localhost:7687",
     user: "neo4j",
     groupId: "aiteamos",
-    llmProvider: "openai",
+    llmAiEngine: "openai",
   });
   const [ticketBackendForm, setTicketBackendForm] = useState<TicketBackendForm>({
     mode: "local_file",
@@ -863,9 +1196,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
   const [repositories, setRepositories] = useState<CodeRepository[]>([]);
   const [repositoryStatus, setRepositoryStatus] = useState<CodeRepositoryStatus | null>(null);
   const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
-  const [capabilityRegistry, setCapabilityRegistry] = useState<CapabilityRegistryResponse | null>(null);
-  const [employees, setEmployees] = useState<ChatEmployeeSummary[]>([]);
-  const [knowledge, setKnowledge] = useState<KnowledgeStatusResponse | null>(null);
+  const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
   const [memory, setMemory] = useState<MemoryStatusResponse | null>(null);
   const [graphiti, setGraphiti] = useState<GraphitiSettingsResponse | null>(null);
   const [ticketBackend, setTicketBackend] = useState<TicketBackendSettings | null>(null);
@@ -873,7 +1204,6 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
   const [toolConnectors, setToolConnectors] = useState<ToolConnector[]>([]);
   const [selectedConnectorId, setSelectedConnectorId] = useState("");
   const [toolConnectorStatus, setToolConnectorStatus] = useState<ToolConnectorRegistryStatus | null>(null);
-  const [secretsHealth, setSecretsHealth] = useState<SecretsHealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -894,6 +1224,10 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     () => toolConnectors.find((connector) => connector.id === selectedConnectorId) ?? toolConnectors[0] ?? null,
     [toolConnectors, selectedConnectorId],
   );
+  const selectedAiEngine = useMemo(
+    () => aiEngines?.engines?.[selectedAiEngineId] ?? orderedAiEngineRecords(aiEngines)[0] ?? null,
+    [aiEngines, selectedAiEngineId],
+  );
 
   async function loadSettings() {
     setLoading(true);
@@ -901,41 +1235,36 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     try {
       const [
         loadedAiEngines,
-        loadedEmployees,
-        loadedKnowledge,
         loadedMemory,
         loadedGraphiti,
-        loadedCapabilityRegistry,
         loadedTicketBackend,
         loadedTicketBackendStatus,
         loadedRepositories,
         loadedRepositoryStatus,
         loadedToolConnectors,
         loadedToolConnectorStatus,
-        loadedSecretsHealth,
       ] = await Promise.all([
         getChatAiEngines(),
-        listChatEmployees(),
-        getKnowledgeStatus(),
         getMemoryStatus(),
         getGraphitiSettings(),
-        getCapabilities(),
         getTicketBackendSettings(),
         getTicketBackendStatus(),
         listCodeRepositories(),
         getCodeRepositoryStatus(),
         listToolConnectors(),
         getToolConnectorStatus(),
-        getSecretsHealth(),
       ]);
       setAiEngines(loadedAiEngines);
       setForm(aiEnginesToForm(loadedAiEngines));
-      setEmployees(loadedEmployees);
-      setKnowledge(loadedKnowledge);
+      setAiEngineDrafts(aiEnginesToDrafts(loadedAiEngines));
+      setSelectedAiEngineId((current) => {
+        const engines = loadedAiEngines.engines ?? {};
+        if (current && engines[current]) return current;
+        return loadedAiEngines.active_engine || loadedAiEngines.catalog_order?.[0] || Object.keys(engines)[0] || "";
+      });
       setMemory(loadedMemory);
       setGraphiti(loadedGraphiti);
       setGraphitiForm(graphitiToForm(loadedGraphiti));
-      setCapabilityRegistry(loadedCapabilityRegistry);
       setTicketBackend(loadedTicketBackend);
       setTicketBackendStatus(loadedTicketBackendStatus);
       setTicketBackendForm(ticketBackendToForm(loadedTicketBackend));
@@ -948,7 +1277,6 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       const selectedConnector = loadedToolConnectors.find((connector) => connector.id === selectedConnectorId) ?? loadedToolConnectors[0] ?? null;
       setSelectedConnectorId(selectedConnector?.id ?? "");
       setToolConnectorStatus(loadedToolConnectorStatus);
-      setSecretsHealth(loadedSecretsHealth);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings");
     } finally {
@@ -966,15 +1294,18 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     setSaving(true);
     setError(null);
     try {
+      const deepseekDraft = aiEngineDrafts.deepseek;
+      const openaiDraft = aiEngineDrafts.openai;
       const updated = await updateChatAiEngines({
         active_engine: form.activeEngine,
-        deepseek_model: form.deepseekModel,
-        deepseek_thinking: form.deepseekThinking,
-        openai_model: form.openaiModel,
+        deepseek_model: deepseekDraft?.model || aiEngines?.deepseek_model || "deepseek-v4-flash",
+        deepseek_thinking: deepseekDraft?.thinking || aiEngines?.deepseek_thinking || "disabled",
+        openai_model: openaiDraft?.model || aiEngines?.openai_model || "gpt-5-nano",
         fallback_on_error: form.fallbackOnError,
       });
       setAiEngines(updated);
       setForm(aiEnginesToForm(updated));
+      setAiEngineDrafts(aiEnginesToDrafts(updated));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save AI Engine settings");
     } finally {
@@ -990,6 +1321,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       const updated = await updateChatAiEngine(engineId, payload);
       setAiEngines(updated);
       setForm(aiEnginesToForm(updated));
+      setAiEngineDrafts(aiEnginesToDrafts(updated));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save AI Engine settings");
     } finally {
@@ -1008,7 +1340,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       uri: graphitiForm.uri,
       user: graphitiForm.user,
       group_id: graphitiForm.groupId,
-      llm_provider: graphitiForm.llmProvider,
+      llm_ai_engine: graphitiForm.llmAiEngine,
     };
     try {
       const updated = await updateGraphitiSettings(payload);
@@ -1079,6 +1411,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         ? await updateCodeRepository(selectedRepositoryId, repositoryPayload())
         : await createCodeRepository(repositoryPayload());
       await reloadRepositories(updated.id);
+      setRepositoryDialogOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save code repository");
     } finally {
@@ -1101,39 +1434,44 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     }
   }
 
+  function renderAiEngineDetail(): ReactNode {
+    const draft = selectedAiEngine ? aiEngineDrafts[selectedAiEngine.id] ?? {
+      model: selectedAiEngine.model ?? "",
+      thinking: selectedAiEngine.thinking ?? "",
+      base_url: selectedAiEngine.base_url ?? "",
+      api_key_env: selectedAiEngine.api_key_env ?? "",
+      enabled: selectedAiEngine.enabled,
+    } : {
+      model: "",
+      thinking: "",
+      base_url: "",
+      api_key_env: "",
+      enabled: true,
+    };
+
+    return (
+      <>
+        <AiEngineDetailPanel
+          draft={draft}
+          engine={selectedAiEngine}
+          saving={saving}
+          setDrafts={setAiEngineDrafts}
+          onActivate={(engineId) => void handleAiEngineSubmit(engineId, { activate: true })}
+          onSave={(engineId) => void handleAiEngineSubmit(engineId, aiEngineUpdatePayload(aiEngineDrafts[engineId] ?? draft))}
+        />
+
+        <DetailPanel title="Saved Files" icon={Settings}>
+          <DetailPaths paths={aiEngines?.saved_paths} />
+        </DetailPanel>
+      </>
+    );
+  }
+
   function renderSettingsDetail(): ReactNode {
     if (section === "ai-engines") {
-      const engines = Object.values(aiEngines?.engines ?? {});
-
       return (
         <aside className="space-y-4">
-          <DetailPanel title="AI Engine Detail" icon={SlidersHorizontal}>
-            <div className="space-y-3">
-              <Status label="Active" value={aiEngines?.active_engine ?? "-"} tone={aiEngines?.active_engine === "stub" ? "warn" : "ok"} />
-              <Status label="Fallback" value={aiEngines?.fallback_on_error ? "enabled" : "disabled"} />
-              {engines.map((engine) => (
-                <div key={engine.id} className="rounded-md border px-3 py-2 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">{engine.display_name}</span>
-                    <div className="flex flex-wrap gap-2">
-                      {engine.active && <Badge variant="success">active</Badge>}
-                      <Badge variant={statusVariant(engine.status)}>{engine.status}</Badge>
-                    </div>
-                  </div>
-                  <div className="mt-2 grid gap-2 text-xs text-muted-foreground">
-                    <span>Kind: {engine.kind}</span>
-                    {engine.model && <span>Model: {engine.model}</span>}
-                    {engine.thinking && <span>Thinking: {engine.thinking}</span>}
-                    <span>Secret: {engine.api_key_configured ? "configured" : "missing"}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </DetailPanel>
-
-          <DetailPanel title="Saved Files" icon={Settings}>
-            <DetailPaths paths={aiEngines?.saved_paths} />
-          </DetailPanel>
+          {renderAiEngineDetail()}
         </aside>
       );
     }
@@ -1281,70 +1619,142 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       );
     }
 
-    if (section === "memory-backend") {
-      const savedPaths = {
-        ...(memory?.saved_paths ?? {}),
-        ...(graphiti?.saved_paths ?? {}),
-      };
-
-      return (
-        <aside className="space-y-4">
-          <DetailPanel title="Memory Backend Status" icon={Database}>
-            <div className="space-y-3">
-              <Status label="Graphiti" value={compactStatus(graphiti?.backend.status ?? memory?.backend.status)} tone={(graphiti?.backend.status ?? memory?.backend.status) === "ready" ? "ok" : "warn"} />
-              <Status label="Graph DB" value={(graphiti?.backend.graph_configured ?? memory?.backend.graph_configured) ? "set" : "missing"} tone={(graphiti?.backend.graph_configured ?? memory?.backend.graph_configured) ? "ok" : "warn"} />
-              <Status label="LLM key" value={(graphiti?.backend.llm_configured ?? memory?.backend.llm_configured) ? "set" : "missing"} tone={(graphiti?.backend.llm_configured ?? memory?.backend.llm_configured) ? "ok" : "warn"} />
-              <Status label="Approved memories" value={memory?.approved_count ?? 0} />
-              <Status label="Pending graphiti" value={memory?.pending_graphiti_count ?? 0} />
-              <Status label="Shared OpenAI key" value={graphiti?.uses_shared_openai_key ? "used" : "optional"} />
-              <div className="rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
-                {graphiti?.backend.detail ?? memory?.backend.detail ?? "Memory backend health has not been checked yet."}
-              </div>
-            </div>
-          </DetailPanel>
-
-          <DetailPanel title="Saved Files" icon={Settings}>
-            <DetailPaths paths={savedPaths} />
-          </DetailPanel>
-        </aside>
-      );
-    }
-
-    const secretItems = secretsHealth?.items ?? [];
-    const configuredSecrets = secretItems.filter((item) => item.configured).length;
-
     return (
       <aside className="space-y-4">
-        <DetailPanel title="System Health" icon={Activity}>
-          <div className="grid gap-3">
-            <Status label="AI Engine" value={aiEngines?.active_engine ?? "-"} tone={aiEngines?.active_engine === "stub" ? "warn" : "ok"} />
-            <Status label="Employees" value={employees.length} />
-            <Status label="Knowledge docs" value={knowledge?.docs_count ?? 0} />
-            <Status label="Review items" value={knowledge?.review_queue_count ?? 0} />
-            <Status label="Tools" value={capabilityRegistry?.status.tool_count ?? 0} />
-            <Status label="Tools ready" value={capabilityRegistry?.status.ready_count ?? 0} tone={(capabilityRegistry?.status.ready_count ?? 0) > 0 ? "ok" : "warn"} />
-            <Status label="Ticket backend" value={compactStatus(ticketBackendStatus?.status)} tone={ticketBackendStatus?.status === "ready" ? "ok" : "warn"} />
-            <Status label="Tickets" value={ticketBackendStatus?.ticket_count ?? 0} />
-            <Status label="Tool connectors ready" value={toolConnectorStatus?.ready_count ?? 0} tone={(toolConnectorStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
-            <Status label="Code repositories" value={repositoryStatus?.repository_count ?? repositories.length} />
-            <Status label="Repos ready" value={repositoryStatus?.ready_count ?? 0} tone={(repositoryStatus?.ready_count ?? 0) > 0 ? "ok" : "warn"} />
-            <Status label="Approved memories" value={memory?.approved_count ?? 0} />
-          </div>
-        </DetailPanel>
-
-        <DetailPanel title="Secret Coverage" icon={KeyRound}>
-          <div className="space-y-3">
-            <Status label="Configured" value={configuredSecrets} tone={configuredSecrets === secretItems.length ? "ok" : "warn"} />
-            <Status label="Missing" value={secretItems.length - configuredSecrets} tone={configuredSecrets === secretItems.length ? "ok" : "warn"} />
-            <Status label="Required vars" value={secretItems.reduce((count, item) => count + item.env_vars.length, 0)} />
-          </div>
-        </DetailPanel>
+        <EmptyDetail>Select an item to inspect its settings.</EmptyDetail>
       </aside>
     );
   }
 
   if (loading) return <LoadingState />;
   const ActiveIcon = activeGroup.icon;
+
+  if (section === "ai-engines") {
+    return (
+      <section className="space-y-3">
+        <div className="rounded-md border bg-background">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <ActiveIcon className="h-4 w-4 text-muted-foreground" />
+                <h3 className="text-sm font-semibold">{activeGroup.label}</h3>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">{SECTION_DESCRIPTIONS[section]}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loadSettings()}>
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
+
+          {error && (
+            <div className="border-t p-4">
+              <ErrorState message={error} onRetry={loadSettings} />
+            </div>
+          )}
+        </div>
+
+        <AiEnginesSection
+          detail={renderAiEngineDetail()}
+          form={form}
+          aiEngines={aiEngines}
+          selectedId={selectedAiEngine?.id ?? selectedAiEngineId}
+          saving={saving}
+          setForm={setForm}
+          onPolicySubmit={handleAiEnginePolicySubmit}
+          onSelect={setSelectedAiEngineId}
+          onActivate={(engineId) => void handleAiEngineSubmit(engineId, { activate: true })}
+        />
+      </section>
+    );
+  }
+
+  if (section === "code-repositories") {
+    return (
+      <section className="space-y-3">
+        <div className="rounded-md border bg-background">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <ActiveIcon className="h-4 w-4 text-muted-foreground" />
+                <h3 className="text-sm font-semibold">{activeGroup.label}</h3>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">{SECTION_DESCRIPTIONS[section]}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loadSettings()}>
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
+
+          {error && (
+            <div className="border-t p-4">
+              <ErrorState message={error} onRetry={loadSettings} />
+            </div>
+          )}
+        </div>
+
+        <CodeRepositoriesSection
+          dialogOpen={repositoryDialogOpen}
+          form={repositoryForm}
+          repositories={repositories}
+          repositoryStatus={repositoryStatus}
+          saving={saving}
+          selectedId={selectedRepositoryId}
+          setDialogOpen={setRepositoryDialogOpen}
+          setForm={setRepositoryForm}
+          onDelete={(repoId) => void handleRepositoryDelete(repoId)}
+          onNew={() => {
+            setSelectedRepositoryId("");
+            setRepositoryForm(emptyRepositoryForm());
+          }}
+          onSelect={(repository) => {
+            setSelectedRepositoryId(repository.id);
+            setRepositoryForm(repositoryToForm(repository));
+          }}
+          onSubmit={(event) => void handleRepositorySubmit(event)}
+        />
+      </section>
+    );
+  }
+
+  if (section === "memory-backend") {
+    return (
+      <section className="space-y-3">
+        <div className="rounded-md border bg-background">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <ActiveIcon className="h-4 w-4 text-muted-foreground" />
+                <h3 className="text-sm font-semibold">{activeGroup.label}</h3>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">{SECTION_DESCRIPTIONS[section]}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loadSettings()}>
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
+
+          {error && (
+            <div className="border-t p-4">
+              <ErrorState message={error} onRetry={loadSettings} />
+            </div>
+          )}
+        </div>
+
+        <MemoryBackendSection
+          form={graphitiForm}
+          graphiti={graphiti}
+          aiEngines={aiEngines}
+          memory={memory}
+          saving={saving}
+          setForm={setGraphitiForm}
+          onSubmit={handleGraphitiSubmit}
+        />
+      </section>
+    );
+  }
 
   return (
     <ResizableDetailLayout
@@ -1372,17 +1782,6 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
 	            </div>
 	          )}
         </div>
-
-        {section === "ai-engines" && (
-          <AiEnginesSection
-            form={form}
-            aiEngines={aiEngines}
-            saving={saving}
-            setForm={setForm}
-            onPolicySubmit={handleAiEnginePolicySubmit}
-            onEngineSubmit={(engineId, payload) => void handleAiEngineSubmit(engineId, payload)}
-          />
-        )}
 
         {section === "ticket-backend" && (
           <TicketBackendSection
@@ -1444,57 +1843,6 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
 	          </section>
 	        )}
 
-        {section === "code-repositories" && (
-          <CodeRepositoriesSection
-            form={repositoryForm}
-	            repositories={repositories}
-	            saving={saving}
-	            selectedId={selectedRepositoryId}
-	            setForm={setRepositoryForm}
-            onDelete={(repoId) => void handleRepositoryDelete(repoId)}
-            onNew={() => {
-              setSelectedRepositoryId("");
-              setRepositoryForm(emptyRepositoryForm());
-            }}
-            onSelect={(repository) => {
-              setSelectedRepositoryId(repository.id);
-              setRepositoryForm(repositoryToForm(repository));
-            }}
-            onSubmit={(event) => void handleRepositorySubmit(event)}
-          />
-        )}
-
-        {section === "memory-backend" && (
-          <MemoryBackendSection
-            form={graphitiForm}
-            graphiti={graphiti}
-            saving={saving}
-            setForm={setGraphitiForm}
-            onSubmit={handleGraphitiSubmit}
-          />
-        )}
-
-	        {section === "secrets-health" && (
-	          <section className="rounded-md border bg-background">
-	            <div className="border-b px-4 py-3">
-	              <div className="flex items-center gap-2">
-	                <KeyRound className="h-4 w-4 text-muted-foreground" />
-	                <h3 className="text-sm font-semibold">Secrets & Health</h3>
-	              </div>
-	            </div>
-	            <div className="grid gap-3 p-4">
-	              {(secretsHealth?.items ?? []).map((item) => (
-	                <ConfigRow
-	                  key={item.id}
-	                  name={item.env_vars.join(" / ")}
-	                  kind={item.scope}
-	                  status={item.configured ? "configured" : "missing"}
-	                  description={`${item.purpose} ${item.how_to_configure}`}
-	                />
-	              ))}
-	            </div>
-	          </section>
-	        )}
         </section>
       )}
 

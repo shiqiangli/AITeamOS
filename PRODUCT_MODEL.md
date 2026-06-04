@@ -208,7 +208,8 @@ Settings
 2. **Tickets**：AI 工作 cockpit 和 flow ledger。
 3. **Employees**：workforce system of record 和治理视图。
 4. **Assets**：可复用团队资产和审核队列。
-5. **Settings**：AI Engines、Tool Connectors、Code Repositories、Ticket Backend、Memory Backend 和 Secrets health。
+5. **Settings**：AI Engines、Tool Connectors、Code Repositories、Ticket Backend 和 Memory Backend。
+6. **System Status**：System Summary 和 Secrets Health 的只读运行状态入口。
 
 ### 为什么叫 Assets
 
@@ -329,13 +330,11 @@ Settings 只应承载运行条件：
 - Tool connectors
 - Code repositories
 - Memory Backend
-- Secrets and health
 - Security and approval policy
-- System health
 
-Employee Defaults 更适合逐步移动到 Employees 或 Health，而不是作为主要 Settings 概念。
+Employee Defaults 更适合逐步移动到 Employees，或在 System Status 中只读展示，而不是作为主要 Settings 概念。
 
-推荐 Settings 分区：
+推荐 Settings 与 System Status 导航：
 
 ```text
 Settings
@@ -356,14 +355,17 @@ Settings
        -> jira
   -> Memory Backend
        -> Graphiti / Neo4j
-  -> Secrets & Health
+
+System Status
+  -> System Summary
+  -> Secrets Health
 ```
 
 AI Engines 是 Clara 和 Employees 思考或执行的后端。DeepSeek、OpenAI / ChatGPT API、Kimi、Gemini、Ollama、LM Studio、vLLM 等都可表达为 `llm_api`；Codex、Claude Code、Cursor、Qoder 等可表达为 `agent_platform`。本地模型不是单独的产品层级，而是 `llm_api` 的本地 deployment。
 
 Tool Connector 是外部能力来源的配置入口。MCP Server 是 Tool Connector 的一种 `kind`，不是和 Connector 并列的产品概念。AITeamOS 作为 host / client 连接 MCP Server，发现其 tools / resources / prompts，并把可执行动作归一化到 Capabilities / MCP Tools。AITeamOS Kernel 自带动作进入 Capabilities / Built-in Tools。Plane、Jira 等 Ticket 事实源优先归入 Ticket Backend；它们派生出的 `tickets.create`、`tickets.comment`、`tickets.transition` 等动作进入对应的 capability tool 分类，但配置不在 Tool Connectors 中重复。
 
-Secrets 页不直接配置密钥。API key、token、password 等敏感值只通过环境变量提供；Settings 的各业务页面只配置非敏感信息和环境变量引用。Secrets & Health 只展示需要哪些环境变量、用途、是否已配置、如何配置，以及被哪个 AI Engine、Ticket Backend、Tool Connector 或 Memory Backend 使用。
+System Status 是一级只读状态入口，放在 Settings 之后。API key、token、password 等敏感值只通过环境变量提供；Settings 的各业务页面只配置非敏感信息和环境变量引用。System Status / Secrets Health 只展示需要哪些环境变量、用途、是否已配置、如何配置，以及被哪个 AI Engine、Ticket Backend、Tool Connector 或 Memory Backend 使用。
 
 ---
 
@@ -454,5 +456,5 @@ AITeamOS 的吸收方式：
 6. Tickets 是 work cockpit，不是 project-management clone。
 7. Employees 是 workforce ledger，不只是 profile list。
 8. Assets 是共享记忆和能力库存，不是被动文档库。
-9. Settings 是 AI Engine、backend、connector、repo、memory 和 secrets health 的运行条件，不是业务页面。
+9. Settings 是 AI Engine、backend、connector、repo 和 memory 的运行条件，不是业务页面；System Status 是只读运行状态入口。
 10. 外部 agent platforms 是 AI Engines；AITeamOS 是 control plane 和 asset graph。

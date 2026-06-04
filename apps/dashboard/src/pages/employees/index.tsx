@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -26,7 +26,15 @@ import {
   LoadingState,
   navigateTo,
 } from "../../components/shared";
-import { listChatEmployees, listChatThreads, type ChatEmployeeSummary, type ChatThreadListResponse } from "../../api/chat";
+import {
+  getChatAiEngines,
+  listChatEmployees,
+  listChatThreads,
+  updateChatEmployeeAiEngine,
+  type ChatAiEngineSettings,
+  type ChatEmployeeSummary,
+  type ChatThreadListResponse,
+} from "../../api/chat";
 import { getCapabilities, type CapabilityRecord, type CapabilityRegistryResponse } from "../../api/capabilities";
 import {
   getEmployeeWorkLedger,
@@ -117,11 +125,18 @@ function aiEngineLabel(employee: ChatEmployeeSummary): string {
   return employee.ai_engine_mode.replace(/_/g, " ");
 }
 
-function aiEngineShortLabel(employee: ChatEmployeeSummary): string {
-  if (employee.ai_engine_mode.includes("deepseek")) return "DeepSeek";
-  if (employee.ai_engine_mode.includes("openai")) return "OpenAI";
-  if (employee.ai_engine_mode.includes("stub")) return "Fallback";
-  return employee.ai_engine_mode;
+function defaultAiEngineLabel(value?: string | null): string {
+  const engine = (value || "system").trim().toLowerCase();
+  if (engine === "system") return "Settings default";
+  if (engine === "stub") return "File stub";
+  if (engine === "deepseek") return "DeepSeek";
+  if (engine === "openai") return "OpenAI / ChatGPT";
+  return engine || "Settings default";
+}
+
+function effectiveAiEngine(employee: ChatEmployeeSummary, aiEngines: ChatAiEngineSettings | null): string {
+  const defaultEngine = (employee.default_ai_engine || "system").trim().toLowerCase();
+  return defaultEngine === "system" ? aiEngines?.active_engine ?? "system" : defaultEngine;
 }
 
 function StatCard({
@@ -234,21 +249,55 @@ function EmployeeAvatar({ employee, size = "md" }: { employee: ChatEmployeeSumma
 }
 
 function EmployeeDrawer({
+  aiEngines,
   capabilities,
   employee,
+  onDefaultEngineChange,
   threads,
   work,
 }: {
+  aiEngines: ChatAiEngineSettings | null;
   capabilities: CapabilityRecord[];
   employee: ChatEmployeeSummary;
+  onDefaultEngineChange: (employeeId: string, defaultAiEngine: string) => Promise<ChatEmployeeSummary>;
   threads: ChatThreadListResponse | null;
   work: EmployeeWorkLedger | null;
 }) {
   const [tab, setTab] = useState<DetailTab>("overview");
+  const [defaultEngineInput, setDefaultEngineInput] = useState(employee.default_ai_engine || "system");
+  const [savingDefaultEngine, setSavingDefaultEngine] = useState(false);
+  const [defaultEngineError, setDefaultEngineError] = useState<string | null>(null);
   const latest = latestThread(threads);
   const state = employeeState(employee, threads);
   const readyCapabilities = capabilities.filter((capability) => capability.configured && capability.status === "ready");
   const toolCapabilities = capabilities.filter((capability) => capability.kind === "tool");
+  const aiEngineOptions = useMemo(() => {
+    const engines = Object.values(aiEngines?.engines ?? {}).filter((engine) => (engine.support_status ?? "supported") === "supported");
+    return [
+      { id: "system", label: `Settings default (${aiEngines?.active_engine ?? "system"})` },
+      ...engines.map((engine) => ({ id: engine.id, label: engine.display_name })),
+    ];
+  }, [aiEngines]);
+
+  useEffect(() => {
+    setDefaultEngineInput(employee.default_ai_engine || "system");
+    setDefaultEngineError(null);
+  }, [employee.default_ai_engine, employee.id]);
+
+  async function handleDefaultEngineSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (savingDefaultEngine) return;
+    setSavingDefaultEngine(true);
+    setDefaultEngineError(null);
+    try {
+      const updated = await onDefaultEngineChange(employee.id, defaultEngineInput.trim() || "system");
+      setDefaultEngineInput(updated.default_ai_engine || "system");
+    } catch (err) {
+      setDefaultEngineError(err instanceof Error ? err.message : "Failed to update default AI Engine");
+    } finally {
+      setSavingDefaultEngine(false);
+    }
+  }
 
   return (
     <aside className="absolute inset-y-0 right-0 z-20 flex w-full max-w-[34rem] flex-col border-l bg-background shadow-xl">
@@ -319,7 +368,7 @@ function EmployeeDrawer({
               <h4 className="mb-2 text-sm font-semibold">Identity</h4>
               <InfoRow label="Role group" value={roleGroup(employee)} />
               <InfoRow label="Kind" value={employee.kind} />
-              <InfoRow label="AI Engine" value={aiEngineShortLabel(employee)} />
+              <InfoRow label="AI Engine" value={defaultAiEngineLabel(effectiveAiEngine(employee, aiEngines))} />
               <InfoRow label="Engine thread" value={employee.preserve_provider_thread ? "preserved" : "per run"} />
             </section>
 
@@ -477,19 +526,45 @@ function EmployeeDrawer({
             <section className="rounded-md border p-4">
               <div className="mb-3 flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-                <h4 className="text-sm font-semibold">AI Engine Boundary</h4>
+                <h4 className="text-sm font-semibold">Default Engine</h4>
               </div>
-              <InfoRow label="AI Engine mode" value={aiEngineLabel(employee)} />
-              <InfoRow label="Engine thread" value={employee.preserve_provider_thread ? "preserved" : "not preserved"} />
-              <InfoRow label="Kind" value={employee.kind} />
+              <div className="space-y-3">
+                <InfoRow label="Effective engine" value={defaultAiEngineLabel(effectiveAiEngine(employee, aiEngines))} />
+                <InfoRow label="Profile default" value={defaultAiEngineLabel(employee.default_ai_engine)} />
+                <InfoRow label="Settings active" value={defaultAiEngineLabel(aiEngines?.active_engine)} />
+                <form onSubmit={handleDefaultEngineSubmit} className="space-y-3">
+                  <label className="block space-y-1">
+                    <span className="text-xs uppercase text-muted-foreground">Default AI Engine</span>
+                    <input
+                      aria-label="Default AI Engine"
+                      list={`employee-${employee.id}-ai-engine-options`}
+                      value={defaultEngineInput}
+                      onChange={(event) => setDefaultEngineInput(event.target.value)}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                    <datalist id={`employee-${employee.id}-ai-engine-options`}>
+                      {aiEngineOptions.map((option) => (
+                        <option key={option.id} value={option.id}>{option.label}</option>
+                      ))}
+                    </datalist>
+                  </label>
+                  {defaultEngineError && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      {defaultEngineError}
+                    </div>
+                  )}
+                  <Button type="submit" size="sm" disabled={savingDefaultEngine}>
+                    {savingDefaultEngine ? "Saving" : "Save default engine"}
+                  </Button>
+                </form>
+              </div>
             </section>
 
             <section className="rounded-md border p-4">
-              <h4 className="mb-2 text-sm font-semibold">Operating Note</h4>
-              <p className="text-sm leading-6 text-muted-foreground">
-                AI Engines, Tool Connectors, secrets, and Memory Backend are configured under Settings. This
-                employee profile only declares how the employee should participate in the AI Team OS.
-              </p>
+              <h4 className="mb-2 text-sm font-semibold">Boundary</h4>
+              <InfoRow label="AI Engine mode" value={aiEngineLabel(employee)} />
+              <InfoRow label="Engine thread" value={employee.preserve_provider_thread ? "preserved" : "not preserved"} />
+              <InfoRow label="Kind" value={employee.kind} />
             </section>
           </div>
         )}
@@ -505,6 +580,7 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
   const [threadsMap, setThreadsMap] = useState<Record<string, ChatThreadListResponse>>({});
   const [workMap, setWorkMap] = useState<Record<string, EmployeeWorkLedger>>({});
   const [capabilityRegistry, setCapabilityRegistry] = useState<CapabilityRegistryResponse | null>(null);
+  const [aiEngines, setAiEngines] = useState<ChatAiEngineSettings | null>(null);
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [aiEngineFilter, setAiEngineFilter] = useState("all");
@@ -513,12 +589,14 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
     setLoading(true);
     setError(null);
     try {
-      const [loaded, loadedCapabilities] = await Promise.all([
+      const [loaded, loadedCapabilities, loadedAiEngines] = await Promise.all([
         listChatEmployees(),
         getCapabilities().catch(() => null),
+        getChatAiEngines().catch(() => null),
       ]);
       setEmployees(loaded);
       setCapabilityRegistry(loadedCapabilities);
+      setAiEngines(loadedAiEngines);
 
       const [threadsResults, workResults] = await Promise.all([
         Promise.allSettled(loaded.map((m) => listChatThreads(m.id))),
@@ -550,7 +628,10 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
   }, [loadEmployees]);
 
   const roleGroups = useMemo(() => Array.from(new Set(employees.map(roleGroup))).sort(), [employees]);
-  const aiEngineGroups = useMemo(() => Array.from(new Set(employees.map(aiEngineShortLabel))).sort(), [employees]);
+  const aiEngineGroups = useMemo(
+    () => Array.from(new Set(employees.map((employee) => defaultAiEngineLabel(effectiveAiEngine(employee, aiEngines))))).sort(),
+    [aiEngines, employees],
+  );
 
   const filteredEmployees = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -563,10 +644,10 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
         ...employee.skills,
       ].some((value) => value.toLowerCase().includes(normalized));
       const matchesRole = roleFilter === "all" || roleGroup(employee) === roleFilter;
-      const matchesAiEngine = aiEngineFilter === "all" || aiEngineShortLabel(employee) === aiEngineFilter;
+      const matchesAiEngine = aiEngineFilter === "all" || defaultAiEngineLabel(effectiveAiEngine(employee, aiEngines)) === aiEngineFilter;
       return matchesQuery && matchesRole && matchesAiEngine;
     });
-  }, [employees, query, roleFilter, aiEngineFilter]);
+  }, [aiEngines, employees, query, roleFilter, aiEngineFilter]);
 
   const selectedEmployee = useMemo(() => {
     return selectedId ? employees.find((employee) => employee.id === selectedId) ?? null : null;
@@ -587,7 +668,12 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
     () => employees.reduce((sum, employee) => sum + totalMessages(threadsMap[employee.id]), 0),
     [employees, threadsMap],
   );
-  const readyCapabilities = capabilityRegistry?.status?.ready_count ?? 0;
+
+  async function handleDefaultEngineChange(employeeId: string, defaultAiEngine: string): Promise<ChatEmployeeSummary> {
+    const updated = await updateChatEmployeeAiEngine(employeeId, { default_ai_engine: defaultAiEngine });
+    setEmployees((current) => current.map((employee) => (employee.id === updated.id ? updated : employee)));
+    return updated;
+  }
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} onRetry={loadEmployees} />;
@@ -612,11 +698,10 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
             </Button>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-3">
             <StatCard icon={UserCheck} label="Employees" value={employees.length} />
             <StatCard icon={Clock3} label="Threads" value={aggregateThreadCount} />
             <StatCard icon={Activity} label="Messages" value={aggregateMessageCount} />
-            <StatCard icon={Wrench} label="Ready Tools" value={readyCapabilities} />
           </div>
         </div>
 
@@ -713,7 +798,7 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
                       <div className="flex min-w-0 flex-wrap gap-1">
                         <Badge variant="secondary" className="px-1.5 text-[10px]">{employee.skills.length} skills</Badge>
                         <Badge variant="outline" className="px-1.5 text-[10px]">{capabilities.length} tools</Badge>
-                        <Badge variant="outline" className="px-1.5 text-[10px]">{aiEngineShortLabel(employee)}</Badge>
+                        <Badge variant="outline" className="px-1.5 text-[10px]">{defaultAiEngineLabel(effectiveAiEngine(employee, aiEngines))}</Badge>
                       </div>
                     </div>
 
@@ -728,8 +813,10 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
 
       {selectedEmployee && (
         <EmployeeDrawer
+          aiEngines={aiEngines}
           capabilities={selectedCapabilities}
           employee={selectedEmployee}
+          onDefaultEngineChange={handleDefaultEngineChange}
           threads={selectedThreads}
           work={selectedWork}
         />

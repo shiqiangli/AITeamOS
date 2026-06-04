@@ -1,4 +1,4 @@
-"""Settings-side health routes."""
+"""System Status read routes."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ import os
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
+router = APIRouter(prefix="/api/v1/system-status", tags=["system-status"])
 
 
-class SecretHealthItem(BaseModel):
+class SystemStatusSecretItem(BaseModel):
     id: str
     scope: str
     purpose: str
@@ -20,8 +20,8 @@ class SecretHealthItem(BaseModel):
     how_to_configure: str
 
 
-class SecretsHealthResponse(BaseModel):
-    items: list[SecretHealthItem]
+class SystemStatusResponse(BaseModel):
+    secrets: list[SystemStatusSecretItem]
 
 
 def _configured(env_vars: list[str]) -> bool:
@@ -35,8 +35,8 @@ def _secret_item(
     purpose: str,
     env_vars: list[str],
     required_for: str,
-) -> SecretHealthItem:
-    return SecretHealthItem(
+) -> SystemStatusSecretItem:
+    return SystemStatusSecretItem(
         id=item_id,
         scope=scope,
         purpose=purpose,
@@ -47,10 +47,10 @@ def _secret_item(
     )
 
 
-@router.get("/secrets-health", response_model=SecretsHealthResponse)
-async def get_secrets_health() -> SecretsHealthResponse:
-    return SecretsHealthResponse(
-        items=[
+@router.get("", response_model=SystemStatusResponse)
+async def get_system_status() -> SystemStatusResponse:
+    return SystemStatusResponse(
+        secrets=[
             _secret_item(
                 item_id="deepseek_api_key",
                 scope="AI Engines",
@@ -61,9 +61,9 @@ async def get_secrets_health() -> SecretsHealthResponse:
             _secret_item(
                 item_id="openai_api_key",
                 scope="AI Engines / Memory Backend",
-                purpose="OpenAI API key for OpenAI AI Engine and optional Graphiti LLM ingestion.",
+                purpose="OpenAI API key for the OpenAI AI Engine; Graphiti uses this env when that AI Engine is selected.",
                 env_vars=["OPENAI_API_KEY"],
-                required_for="OpenAI AI Engine execution or Graphiti fallback LLM key.",
+                required_for="OpenAI AI Engine execution and Graphiti ingestion when OpenAI is selected.",
             ),
             _secret_item(
                 item_id="graphiti_neo4j_password",
@@ -71,13 +71,6 @@ async def get_secrets_health() -> SecretsHealthResponse:
                 purpose="Neo4j password for Graphiti memory backend.",
                 env_vars=["AITEAMOS_GRAPHITI_PASSWORD", "NEO4J_PASSWORD"],
                 required_for="Graphiti graph database connection.",
-            ),
-            _secret_item(
-                item_id="graphiti_openai_api_key",
-                scope="Memory Backend",
-                purpose="Dedicated OpenAI API key for Graphiti ingestion and graph search.",
-                env_vars=["AITEAMOS_GRAPHITI_OPENAI_API_KEY", "OPENAI_API_KEY"],
-                required_for="Graphiti LLM calls.",
             ),
             _secret_item(
                 item_id="plane_api_token",

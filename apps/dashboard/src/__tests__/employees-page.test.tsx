@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EmployeesPage } from "../pages/employees";
 
@@ -11,7 +11,9 @@ const employees = [
     summary: "Coordinator",
     skills: ["task-specification"],
     ai_engine_mode: "deepseek_chat_or_file_stub",
+    default_ai_engine: "system",
     preserve_provider_thread: true,
+    default_thread_id: "employee-clara-default",
   },
   {
     id: "alex",
@@ -21,7 +23,9 @@ const employees = [
     summary: "Implementer",
     skills: ["test-engineering"],
     ai_engine_mode: "external_or_file_stub",
+    default_ai_engine: "system",
     preserve_provider_thread: true,
+    default_thread_id: "employee-alex-default",
   },
 ];
 
@@ -156,24 +160,75 @@ const capabilities = {
   model: {},
 };
 
+const aiEngines = {
+  active_engine: "deepseek",
+  deepseek_model: "deepseek-v4-flash",
+  deepseek_thinking: "disabled",
+  openai_model: "gpt-5-nano",
+  fallback_on_error: true,
+  engines: {
+    stub: {
+      id: "stub",
+      display_name: "File stub",
+      kind: "local",
+      active: false,
+      api_key_configured: true,
+      status: "available",
+    },
+    deepseek: {
+      id: "deepseek",
+      display_name: "DeepSeek",
+      kind: "llm_api",
+      model: "deepseek-v4-flash",
+      thinking: "disabled",
+      active: true,
+      api_key_configured: true,
+      status: "configured",
+    },
+    openai: {
+      id: "openai",
+      display_name: "OpenAI / ChatGPT",
+      kind: "llm_api",
+      model: "gpt-5-nano",
+      active: false,
+      api_key_configured: false,
+      status: "missing",
+    },
+  },
+  api_keys_configured: { deepseek: true, openai: false },
+  saved_paths: { ai_engines: ".aiteamos/ai_engines.json" },
+};
+
 describe("EmployeesPage", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        const body = url.includes("/tickets/employees/")
-          ? workByEmployee[url.includes("alex") ? "alex" : "clara"]
-          : url.includes("/chat/threads")
-          ? threadsByEmployee[url.includes("alex") ? "alex" : "clara"]
-          : url.includes("/capabilities")
-            ? capabilities
-            : employees;
-        return new Response(JSON.stringify(body), {
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/chat/employees/alex/ai-engine") && init?.method === "PUT") {
+        const payload = JSON.parse(String(init.body ?? "{}"));
+        return new Response(JSON.stringify({ ...employees[1], default_ai_engine: payload.default_ai_engine }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
-      }),
+      }
+      const body = url.includes("/tickets/employees/")
+        ? workByEmployee[url.includes("alex") ? "alex" : "clara"]
+        : url.includes("/chat/threads")
+        ? threadsByEmployee[url.includes("alex") ? "alex" : "clara"]
+        : url.includes("/capabilities")
+          ? capabilities
+          : url.includes("/chat/ai-engines")
+            ? aiEngines
+            : employees;
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal(
+      "fetch",
+      fetchMock,
     );
   });
 
@@ -190,5 +245,26 @@ describe("EmployeesPage", () => {
     expect(screen.getAllByText("AI RD / Implementer").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Implement ticket flow/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("1 skills").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Ready Tools")).toBeNull();
+  });
+
+  it("updates the selected employee default AI Engine", async () => {
+    render(<EmployeesPage selectedId="alex" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "AI Engine" }));
+    const input = screen.getByLabelText("Default AI Engine");
+    fireEvent.change(input, { target: { value: "openai" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save default engine" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/chat/employees/alex/ai-engine",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ default_ai_engine: "openai" }),
+        }),
+      );
+    });
+    expect(await screen.findByDisplayValue("openai")).toBeTruthy();
   });
 });
