@@ -46,7 +46,7 @@ responsibilities:
 ai_engine:
   mode: external_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -84,7 +84,7 @@ skills: []
 ai_engine:
   mode: external_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -100,7 +100,7 @@ skills:
 ai_engine:
   mode: external_or_file_stub
   engine_identity: alex
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -166,13 +166,13 @@ ai_engine:
     payload = response.json()
     assert payload["target_employee"]["id"] == "alex"
     assert payload["ticket_keys"] == ["SV-1234"]
-    assert payload["provider_thread_id"] == "provider-alex-thread-t"
+    assert payload["engine_thread_id"] == "engine-alex-thread-t"
     assert payload["run_metadata"]["ticket_keys"] == ["SV-1234"]
     assert payload["run_metadata"]["ai_engine"]["actual_ai_engine"] == "stub"
     assert "Test Engineering" in payload["reply"]
 
-    provider_threads = json.loads((workspace / ".aiteamos" / "provider_threads.json").read_text())
-    assert provider_threads["alex::thread-test"] == "provider-alex-thread-t"
+    engine_threads = json.loads((workspace / ".aiteamos" / "engine_threads.json").read_text())
+    assert engine_threads["alex::thread-test"] == "engine-alex-thread-t"
 
     conversation = workspace / payload["saved_paths"]["conversation"]
     trace = workspace / payload["saved_paths"]["trace"]
@@ -282,7 +282,7 @@ skills: []
 ai_engine:
   mode: external_or_file_stub
   engine_identity: alex
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -324,7 +324,7 @@ ai_engine:
   mode: external_or_file_stub
   engine_identity: alex
   default_engine: stub
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -360,7 +360,7 @@ skills: []
 ai_engine:
   mode: external_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -402,7 +402,7 @@ skills: []
 ai_engine:
   mode: external_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -464,7 +464,7 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -521,9 +521,9 @@ ai_engine:
     assert 'event: delta\ndata: {"text": "Clara"}' in body
     assert "ai_engine.deepseek.stream_completed" in body
 
-    provider_threads = json.loads((workspace / ".aiteamos" / "provider_threads.json").read_text())
-    state = provider_threads["clara::deepseek-native-stream"]
-    assert state["provider"] == "deepseek_chat_completions"
+    engine_threads = json.loads((workspace / ".aiteamos" / "engine_threads.json").read_text())
+    state = engine_threads["clara::deepseek-native-stream"]
+    assert state["ai_engine"] == "deepseek_chat_completions"
     assert state["deepseek_last_response_id"] == "ds-stream-1"
 
 
@@ -546,7 +546,7 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -562,14 +562,14 @@ skills:
 ai_engine:
   mode: external_or_file_stub
   engine_identity: alex
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Remote provider should not be called for list_employees")
+            raise AssertionError("Remote AI Engine should not be called for list_employees")
 
     monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
 
@@ -617,7 +617,7 @@ skills:
 ai_engine:
   mode: external_or_file_stub
   engine_identity: alex
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -668,7 +668,7 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -683,14 +683,14 @@ skills: []
 ai_engine:
   mode: external_or_file_stub
   engine_identity: alex
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Remote provider should not be called for skill tools")
+            raise AssertionError("Remote AI Engine should not be called for skill tools")
 
     monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
 
@@ -764,7 +764,7 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -780,14 +780,14 @@ skills:
 ai_engine:
   mode: external_or_file_stub
   engine_identity: alex
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Remote provider should not be called for list_employees")
+            raise AssertionError("Remote AI Engine should not be called for list_employees")
 
     monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
 
@@ -831,14 +831,14 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Remote provider should not be called for create_employee")
+            raise AssertionError("Remote AI Engine should not be called for create_employee")
 
     monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
 
@@ -894,14 +894,14 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Remote provider should not be called for create_employee")
+            raise AssertionError("Remote AI Engine should not be called for create_employee")
 
     monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
 
@@ -947,7 +947,7 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -1039,7 +1039,7 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -1055,14 +1055,14 @@ skills:
 ai_engine:
   mode: external_or_file_stub
   engine_identity: victor
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Remote provider should not be called for edit_employee_profile")
+            raise AssertionError("Remote AI Engine should not be called for edit_employee_profile")
 
     monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
 
@@ -1111,7 +1111,7 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -1127,21 +1127,21 @@ skills:
 ai_engine:
   mode: external_or_file_stub
   engine_identity: victor
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
-    (runtime_dir / "provider_threads.json").write_text(
+    (runtime_dir / "engine_threads.json").write_text(
         json.dumps({
-            "victor::thread-1": "provider-victor-thread-1",
-            "clara::thread-1": "provider-clara-thread-1",
+            "victor::thread-1": "engine-victor-thread-1",
+            "clara::thread-1": "engine-clara-thread-1",
         }),
         encoding="utf-8",
     )
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Remote provider should not be called for delete_employee")
+            raise AssertionError("Remote AI Engine should not be called for delete_employee")
 
     monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
 
@@ -1161,9 +1161,9 @@ ai_engine:
     assert any(event["event"] == "tool.delete_employee.completed" for event in payload["trace_events"])
     assert not (employees_dir / "victor.yaml").exists()
 
-    provider_threads = json.loads((runtime_dir / "provider_threads.json").read_text(encoding="utf-8"))
-    assert "victor::thread-1" not in provider_threads
-    assert provider_threads["clara::thread-1"] == "provider-clara-thread-1"
+    engine_threads = json.loads((runtime_dir / "engine_threads.json").read_text(encoding="utf-8"))
+    assert "victor::thread-1" not in engine_threads
+    assert engine_threads["clara::thread-1"] == "engine-clara-thread-1"
 
 
 def test_employee_chat_blocks_deleting_clara(tmp_path, monkeypatch):
@@ -1185,14 +1185,14 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Remote provider should not be called for delete_employee")
+            raise AssertionError("Remote AI Engine should not be called for delete_employee")
 
     monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
 
@@ -1233,14 +1233,14 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Remote provider should not be called for create_employee streaming")
+            raise AssertionError("Remote AI Engine should not be called for create_employee streaming")
 
     monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
 
@@ -1288,7 +1288,7 @@ skills: []
 ai_engine:
   mode: openai_responses
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 handoff_rules:
   - Ask for human approval before external actions
 """.strip(),
@@ -1337,15 +1337,15 @@ handoff_rules:
     assert response.status_code == 200
     payload = response.json()
     assert payload["reply"] == "我是 AITeamOS 的 Clara。"
-    assert payload["provider_thread_id"] == "provider-clara-who-are-"
+    assert payload["engine_thread_id"] == "engine-clara-who-are-"
     assert any(event["event"] == "ai_engine.openai.completed" for event in payload["trace_events"])
     assert calls[0]["url"] == "https://api.openai.com/v1/responses"
     assert calls[0]["json"]["model"] == "gpt-test"
     assert "Role: AI Team OS Manager" in calls[0]["json"]["instructions"]
 
-    provider_threads = json.loads((workspace / ".aiteamos" / "provider_threads.json").read_text())
-    state = provider_threads["clara::who-are-you"]
-    assert state["provider"] == "openai_responses"
+    engine_threads = json.loads((workspace / ".aiteamos" / "engine_threads.json").read_text())
+    state = engine_threads["clara::who-are-you"]
+    assert state["ai_engine"] == "openai_responses"
     assert state["openai_previous_response_id"] == "resp-test-1"
 
 
@@ -1373,7 +1373,7 @@ skills: []
 ai_engine:
   mode: deepseek_chat_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 handoff_rules:
   - Ask for human approval before external actions
 """.strip(),
@@ -1458,7 +1458,7 @@ handoff_rules:
     assert response.status_code == 200
     payload = response.json()
     assert payload["reply"] == "我是 AITeamOS 的 Clara。"
-    assert payload["provider_thread_id"] == "provider-clara-deepseek"
+    assert payload["engine_thread_id"] == "engine-clara-deepseek"
     assert any(event["event"] == "ai_engine.deepseek.completed" for event in payload["trace_events"])
     assert calls[0]["url"] == "https://api.deepseek.com/chat/completions"
     assert calls[0]["json"]["model"] == "deepseek-v4-flash"
@@ -1471,8 +1471,8 @@ handoff_rules:
         {"role": "user", "content": "你是谁？"},
     ]
 
-    provider_threads = json.loads((workspace / ".aiteamos" / "provider_threads.json").read_text())
-    state = provider_threads["clara::deepseek-who-are-you"]
-    assert state["provider"] == "deepseek_chat_completions"
+    engine_threads = json.loads((workspace / ".aiteamos" / "engine_threads.json").read_text())
+    state = engine_threads["clara::deepseek-who-are-you"]
+    assert state["ai_engine"] == "deepseek_chat_completions"
     assert state["deepseek_last_response_id"] == "ds-test-1"
     assert state["assumed_agent_session"] is True

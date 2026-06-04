@@ -27,7 +27,7 @@ const aiEngines = {
       model_options: [],
       thinking_options: [],
       config_fields: [],
-      runtime_options: [],
+      chat_options: [],
       health_detail: "Ready for Chat selection.",
     },
     deepseek: {
@@ -57,7 +57,7 @@ const aiEngines = {
         { id: "base_url", label: "Base URL", kind: "text", value: "https://api.deepseek.com", placeholder: "", options: [], required: true, secret: false, read_only: false, help: "" },
         { id: "api_key_env", label: "API key env", kind: "text", value: "DEEPSEEK_API_KEY", placeholder: "", options: [], required: true, secret: true, read_only: false, help: "" },
       ],
-      runtime_options: [
+      chat_options: [
         { id: "thinking", label: "Reasoning", kind: "select", value: "disabled", placeholder: "", options: ["disabled", "enabled"], required: false, secret: false, read_only: false, help: "" },
       ],
       health_detail: "Ready for Chat selection.",
@@ -87,7 +87,7 @@ const aiEngines = {
         { id: "base_url", label: "Base URL", kind: "text", value: "https://api.openai.com/v1", placeholder: "", options: [], required: true, secret: false, read_only: false, help: "" },
         { id: "api_key_env", label: "API key env", kind: "text", value: "OPENAI_API_KEY", placeholder: "", options: [], required: true, secret: true, read_only: false, help: "" },
       ],
-      runtime_options: [],
+      chat_options: [],
       health_detail: "Configuration is saved, but the referenced API key environment variable is missing.",
     },
   },
@@ -105,7 +105,7 @@ const employees = [
     summary: "Coordinator",
     skills: [],
     ai_engine_mode: "deepseek_chat_or_file_stub",
-    preserve_provider_thread: true,
+    preserve_engine_thread: true,
     default_thread_id: "employee-clara-default",
   },
 ];

@@ -125,7 +125,7 @@ skills: []
 ai_engine:
   mode: external_or_file_stub
   engine_identity: clara
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )

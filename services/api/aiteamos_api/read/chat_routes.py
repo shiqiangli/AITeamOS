@@ -2,7 +2,7 @@
 File-backed Employee Chat routes.
 
 P0 intentionally avoids database dependencies. Employee profiles, conversation
-history, trace events, and external provider thread mappings live under the
+history, trace events, and external AI Engine thread mappings live under the
 local .aiteamos workspace directory.
 """
 
@@ -144,7 +144,7 @@ class ChatEmployeeSummary(BaseModel):
     skills: list[str] = Field(default_factory=list)
     ai_engine_mode: str = "external_or_file_stub"
     default_ai_engine: str = "system"
-    preserve_provider_thread: bool = True
+    preserve_engine_thread: bool = True
     default_thread_id: str = ""
 
 
@@ -175,7 +175,7 @@ class ChatMessageResponse(BaseModel):
     thread_id: str
     run_id: str
     target_employee: ChatEmployeeSummary
-    provider_thread_id: str
+    engine_thread_id: str
     ticket_keys: list[str]
     reply: str
     trace_events: list[ChatTraceEvent]
@@ -260,7 +260,7 @@ class ChatAiEngineRecord(BaseModel):
     model_options: list[str] = Field(default_factory=list)
     thinking_options: list[str] = Field(default_factory=list)
     config_fields: list[ChatAiEngineConfigField] = Field(default_factory=list)
-    runtime_options: list[ChatAiEngineConfigField] = Field(default_factory=list)
+    chat_options: list[ChatAiEngineConfigField] = Field(default_factory=list)
     health_detail: str = ""
 
 
@@ -322,8 +322,8 @@ class ChatRunContext:
     run_id: str
     ticket_keys: list[str]
     run_dirs: dict[str, Path]
-    provider_state: dict[str, Any]
-    provider_thread_id: str
+    engine_state: dict[str, Any]
+    engine_thread_id: str
     skills: list[str]
     memories: list[str]
     recent_messages: list[ConversationMessage]
@@ -589,7 +589,7 @@ def _ai_engine_records(config: dict[str, Any], secrets: dict[str, str]) -> dict[
             model_options=[str(option) for option in catalog.get("model_options", [])],
             thinking_options=[str(option) for option in catalog.get("thinking_options", [])],
             config_fields=_config_fields(catalog=catalog, engine_config=engine_config, editable=editable, field_key="config_fields"),
-            runtime_options=_config_fields(catalog=catalog, engine_config=engine_config, editable=editable, field_key="runtime_options"),
+            chat_options=_config_fields(catalog=catalog, engine_config=engine_config, editable=editable, field_key="chat_options"),
             health_detail=health_detail,
         )
     return records
@@ -706,7 +706,7 @@ def _normalize_employee_profile(profile: dict[str, Any], path: Path) -> dict[str
         engine_identity = str(ai_engine.get("engine_identity") or "").strip()
         if not engine_identity:
             ai_engine["engine_identity"] = CLARA_SYSTEM_EMPLOYEE_ID
-        ai_engine["preserve_provider_thread"] = True
+        ai_engine["preserve_engine_thread"] = True
         normalized["ai_engine"] = ai_engine
         normalized["system"] = {"protected": True, "bootstrap": True}
 
@@ -715,7 +715,7 @@ def _normalize_employee_profile(profile: dict[str, Any], path: Path) -> dict[str
     ai_engine = dict(ai_engine)
     ai_engine.setdefault("mode", "human" if kind == "human" else "external_or_file_stub")
     ai_engine.setdefault("engine_identity", profile_id)
-    ai_engine.setdefault("preserve_provider_thread", True)
+    ai_engine.setdefault("preserve_engine_thread", True)
     ai_engine["default_engine"] = _normalize_employee_default_ai_engine(
         str(ai_engine.get("default_engine") or ai_engine.get("default_ai_engine") or "system")
     )
@@ -775,7 +775,7 @@ def _default_clara_profile() -> dict[str, Any]:
             "mode": "external_or_file_stub",
             "engine_identity": CLARA_SYSTEM_EMPLOYEE_ID,
             "default_engine": "system",
-            "preserve_provider_thread": True,
+            "preserve_engine_thread": True,
         },
         "permissions": [
             "chat",
@@ -806,7 +806,7 @@ def _employee_summary(profile: dict[str, Any]) -> ChatEmployeeSummary:
         skills=[str(skill) for skill in profile.get("skills", [])],
         ai_engine_mode=str(ai_engine.get("mode", "external_or_file_stub")),
         default_ai_engine=_normalize_employee_default_ai_engine(str(ai_engine.get("default_engine") or "system")),
-        preserve_provider_thread=bool(ai_engine.get("preserve_provider_thread", True)),
+        preserve_engine_thread=bool(ai_engine.get("preserve_engine_thread", True)),
         default_thread_id=_employee_default_thread_id(employee_id),
     )
 
@@ -1443,7 +1443,7 @@ def _build_employee_profile(
             "mode": ai_engine_mode,
             "engine_identity": employee_id,
             "default_engine": "system",
-            "preserve_provider_thread": True,
+            "preserve_engine_thread": True,
         },
         "permissions": _default_permissions(kind, role),
         "handoff_rules": _default_handoff_rules(role),
@@ -2813,7 +2813,7 @@ def _complete_delete_employee_tool(context: ChatRunContext, plan: ChatToolPlan |
         profile_path.unlink()
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Cannot delete employee profile: {employee.id}") from exc
-    removed_provider_thread_keys = _delete_provider_thread_states(employee.id)
+    removed_engine_thread_keys = _delete_engine_thread_states(employee.id)
     archived_thread_ids = _archive_employee_thread_metadata(employee.id)
 
     result = {
@@ -2821,7 +2821,7 @@ def _complete_delete_employee_tool(context: ChatRunContext, plan: ChatToolPlan |
         "detail": f"Deleted employee profile: {employee.id}",
         "employee": employee.model_dump(),
         "deleted_path": relative_profile_path,
-        "provider_thread_keys_removed": removed_provider_thread_keys,
+        "engine_thread_keys_removed": removed_engine_thread_keys,
         "archived_thread_ids": archived_thread_ids,
         "retained_evidence": ["conversations", "traces"],
         "deep_links": {"employees": "#/employees"},
@@ -2831,7 +2831,7 @@ def _complete_delete_employee_tool(context: ChatRunContext, plan: ChatToolPlan |
         f"已删除成员 {employee.display_name}。\n\n"
         f"- ID: {employee.id}\n"
         f"- Profile: {relative_profile_path}\n"
-        f"- 清理 provider thread 映射：{len(removed_provider_thread_keys)} 条\n"
+        f"- 清理 AI Engine thread 映射：{len(removed_engine_thread_keys)} 条\n"
         f"- 归档 chat threads：{len(archived_thread_ids)} 条\n"
         "- 历史 conversation 和 trace 已保留，用于审计。\n"
         "- Employees: #/employees"
@@ -3567,8 +3567,8 @@ def _archive_employee_thread_metadata(employee_id: str) -> list[str]:
     return removed
 
 
-def _provider_thread_id(employee_id: str, thread_id: str) -> str:
-    path = _workspace_dir() / "provider_threads.json"
+def _engine_thread_id(employee_id: str, thread_id: str) -> str:
+    path = _workspace_dir() / "engine_threads.json"
     path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -3578,13 +3578,13 @@ def _provider_thread_id(employee_id: str, thread_id: str) -> str:
 
     key = f"{employee_id}::{thread_id}"
     if key not in mapping:
-        mapping[key] = f"provider-{employee_id}-{thread_id[:8]}"
+        mapping[key] = f"engine-{employee_id}-{thread_id[:8]}"
         path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
     return str(mapping[key])
 
 
-def _load_provider_threads() -> tuple[Path, dict[str, Any]]:
-    path = _workspace_dir() / "provider_threads.json"
+def _load_engine_threads() -> tuple[Path, dict[str, Any]]:
+    path = _workspace_dir() / "engine_threads.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         mapping = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -3593,32 +3593,32 @@ def _load_provider_threads() -> tuple[Path, dict[str, Any]]:
     return path, mapping if isinstance(mapping, dict) else {}
 
 
-def _provider_thread_state(employee_id: str, thread_id: str) -> dict[str, Any]:
-    path, mapping = _load_provider_threads()
+def _engine_thread_state(employee_id: str, thread_id: str) -> dict[str, Any]:
+    path, mapping = _load_engine_threads()
     key = f"{employee_id}::{thread_id}"
     existing = mapping.get(key)
     if isinstance(existing, dict):
         return existing
     if isinstance(existing, str):
-        return {"provider": "file_stub", "provider_thread_id": existing}
+        return {"ai_engine": "file_stub", "engine_thread_id": existing}
 
     state = {
-        "provider": "file_stub",
-        "provider_thread_id": f"provider-{employee_id}-{thread_id[:8]}",
+        "ai_engine": "file_stub",
+        "engine_thread_id": f"engine-{employee_id}-{thread_id[:8]}",
     }
-    mapping[key] = state["provider_thread_id"]
+    mapping[key] = state["engine_thread_id"]
     path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
     return state
 
 
-def _save_provider_thread_state(employee_id: str, thread_id: str, state: dict[str, Any]) -> None:
-    path, mapping = _load_provider_threads()
+def _save_engine_thread_state(employee_id: str, thread_id: str, state: dict[str, Any]) -> None:
+    path, mapping = _load_engine_threads()
     mapping[f"{employee_id}::{thread_id}"] = state
     path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _delete_provider_thread_states(employee_id: str) -> list[str]:
-    path, mapping = _load_provider_threads()
+def _delete_engine_thread_states(employee_id: str) -> list[str]:
+    path, mapping = _load_engine_threads()
     removed_keys = [key for key in mapping if key.startswith(f"{employee_id}::")]
     if removed_keys:
         for key in removed_keys:
@@ -3835,7 +3835,7 @@ def _ai_engine_context_gate(
         f"Local memory snippets:\n{memory_text}\n\n"
         f"Handoff rules:\n{handoff_text}\n\n"
         "AITeamOS currently gates your profile, skills, memory, Ticket context, "
-        "permissions, and trace capture before sending this turn to the provider. "
+        "permissions, and trace capture before sending this turn to the AI Engine. "
         "Do not claim that Ticket, Harness, repository edits, or external tools were "
         "actually invoked unless the user provided evidence in this conversation."
     )
@@ -3880,7 +3880,7 @@ async def _call_openai_agent(
     ticket_keys: list[str],
     skills: list[str],
     memory_snippets: list[str],
-    provider_state: dict[str, Any],
+    engine_state: dict[str, Any],
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
     api_key = _ai_engine_secrets()["openai_api_key"]
     if not _openai_enabled(ai_engine_id) or not api_key:
@@ -3899,7 +3899,7 @@ async def _call_openai_agent(
         "store": True,
         "max_output_tokens": _openai_max_output_tokens(),
     }
-    previous_response_id = provider_state.get("openai_previous_response_id")
+    previous_response_id = engine_state.get("openai_previous_response_id")
     if isinstance(previous_response_id, str) and previous_response_id:
         request_body["previous_response_id"] = previous_response_id
 
@@ -3928,9 +3928,9 @@ async def _call_openai_agent(
         raise HTTPException(status_code=502, detail="OpenAI AI Engine returned no response id")
 
     next_state = {
-        **provider_state,
-        "provider": "openai_responses",
-        "provider_thread_id": provider_state.get("provider_thread_id")
+        **engine_state,
+        "ai_engine": "openai_responses",
+        "engine_thread_id": engine_state.get("engine_thread_id")
         or f"openai-{employee.id}-{uuid4().hex[:8]}",
         "openai_previous_response_id": response_id,
         "model": payload.get("model") or _openai_model(),
@@ -3938,7 +3938,7 @@ async def _call_openai_agent(
         "updated_at": _now(),
     }
     metadata = {
-        "provider": "openai_responses",
+        "ai_engine": "openai_responses",
         "model": next_state["model"],
         "response_id": response_id,
         "previous_response_id": previous_response_id,
@@ -3957,7 +3957,7 @@ async def _call_deepseek_agent(
     skills: list[str],
     memory_snippets: list[str],
     recent_messages: list[ConversationMessage],
-    provider_state: dict[str, Any],
+    engine_state: dict[str, Any],
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
     api_key = _ai_engine_secrets()["deepseek_api_key"]
     if not _deepseek_enabled(ai_engine_id) or not api_key:
@@ -4013,9 +4013,9 @@ async def _call_deepseek_agent(
         response_id = f"deepseek-{uuid4().hex[:12]}"
 
     next_state = {
-        **provider_state,
-        "provider": "deepseek_chat_completions",
-        "provider_thread_id": provider_state.get("provider_thread_id")
+        **engine_state,
+        "ai_engine": "deepseek_chat_completions",
+        "engine_thread_id": engine_state.get("engine_thread_id")
         or f"deepseek-{employee.id}-{uuid4().hex[:8]}",
         "assumed_agent_session": True,
         "deepseek_last_response_id": response_id,
@@ -4023,7 +4023,7 @@ async def _call_deepseek_agent(
         "updated_at": _now(),
     }
     metadata = {
-        "provider": "deepseek_chat_completions",
+        "ai_engine": "deepseek_chat_completions",
         "model": next_state["model"],
         "response_id": response_id,
         "assumed_agent_session": True,
@@ -4115,10 +4115,10 @@ async def _stream_deepseek_agent(
     if not reply:
         raise HTTPException(status_code=502, detail="DeepSeek AI Engine returned no text output")
 
-    provider_state = {
-        **context.provider_state,
-        "provider": "deepseek_chat_completions",
-        "provider_thread_id": context.provider_state.get("provider_thread_id")
+    engine_state = {
+        **context.engine_state,
+        "ai_engine": "deepseek_chat_completions",
+        "engine_thread_id": context.engine_state.get("engine_thread_id")
         or f"deepseek-{context.employee.id}-{uuid4().hex[:8]}",
         "assumed_agent_session": True,
         "deepseek_last_response_id": response_id,
@@ -4126,7 +4126,7 @@ async def _stream_deepseek_agent(
         "updated_at": _now(),
     }
     metadata = {
-        "provider": "deepseek_chat_completions",
+        "ai_engine": "deepseek_chat_completions",
         "model": model,
         "response_id": response_id,
         "assumed_agent_session": True,
@@ -4137,8 +4137,8 @@ async def _stream_deepseek_agent(
     final_response = _persist_chat_response(
         context,
         reply=reply,
-        provider_state=provider_state,
-        provider_thread_id=str(provider_state["provider_thread_id"]),
+        engine_state=engine_state,
+        engine_thread_id=str(engine_state["engine_thread_id"]),
         extra_trace_events=[
             ChatTraceEvent(
                 event="ai_engine.deepseek.stream_completed",
@@ -4209,7 +4209,7 @@ def _selected_ai_engine_model(engine: str) -> str | None:
 def _build_run_metadata(
     context: ChatRunContext,
     *,
-    final_provider_thread_id: str,
+    final_engine_thread_id: str,
     trace_events: list[ChatTraceEvent],
     trace_path: Path,
 ) -> dict[str, Any]:
@@ -4221,7 +4221,7 @@ def _build_run_metadata(
     elif ai_engine_event.get("event") == "ai_engine.stub.completed":
         actual_ai_engine = "stub"
     else:
-        actual_ai_engine = str(ai_engine_event.get("provider") or context.provider_state.get("provider") or selected_ai_engine)
+        actual_ai_engine = str(ai_engine_event.get("ai_engine") or context.engine_state.get("ai_engine") or selected_ai_engine)
 
     return {
         "run_id": context.run_id,
@@ -4237,7 +4237,7 @@ def _build_run_metadata(
             "employee_default_ai_engine": context.employee.default_ai_engine,
             "actual_ai_engine": actual_ai_engine,
             "model": ai_engine_event.get("model") or _selected_ai_engine_model(selected_ai_engine),
-            "provider_thread_id": final_provider_thread_id,
+            "engine_thread_id": final_engine_thread_id,
             "event": ai_engine_event.get("event"),
         },
         "tools": tool_calls,
@@ -4254,7 +4254,7 @@ def _build_reply(
     employee: ChatEmployeeSummary,
     message: str,
     ticket_keys: list[str],
-    provider_thread_id: str,
+    engine_thread_id: str,
     skills: list[str],
     memory_snippets: list[str],
 ) -> str:
@@ -4266,11 +4266,11 @@ def _build_reply(
         f"{employee.display_name} received the request.\n\n"
         f"Role: {employee.role}\n"
         f"Ticket: {ticket_text}\n"
-        f"AI Engine: {employee.ai_engine_mode}; default: {employee.default_ai_engine}; provider thread: {provider_thread_id}\n"
+        f"AI Engine: {employee.ai_engine_mode}; default: {employee.default_ai_engine}; engine thread: {engine_thread_id}\n"
         f"Context gate: {skill_text}; {memory_text}\n\n"
         "P0 file-backed run completed: I loaded the addressed employee profile, "
-        "resolved the reusable provider thread mapping, captured the conversation, "
-        "and wrote a local trace. External Ticket, harness, and provider execution are "
+        "resolved the reusable AI Engine thread mapping, captured the conversation, "
+        "and wrote a local trace. External Ticket, harness, and AI Engine execution are "
         "not invoked in this first slice.\n\n"
         "Next action preview: read the Ticket context, pick the relevant skills and "
         "memory, execute through the configured external or local AI Engine, "
@@ -4294,8 +4294,8 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
     ticket_keys = _extract_ticket_keys(request.message, request.ticket_key)
     run_dirs = _ensure_run_dirs()
     recent_messages = _load_conversation_messages(thread_id, limit=12)
-    provider_state = _provider_thread_state(employee.id, thread_id)
-    provider_thread_id = str(provider_state.get("provider_thread_id") or _provider_thread_id(employee.id, thread_id))
+    engine_state = _engine_thread_state(employee.id, thread_id)
+    engine_thread_id = str(engine_state.get("engine_thread_id") or _engine_thread_id(employee.id, thread_id))
     skills = _skill_titles(employee.skills)
     memories = recall_memory_snippets(
         employee_id=employee.id,
@@ -4330,11 +4330,11 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
             data={"skills": skills, "memory_count": len(memories), "recent_message_count": len(recent_messages)},
         ),
         ChatTraceEvent(
-            event="provider_thread.resolved",
-            detail="Resolved stable external provider thread mapping.",
+            event="engine_thread.resolved",
+            detail="Resolved stable external AI Engine thread mapping.",
             data={
-                "provider": provider_state.get("provider", "file_stub"),
-                "provider_thread_id": provider_thread_id,
+                "ai_engine": engine_state.get("ai_engine", "file_stub"),
+                "engine_thread_id": engine_thread_id,
             },
         ),
     ]
@@ -4356,8 +4356,8 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
         run_id=run_id,
         ticket_keys=ticket_keys,
         run_dirs=run_dirs,
-        provider_state=provider_state,
-        provider_thread_id=provider_thread_id,
+        engine_state=engine_state,
+        engine_thread_id=engine_thread_id,
         skills=skills,
         memories=memories,
         recent_messages=recent_messages,
@@ -4369,13 +4369,13 @@ def _persist_chat_response(
     context: ChatRunContext,
     *,
     reply: str,
-    provider_state: dict[str, Any] | None = None,
-    provider_thread_id: str | None = None,
+    engine_state: dict[str, Any] | None = None,
+    engine_thread_id: str | None = None,
     extra_trace_events: list[ChatTraceEvent] | None = None,
 ) -> ChatMessageResponse:
-    if provider_state is not None:
-        _save_provider_thread_state(context.employee.id, context.thread_id, provider_state)
-    final_provider_thread_id = provider_thread_id or context.provider_thread_id
+    if engine_state is not None:
+        _save_engine_thread_state(context.employee.id, context.thread_id, engine_state)
+    final_engine_thread_id = engine_thread_id or context.engine_thread_id
 
     trace_events = [
         *context.trace_events,
@@ -4387,7 +4387,7 @@ def _persist_chat_response(
     trace_path = context.run_dirs["traces"] / f"{context.run_id}.jsonl"
     run_metadata = _build_run_metadata(
         context,
-        final_provider_thread_id=final_provider_thread_id,
+        final_engine_thread_id=final_engine_thread_id,
         trace_events=trace_events,
         trace_path=trace_path,
     )
@@ -4482,7 +4482,7 @@ def _persist_chat_response(
         thread_id=context.thread_id,
         run_id=context.run_id,
         target_employee=context.employee,
-        provider_thread_id=final_provider_thread_id,
+        engine_thread_id=final_engine_thread_id,
         ticket_keys=context.ticket_keys,
         reply=reply,
         trace_events=trace_events,
@@ -4492,7 +4492,7 @@ def _persist_chat_response(
             "trace": str(trace_path.relative_to(_workspace_root())),
             "threads": _thread_index_saved_path(),
             "thread": thread_summary.saved_path,
-            "provider_threads": str((_workspace_dir() / "provider_threads.json").relative_to(_workspace_root())),
+            "engine_threads": str((_workspace_dir() / "engine_threads.json").relative_to(_workspace_root())),
             **(
                 {"memory_candidate": f".aiteamos/memory/candidates.json#{memory_candidate.id}"}
                 if memory_candidate is not None
@@ -4507,7 +4507,7 @@ def _stub_reply(context: ChatRunContext) -> str:
         employee=context.employee,
         message=context.request.message,
         ticket_keys=context.ticket_keys,
-        provider_thread_id=context.provider_thread_id,
+        engine_thread_id=context.engine_thread_id,
         skills=context.skills,
         memory_snippets=context.memories,
     )
@@ -4738,8 +4738,8 @@ async def delete_chat_thread(thread_id: str) -> dict[str, Any]:
     except OSError:
         pass
 
-    # Clean up provider thread mapping
-    provider_path = _workspace_dir() / "provider_threads.json"
+    # Clean up AI Engine thread mapping
+    provider_path = _workspace_dir() / "engine_threads.json"
     if provider_path.exists():
         try:
             mapping = json.loads(provider_path.read_text(encoding="utf-8"))
@@ -4940,7 +4940,7 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
     ai_engine_id = context.selected_ai_engine
     try:
         if ai_engine_id == "deepseek":
-            reply, provider_state, ai_engine_metadata = await _call_deepseek_agent(
+            reply, engine_state, ai_engine_metadata = await _call_deepseek_agent(
                 ai_engine_id=ai_engine_id,
                 employee_profile=context.selected_profile,
                 employee=context.employee,
@@ -4949,7 +4949,7 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
                 skills=context.skills,
                 memory_snippets=context.memories,
                 recent_messages=context.recent_messages,
-                provider_state=context.provider_state,
+                engine_state=context.engine_state,
             )
             completed_event = ChatTraceEvent(
                 event="ai_engine.deepseek.completed",
@@ -4957,7 +4957,7 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
                 data=ai_engine_metadata,
             )
         elif ai_engine_id == "openai":
-            reply, provider_state, ai_engine_metadata = await _call_openai_agent(
+            reply, engine_state, ai_engine_metadata = await _call_openai_agent(
                 ai_engine_id=ai_engine_id,
                 employee_profile=context.selected_profile,
                 employee=context.employee,
@@ -4965,7 +4965,7 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
                 ticket_keys=context.ticket_keys,
                 skills=context.skills,
                 memory_snippets=context.memories,
-                provider_state=context.provider_state,
+                engine_state=context.engine_state,
             )
             completed_event = ChatTraceEvent(
                 event="ai_engine.openai.completed",
@@ -4978,8 +4978,8 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
         return _persist_chat_response(
             context,
             reply=reply,
-            provider_state=provider_state,
-            provider_thread_id=str(provider_state["provider_thread_id"]),
+            engine_state=engine_state,
+            engine_thread_id=str(engine_state["engine_thread_id"]),
             extra_trace_events=[completed_event],
         )
     except RuntimeError:
@@ -5219,7 +5219,7 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                                 "thread_id": context.thread_id,
                                 "run_id": context.run_id,
                                 "target_employee": context.employee.model_dump(),
-                                "provider_thread_id": context.provider_thread_id,
+                                "engine_thread_id": context.engine_thread_id,
                                 "ticket_keys": context.ticket_keys,
                             },
                         )
@@ -5236,7 +5236,7 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                             "thread_id": response.thread_id,
                             "run_id": response.run_id,
                             "target_employee": response.target_employee.model_dump(),
-                            "provider_thread_id": response.provider_thread_id,
+                            "engine_thread_id": response.engine_thread_id,
                             "ticket_keys": response.ticket_keys,
                         },
                     )
@@ -5254,7 +5254,7 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                         "thread_id": context.thread_id,
                         "run_id": context.run_id,
                         "target_employee": context.employee.model_dump(),
-                        "provider_thread_id": context.provider_thread_id,
+                        "engine_thread_id": context.engine_thread_id,
                         "ticket_keys": context.ticket_keys,
                     },
                 )
@@ -5272,7 +5272,7 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
                     "thread_id": response.thread_id,
                     "run_id": response.run_id,
                     "target_employee": response.target_employee.model_dump(),
-                    "provider_thread_id": response.provider_thread_id,
+                    "engine_thread_id": response.engine_thread_id,
                     "ticket_keys": response.ticket_keys,
                 },
             )

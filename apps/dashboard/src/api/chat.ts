@@ -9,7 +9,7 @@ export interface ChatEmployeeSummary {
   skills: string[];
   ai_engine_mode: string;
   default_ai_engine: string;
-  preserve_provider_thread: boolean;
+  preserve_engine_thread: boolean;
   default_thread_id: string;
 }
 
@@ -40,7 +40,7 @@ export interface ChatMessageResponse {
   thread_id: string;
   run_id: string;
   target_employee: ChatEmployeeSummary;
-  provider_thread_id: string;
+  engine_thread_id: string;
   ticket_keys: string[];
   reply: string;
   trace_events: ChatTraceEvent[];
@@ -128,7 +128,7 @@ export interface ChatAiEngineRecord {
   model_options: string[];
   thinking_options: string[];
   config_fields: ChatAiEngineConfigField[];
-  runtime_options: ChatAiEngineConfigField[];
+  chat_options: ChatAiEngineConfigField[];
   health_detail: string;
 }
 

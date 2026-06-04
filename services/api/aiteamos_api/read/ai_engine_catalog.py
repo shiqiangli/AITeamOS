@@ -33,7 +33,7 @@ AI_ENGINE_CATALOG: dict[str, dict[str, Any]] = {
             {"id": "base_url", "label": "Base URL", "kind": "text", "required": True},
             {"id": "api_key_env", "label": "API key env", "kind": "text", "required": True, "secret": True},
         ],
-        "runtime_options": [
+        "chat_options": [
             {"id": "thinking", "label": "Reasoning", "kind": "select", "options": ["disabled", "enabled"]},
         ],
     },

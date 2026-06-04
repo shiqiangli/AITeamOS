@@ -158,7 +158,7 @@ function isChatMessageResponse(value: unknown): value is ChatMessageResponse {
   if (!value || typeof value !== "object") return false;
   const r = value as Record<string, unknown>;
   return typeof r.thread_id === "string" && typeof r.run_id === "string"
-    && typeof r.provider_thread_id === "string" && Array.isArray(r.trace_events)
+    && typeof r.engine_thread_id === "string" && Array.isArray(r.trace_events)
     && (r.run_metadata === undefined || (!!r.run_metadata && typeof r.run_metadata === "object"))
     && !!r.saved_paths && typeof r.saved_paths === "object";
 }
@@ -666,7 +666,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
   const [openThreadIds, setOpenThreadIds] = useState<string[]>([]);
   const [threadLibraryOpen, setThreadLibraryOpen] = useState(false);
   const [threadQuery, setThreadQuery] = useState("");
-  const [providerThreadId, setProviderThreadId] = useState<string | null>(null);
+  const [engineThreadId, setEngineThreadId] = useState<string | null>(null);
   const [traceEvents, setTraceEvents] = useState<ChatTraceEvent[]>([]);
   const [runMetadata, setRunMetadata] = useState<Record<string, unknown> | null>(null);
   const [savedPaths, setSavedPaths] = useState<Record<string, string>>({});
@@ -761,7 +761,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
 
   const handleAgentResponse = useCallback((response: ChatMessageResponse) => {
     setThreadId(response.thread_id);
-    setProviderThreadId(response.provider_thread_id);
+    setEngineThreadId(response.engine_thread_id);
     setTraceEvents(response.trace_events);
     setRunMetadata(response.run_metadata ?? null);
     setSavedPaths(response.saved_paths);
@@ -784,7 +784,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
       setThreads((current) => [thread, ...current.filter((item) => item.id !== thread.id)]);
       setThreadId(thread.id);
       setOpenThreadIds((current) => current.includes(thread.id) ? current : [...current, thread.id]);
-      setProviderThreadId(null); setTraceEvents([]); setRunMetadata(null); setSavedPaths({});
+      setEngineThreadId(null); setTraceEvents([]); setRunMetadata(null); setSavedPaths({});
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to create thread"); }
   }
 
@@ -795,7 +795,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
     setThreadId(defaultThreadIdForEmployee(next));
     setOpenThreadIds([]);
     setThreadQuery("");
-    setProviderThreadId(null); setTraceEvents([]); setRunMetadata(null); setSavedPaths({}); setError(null);
+    setEngineThreadId(null); setTraceEvents([]); setRunMetadata(null); setSavedPaths({}); setError(null);
     try { await loadThreadsForEmployee(next); }
     catch (err) { setError(err instanceof Error ? err.message : "Failed to load employee threads"); }
   }
@@ -807,7 +807,7 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
     setError(null);
     const previousThreadId = activeThreadId;
     setThreadId(nextThread.id);
-    setProviderThreadId(null); setTraceEvents([]); setRunMetadata(null); setSavedPaths({});
+    setEngineThreadId(null); setTraceEvents([]); setRunMetadata(null); setSavedPaths({});
     try {
       await activateChatThread(nextThread.id, selectedEmployee.id);
     } catch (err) {
@@ -1084,8 +1084,8 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
                       </div>
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground">Engine thread</span>
-                        <span className="truncate text-right" title={metadataText(runAiEngine.provider_thread_id || providerThreadId)}>
-                          {metadataText(runAiEngine.provider_thread_id || providerThreadId)}
+                        <span className="truncate text-right" title={metadataText(runAiEngine.engine_thread_id || engineThreadId)}>
+                          {metadataText(runAiEngine.engine_thread_id || engineThreadId)}
                         </span>
                       </div>
                       <div>

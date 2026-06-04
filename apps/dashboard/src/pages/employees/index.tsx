@@ -2,14 +2,16 @@ import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react
 import {
   Activity,
   AlertTriangle,
-  Bot,
   Brain,
   ChevronRight,
   ClipboardCheck,
   Clock3,
   Database,
+  FolderGit2,
   GitBranch,
+  KeyRound,
   MessageSquare,
+  Plug,
   Search,
   ShieldCheck,
   Sparkles,
@@ -44,13 +46,13 @@ import {
 } from "../../api/tickets";
 import { cn } from "@/lib/utils";
 
-type DetailTab = "overview" | "work" | "capabilities" | "knowledge" | "ai_engine";
+type DetailTab = "overview" | "work" | "capabilities" | "governance" | "ai_engine";
 
 const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
   { key: "overview", label: "Overview" },
-  { key: "work", label: "Work" },
-  { key: "capabilities", label: "Skills & Tools" },
-  { key: "knowledge", label: "Knowledge" },
+  { key: "work", label: "Work Ledger" },
+  { key: "capabilities", label: "Capabilities" },
+  { key: "governance", label: "Governance" },
   { key: "ai_engine", label: "AI Engine" },
 ];
 
@@ -137,6 +139,51 @@ function defaultAiEngineLabel(value?: string | null): string {
 function effectiveAiEngine(employee: ChatEmployeeSummary, aiEngines: ChatAiEngineSettings | null): string {
   const defaultEngine = (employee.default_ai_engine || "system").trim().toLowerCase();
   return defaultEngine === "system" ? aiEngines?.active_engine ?? "system" : defaultEngine;
+}
+
+function contributionValue(work: EmployeeWorkLedger | null, key: string): number {
+  const value = work?.contribution?.[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function sourceKindLabel(sourceKind: string): string {
+  if (sourceKind === "built_in") return "Built-in";
+  if (sourceKind === "mcp_server") return "MCP";
+  if (sourceKind === "native_api") return "Native API";
+  if (sourceKind === "cli") return "CLI";
+  if (sourceKind === "ci") return "CI";
+  if (sourceKind === "ticket_backend") return "Ticket backend";
+  if (sourceKind === "ai_engine_bridge") return "AI Engine bridge";
+  return sourceKind.replace(/_/g, " ") || "Tool";
+}
+
+function capabilityGroups(capabilities: CapabilityRecord[]) {
+  const tools = capabilities.filter((capability) => capability.kind === "tool");
+  return {
+    builtIn: tools.filter((capability) => capability.source_kind === "built_in"),
+    mcp: tools.filter((capability) => capability.source_kind === "mcp_server"),
+    other: tools.filter((capability) => !["built_in", "mcp_server"].includes(capability.source_kind)),
+  };
+}
+
+function uniquePermissions(capabilities: CapabilityRecord[]): string[] {
+  return Array.from(new Set(capabilities.flatMap((capability) => capability.permissions).filter(Boolean))).sort();
+}
+
+function uniqueConnectorIds(capabilities: CapabilityRecord[]): string[] {
+  return Array.from(new Set(capabilities.map((capability) => capability.connector_id).filter(Boolean))).sort();
+}
+
+function handoffValue(handoff: Record<string, unknown>, key: string): string {
+  const value = handoff[key];
+  return typeof value === "string" ? value : "";
+}
+
+function handoffEventValue(handoff: Record<string, unknown>, key: string): string {
+  const event = handoff.event;
+  if (!event || typeof event !== "object") return "";
+  const value = (event as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : "";
 }
 
 function StatCard({
@@ -235,6 +282,123 @@ function WorkReportSection({
   );
 }
 
+function CapabilityGroupSection({
+  capabilities,
+  empty,
+  title,
+}: {
+  capabilities: CapabilityRecord[];
+  empty: string;
+  title: string;
+}) {
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">{title}</h4>
+        <Badge variant="outline">{capabilities.length}</Badge>
+      </div>
+      {capabilities.length ? (
+        <div className="space-y-2">
+          {capabilities.map((capability) => (
+            <div key={capability.id} className="rounded-md border bg-muted/30 px-3 py-2">
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{capability.name}</div>
+                  <div className="mt-0.5 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+                    <span>{sourceKindLabel(capability.source_kind)}</span>
+                    {capability.domain && <span>{capability.domain}</span>}
+                    {capability.connector_id && <span>{capability.connector_id}</span>}
+                  </div>
+                </div>
+                <Badge variant={capabilityVariant(capability)} className="shrink-0">{capability.status}</Badge>
+              </div>
+              {capability.description && (
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{capability.description}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">{empty}</p>
+      )}
+    </section>
+  );
+}
+
+function HandoffSection({ handoffs }: { handoffs: Record<string, unknown>[] }) {
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">Handoffs</h4>
+        <Badge variant="outline">{handoffs.length}</Badge>
+      </div>
+      {handoffs.length ? (
+        <div className="space-y-2">
+          {handoffs.slice(0, 6).map((handoff, index) => {
+            const ticketId = handoffValue(handoff, "ticket_id");
+            const title = handoffValue(handoff, "title") || ticketId || "Ticket handoff";
+            const type = handoffEventValue(handoff, "type") || "handoff";
+            const at = handoffEventValue(handoff, "at");
+            return (
+              <button
+                key={`${ticketId || "handoff"}-${index}`}
+                type="button"
+                className="flex w-full items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
+                onClick={() => ticketId && navigateTo("chat", ticketId)}
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{title}</div>
+                  <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    {ticketId && <span>{ticketId}</span>}
+                    <span>{type}</span>
+                    {at && <span>{formatThreadTime(at)}</span>}
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">No handoff records yet.</p>
+      )}
+    </section>
+  );
+}
+
+function ActivityThreadSection({ employee, threads }: { employee: ChatEmployeeSummary; threads: ChatThreadListResponse | null }) {
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">Communication Signal</h4>
+        <Badge variant="outline">{threadCount(threads)} threads</Badge>
+      </div>
+      {threads?.threads?.length ? (
+        <div className="space-y-2">
+          {threads.threads.slice(0, 4).map((thread) => (
+            <button
+              key={thread.id}
+              type="button"
+              className="flex w-full items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
+              onClick={() => navigateTo("chat", employee.id)}
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{thread.title || thread.id}</div>
+                <div className="text-xs text-muted-foreground">{thread.message_count} msgs</div>
+              </div>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {formatThreadTime(thread.last_message_at || thread.updated_at)}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">No recent communication threads.</p>
+      )}
+    </section>
+  );
+}
+
 function EmployeeAvatar({ employee, size = "md" }: { employee: ChatEmployeeSummary; size?: "sm" | "md" | "lg" }) {
   return (
     <div className={cn(
@@ -270,7 +434,10 @@ function EmployeeDrawer({
   const latest = latestThread(threads);
   const state = employeeState(employee, threads);
   const readyCapabilities = capabilities.filter((capability) => capability.configured && capability.status === "ready");
-  const toolCapabilities = capabilities.filter((capability) => capability.kind === "tool");
+  const groupedCapabilities = capabilityGroups(capabilities);
+  const permissions = uniquePermissions(capabilities);
+  const connectorIds = uniqueConnectorIds(capabilities);
+  const currentTicket = work?.current_tickets?.[0] ?? null;
   const aiEngineOptions = useMemo(() => {
     const engines = Object.values(aiEngines?.engines ?? {}).filter((engine) => (engine.support_status ?? "supported") === "supported");
     return [
@@ -323,11 +490,11 @@ function EmployeeDrawer({
             <MessageSquare className="h-4 w-4" />
             Chat
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "skills")}>
+          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "capabilities", "skills")}>
             <Sparkles className="h-4 w-4" />
             Skills
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "capabilities", "tools")}>
+          <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "capabilities", "built-in-tools")}>
             <Wrench className="h-4 w-4" />
             Tools
           </Button>
@@ -358,24 +525,48 @@ function EmployeeDrawer({
         {tab === "overview" && (
           <div className="space-y-4">
             <section className="rounded-md border p-4">
-              <h4 className="mb-2 text-sm font-semibold">Mission</h4>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold">Workforce Record</h4>
+                <Badge variant="outline">{roleGroup(employee)}</Badge>
+              </div>
               <p className="text-sm leading-6 text-muted-foreground">
                 {employee.summary || "No mission summary configured yet."}
               </p>
             </section>
 
+            <section className="grid gap-3 sm:grid-cols-3">
+              <StatCard icon={GitBranch} label="Current Tickets" value={contributionValue(work, "current_ticket_count")} />
+              <StatCard icon={ClipboardCheck} label="Reports" value={contributionValue(work, "report_count")} />
+              <StatCard icon={ShieldCheck} label="Validations" value={contributionValue(work, "validation_count")} />
+            </section>
+
             <section className="rounded-md border p-4">
-              <h4 className="mb-2 text-sm font-semibold">Identity</h4>
+              <div className="mb-3 flex items-center gap-2">
+                <GitBranch className="h-4 w-4 text-muted-foreground" />
+                <h4 className="text-sm font-semibold">Current Focus</h4>
+              </div>
+              {currentTicket ? (
+                <WorkItemButton item={currentTicket} />
+              ) : (
+                <p className="text-sm text-muted-foreground">No active Ticket assignment in the work ledger.</p>
+              )}
+            </section>
+
+            <section className="rounded-md border p-4">
+              <h4 className="mb-2 text-sm font-semibold">Identity Boundary</h4>
               <InfoRow label="Role group" value={roleGroup(employee)} />
+              <InfoRow label="Employee ID" value={employee.id} />
               <InfoRow label="Kind" value={employee.kind} />
               <InfoRow label="AI Engine" value={defaultAiEngineLabel(effectiveAiEngine(employee, aiEngines))} />
-              <InfoRow label="Engine thread" value={employee.preserve_provider_thread ? "preserved" : "per run"} />
+              <InfoRow label="Engine thread" value={employee.preserve_engine_thread ? "preserved" : "per run"} />
             </section>
+
+            <ActivityThreadSection employee={employee} threads={threads} />
 
             <section className="grid gap-3 sm:grid-cols-3">
               <StatCard icon={MessageSquare} label="Threads" value={threadCount(threads)} />
               <StatCard icon={Activity} label="Messages" value={totalMessages(threads)} />
-              <StatCard icon={Wrench} label="Capabilities" value={capabilities.length} />
+              <StatCard icon={Wrench} label="Ready Capabilities" value={readyCapabilities.length} />
             </section>
           </div>
         )}
@@ -383,10 +574,10 @@ function EmployeeDrawer({
         {tab === "work" && (
           <div className="space-y-4">
             <section className="grid gap-3 sm:grid-cols-2">
-              <StatCard icon={GitBranch} label="Current Tickets" value={work?.current_tickets.length ?? 0} />
-              <StatCard icon={Clock3} label="Historical" value={work?.historical_tickets.length ?? 0} />
-              <StatCard icon={ClipboardCheck} label="Reports" value={work?.reports.length ?? 0} />
-              <StatCard icon={AlertTriangle} label="Blocked" value={work?.blocked_records.length ?? 0} />
+              <StatCard icon={GitBranch} label="Current Tickets" value={contributionValue(work, "current_ticket_count")} />
+              <StatCard icon={Clock3} label="Historical Tickets" value={contributionValue(work, "ticket_count")} />
+              <StatCard icon={ClipboardCheck} label="Reports" value={contributionValue(work, "report_count")} />
+              <StatCard icon={AlertTriangle} label="Blocked" value={contributionValue(work, "blocked_count")} />
             </section>
 
             <section className="rounded-md border p-4">
@@ -400,6 +591,20 @@ function EmployeeDrawer({
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">No active Ticket assignment in the ledger.</p>
+              )}
+            </section>
+
+            <section className="rounded-md border p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold">Historical Tickets</h4>
+                <Badge variant="outline">{work?.historical_tickets.length ?? 0}</Badge>
+              </div>
+              {work?.historical_tickets.length ? (
+                <div className="space-y-2">
+                  {work.historical_tickets.slice(0, 8).map((item) => <WorkItemButton key={item.ticket_id} item={item} />)}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No historical Ticket involvement yet.</p>
               )}
             </section>
 
@@ -421,31 +626,7 @@ function EmployeeDrawer({
               empty="No blocked records yet."
             />
 
-            <section className="rounded-md border p-4">
-              <h4 className="mb-3 text-sm font-semibold">Recent Threads</h4>
-              {threads?.threads?.length ? (
-                <div className="space-y-2">
-                  {threads.threads.slice(0, 8).map((thread) => (
-                    <button
-                      key={thread.id}
-                      type="button"
-                      className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
-                      onClick={() => navigateTo("chat", employee.id)}
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{thread.title || thread.id}</div>
-                        <div className="text-xs text-muted-foreground">{thread.message_count} msgs</div>
-                      </div>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatThreadTime(thread.last_message_at || thread.updated_at)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No recent threads.</p>
-              )}
-            </section>
+            <HandoffSection handoffs={work?.handoffs ?? []} />
           </div>
         )}
 
@@ -456,7 +637,7 @@ function EmployeeDrawer({
               {employee.skills.length ? (
                 <div className="flex flex-wrap gap-2">
                   {employee.skills.map((skill) => (
-                    <button key={skill} type="button" onClick={() => navigateTo("assets", "skills", skill)}>
+                    <button key={skill} type="button" onClick={() => navigateTo("assets", "capabilities", "skills")}>
                       <Badge variant="secondary">{skill}</Badge>
                     </button>
                   ))}
@@ -466,31 +647,27 @@ function EmployeeDrawer({
               )}
             </section>
 
-            <section className="rounded-md border p-4">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h4 className="text-sm font-semibold">Tool Access</h4>
-                <Badge variant="outline">{readyCapabilities.length} ready</Badge>
-              </div>
-              {toolCapabilities.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {toolCapabilities.map((capability) => (
-                    <Badge
-                      key={capability.id}
-                      variant={capabilityVariant(capability)}
-                      title={capability.description || capability.id}
-                    >
-                      {capability.name}
-                    </Badge>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No tools mapped.</p>
-              )}
-            </section>
+            <CapabilityGroupSection
+              title="Built-in Tools"
+              capabilities={groupedCapabilities.builtIn}
+              empty="No built-in tools mapped."
+            />
+
+            <CapabilityGroupSection
+              title="MCP Tools"
+              capabilities={groupedCapabilities.mcp}
+              empty="No MCP tools mapped."
+            />
+
+            <CapabilityGroupSection
+              title="Other Tool Sources"
+              capabilities={groupedCapabilities.other}
+              empty="No native API, CLI, CI, ticket backend, or AI engine bridge tools mapped."
+            />
           </div>
         )}
 
-        {tab === "knowledge" && (
+        {tab === "governance" && (
           <div className="space-y-4">
             <section className="rounded-md border p-4">
               <div className="mb-3 flex items-center gap-2">
@@ -498,8 +675,8 @@ function EmployeeDrawer({
                 <h4 className="text-sm font-semibold">Knowledge Scope</h4>
               </div>
               <p className="text-sm leading-6 text-muted-foreground">
-                Employee-level knowledge scope is not yet explicit in the API. Today this employee can use configured
-                knowledge tools through Clara or direct tool access.
+                Employee-level knowledge scope is tracked through assigned skills and tool permissions. Dedicated
+                per-employee memory scopes can be added after the Memory Backend becomes part of the operating loop.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "knowledge", "docs")}>
@@ -514,9 +691,41 @@ function EmployeeDrawer({
             </section>
 
             <section className="rounded-md border p-4">
-              <h4 className="mb-2 text-sm font-semibold">Governance</h4>
-              <InfoRow label="Can preserve engine session" value={employee.preserve_provider_thread ? "yes" : "no"} />
+              <div className="mb-3 flex items-center gap-2">
+                <FolderGit2 className="h-4 w-4 text-muted-foreground" />
+                <h4 className="text-sm font-semibold">Project Access</h4>
+              </div>
               <InfoRow label="Default thread" value={employee.default_thread_id || "-"} />
+              <InfoRow label="Project scopes" value="via assigned Tickets" />
+              <InfoRow label="Repository scopes" value="via Ticket code refs" />
+            </section>
+
+            <section className="rounded-md border p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <KeyRound className="h-4 w-4 text-muted-foreground" />
+                <h4 className="text-sm font-semibold">Permissions</h4>
+              </div>
+              {permissions.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {permissions.map((permission) => <Badge key={permission} variant="outline">{permission}</Badge>)}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No explicit tool permission claims exposed yet.</p>
+              )}
+            </section>
+
+            <section className="rounded-md border p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Plug className="h-4 w-4 text-muted-foreground" />
+                <h4 className="text-sm font-semibold">Connector Visibility</h4>
+              </div>
+              {connectorIds.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {connectorIds.map((connectorId) => <Badge key={connectorId} variant="secondary">{connectorId}</Badge>)}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No external connector grants mapped for this employee.</p>
+              )}
             </section>
           </div>
         )}
@@ -563,7 +772,7 @@ function EmployeeDrawer({
             <section className="rounded-md border p-4">
               <h4 className="mb-2 text-sm font-semibold">Boundary</h4>
               <InfoRow label="AI Engine mode" value={aiEngineLabel(employee)} />
-              <InfoRow label="Engine thread" value={employee.preserve_provider_thread ? "preserved" : "not preserved"} />
+              <InfoRow label="Engine thread" value={employee.preserve_engine_thread ? "preserved" : "not preserved"} />
               <InfoRow label="Kind" value={employee.kind} />
             </section>
           </div>

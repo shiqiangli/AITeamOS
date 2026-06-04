@@ -1,7 +1,7 @@
 [project]
 name = "aiteamos"
 version = "1.0.0"
-description = "AITeamOS - Agent Team OS (file-first P0)"
+description = "AITeamOS - AI Team OS (file-first 1.0)"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115",
@@ -26,11 +26,9 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = [
-  "aiteamos_shared*",
   "aiteamos_api*",
 ]
 where = [
-  "packages/shared_kernel",
   "services/api",
 ]
 
@@ -38,6 +36,5 @@ where = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = [
-  "packages/shared_kernel",
   "services/api",
 ]

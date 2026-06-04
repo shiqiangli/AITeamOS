@@ -230,7 +230,7 @@ export function SystemStatusPage() {
               <Activity className="h-4 w-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold">System Status</h3>
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">Read-only runtime summary and environment variable health.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Read-only system summary and environment variable health.</p>
           </div>
           <Button type="button" variant="outline" size="sm" onClick={() => void loadSystemStatus()}>
             <RefreshCw className="h-4 w-4" />

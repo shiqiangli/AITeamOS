@@ -27,7 +27,7 @@ const aiEngines = {
       model_options: ["gpt-5-nano"],
       thinking_options: [],
       config_fields: [],
-      runtime_options: [],
+      chat_options: [],
       health_detail: "Ready for Chat selection.",
     },
   },
@@ -63,7 +63,7 @@ const employees = [
     summary: "Coordinator",
     skills: [],
     ai_engine_mode: "external_or_file_stub",
-    preserve_provider_thread: true,
+    preserve_engine_thread: true,
     default_thread_id: "employee-clara-default",
   },
 ];

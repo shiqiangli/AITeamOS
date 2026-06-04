@@ -2,7 +2,7 @@
 
 The registry is the Kernel-facing source of truth for connector capabilities.
 Actual MCP client/server protocol integration can be attached behind these
-entries without making Clara or the dashboard depend on provider-specific
+entries without making Clara or the dashboard depend on source-specific
 configuration shapes.
 """
 

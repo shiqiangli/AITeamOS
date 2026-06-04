@@ -12,7 +12,7 @@ const employees = [
     skills: ["task-specification"],
     ai_engine_mode: "deepseek_chat_or_file_stub",
     default_ai_engine: "system",
-    preserve_provider_thread: true,
+    preserve_engine_thread: true,
     default_thread_id: "employee-clara-default",
   },
   {
@@ -24,7 +24,7 @@ const employees = [
     skills: ["test-engineering"],
     ai_engine_mode: "external_or_file_stub",
     default_ai_engine: "system",
-    preserve_provider_thread: true,
+    preserve_engine_thread: true,
     default_thread_id: "employee-alex-default",
   },
 ];
@@ -246,6 +246,21 @@ describe("EmployeesPage", () => {
     expect(screen.getAllByText(/Implement ticket flow/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("1 skills").length).toBeGreaterThan(0);
     expect(screen.queryByText("Ready Tools")).toBeNull();
+    expect(screen.getByText("Workforce Record")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Work Ledger" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Governance" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Work Ledger" }));
+    expect(screen.getAllByText("Current Tickets").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Historical Tickets").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Capabilities" }));
+    expect(screen.getByText("Assigned Skills")).toBeTruthy();
+    expect(screen.getByText("Built-in Tools")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Governance" }));
+    expect(screen.getByText("Knowledge Scope")).toBeTruthy();
+    expect(screen.getByText("Permissions")).toBeTruthy();
   });
 
   it("updates the selected employee default AI Engine", async () => {

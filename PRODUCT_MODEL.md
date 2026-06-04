@@ -297,14 +297,12 @@ Employees 应成为 workforce system of record。
 每个 Employee detail 应展示：
 
 - Overview
-- Work
-- Skills and Capabilities
-- Knowledge Access
-- Permissions
+- Work Ledger
+- Capabilities
+- Governance
 - AI Engine
-- Activity
 
-Work tab 必须以 Ticket 为中心：当前 Tickets、历史 Tickets、reports、validations、contribution、failures 和 handoffs。
+Work Ledger 必须以 Ticket 为中心：当前 Tickets、历史 Tickets、reports、validations、contribution、failures 和 handoffs。Activity 只能作为 communication signal 放在 Overview，不应替代 Work Ledger。
 
 ### Assets
 
@@ -326,9 +324,9 @@ Assets 应展示可复用、可审计的团队资产。
 Settings 只应承载运行条件：
 
 - AI Engines
-- Ticket backend
-- Tool connectors
-- Code repositories
+- Tool Connectors
+- Code Repositories
+- Ticket Backend
 - Memory Backend
 - Security and approval policy
 
@@ -377,7 +375,7 @@ System Status 是一级只读状态入口，放在 Settings 之后。API key、t
 
 - digital employee role templates
 - Employee profile sections：Memory、Skills、Connectors、Projects、Permissions
-- conversation tasks 和 triggered tasks
+- conversation work items 和 triggered work items
 - local-first control console
 - 面向高风险操作的 approval cards
 
@@ -385,7 +383,7 @@ AITeamOS 的吸收方式：
 
 - 保留 rich Employee profile 的思路。
 - 让 Ticket 成为主要工作对象，而不是让每个 Employee 拥有孤立 task。
-- 将 triggered tasks 理解为 Ticket triggers 或 orchestration rules。
+- 将 triggered work items 理解为 Ticket triggers 或 orchestration rules。
 
 参考：https://docs.qoder.com/qoderwake/quick-start
 

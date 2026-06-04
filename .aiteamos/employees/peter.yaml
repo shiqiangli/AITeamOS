@@ -12,10 +12,6 @@ skills:
 memory_scopes:
 - project
 - employee:peter
-runtime:
-  mode: external_or_file_stub
-  provider_identity: peter
-  preserve_provider_thread: true
 permissions:
 - chat
 - read_local_assets

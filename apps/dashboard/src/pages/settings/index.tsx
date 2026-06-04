@@ -522,7 +522,7 @@ function AiEngineDetailPanel({
             </form>
           ) : (
             <div className="space-y-3">
-              <EmptyDetail>This engine does not need provider configuration.</EmptyDetail>
+              <EmptyDetail>This engine does not need API configuration.</EmptyDetail>
               <Button
                 type="button"
                 variant="outline"
@@ -937,9 +937,9 @@ function CodeRepositoriesSection({
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Provider</span>
+              <span className="text-xs uppercase text-muted-foreground">Source</span>
               <Select
-                aria-label="Repository provider"
+                aria-label="Repository source"
                 value={form.provider}
                 onChange={(event) => setForm((current) => ({ ...current, provider: event.target.value }))}
               >
@@ -1561,7 +1561,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">{selectedRepository.detail || selectedRepository.description || "No detail recorded."}</p>
                 </div>
-                <Status label="Provider" value={selectedRepository.provider} />
+                <Status label="Source" value={selectedRepository.provider} />
                 <Status label="Branch" value={selectedRepository.current_branch || selectedRepository.default_branch || "-"} />
                 <Status label="Git detected" value={selectedRepository.git_detected ? "yes" : "no"} tone={selectedRepository.git_detected ? "ok" : "warn"} />
                 <Status label="Enabled" value={selectedRepository.enabled ? "yes" : "no"} tone={selectedRepository.enabled ? "ok" : "warn"} />

@@ -20,7 +20,7 @@ skills: []
 ai_engine:
   mode: external_or_file_stub
   engine_identity: {employee_id}
-  preserve_provider_thread: true
+  preserve_engine_thread: true
 """.strip(),
         encoding="utf-8",
     )
@@ -207,7 +207,7 @@ def test_clara_can_search_knowledge_and_create_local_ticket(tmp_path, monkeypatc
 
     class FailingAsyncClient:
         def __init__(self, *args, **kwargs):
-            raise AssertionError("Remote provider should not be called for local Knowledge/Ticket tools")
+            raise AssertionError("Remote AI Engine should not be called for local Knowledge/Ticket tools")
 
     monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
 
