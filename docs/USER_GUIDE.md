@@ -14,6 +14,8 @@ http://localhost:5173
 
 Use Chat first. Clara is the default manager and can create Tickets, route work, ask Employees for reports, request validation, and summarize the current state.
 
+AITeamOS always calls the work object `Ticket`. Plane may use provider-native wording in external links or sync metadata, but inside AITeamOS the object remains a Ticket.
+
 ## 2. Navigation
 
 ```text
@@ -46,7 +48,7 @@ AI Engines
 Tool Connectors
 Code Repositories
 Ticket Backend
-Memory Backend
+Memory / Asset Graph Backend
 ```
 
 ## 3. Chat
@@ -78,7 +80,7 @@ Tickets are the accountability ledger.
 
 Use Tickets to inspect:
 
-- local Ticket records
+- Plane-backed Ticket records
 - status
 - assignee and validator
 - reports
@@ -144,17 +146,20 @@ Code Repositories:
 
 - add local or remote repository records
 - configure source kind, path or URL, branch, and enabled state
-- P0 local repo inspection can attach evidence to Ticket reports
+- local repository inspection can attach evidence to Ticket reports
 
 Ticket Backend:
 
-- select local file backend for 1.0
-- view planned Plane and Jira backend options
+- configure Plane as the Ticket Backend
+- map Plane provider-native records into AITeamOS Tickets
+- keep Plane configuration under Ticket Backend, not Tool Connectors
 
-Memory Backend:
+Memory / Asset Graph Backend:
 
-- configure local and Graphiti / Neo4j settings
+- configure Graphiti / Neo4j settings
 - select Graphiti LLM from compatible AI Engines
+- use Graphiti as the persistent asset knowledge graph projection for approved Memories, accepted Decisions, Docs, Skills, Capabilities, Tooling facts, validated Ticket summaries, and durable Employee facts
+- keep temporary traces, raw logs, approval state, permissions, and secrets in AITeamOS instead of Graphiti
 
 ## 8. System Status
 
@@ -193,7 +198,6 @@ Review assets:
 
 ## 10. Limits In 1.0
 
-- Graphiti-backed Memory is configured but not yet the default operating loop.
-- External Ticket Backends are modeled but local file is the implemented 1.0 backend.
+- Plane and Graphiti are required base integrations for the target 1.0 operating loop.
 - Agent platform engines are catalogued as planned unless a concrete adapter is implemented.
-- Remote repository records are configurable; local inspection is the implemented P0 evidence path.
+- Remote repository records are configurable; local inspection is the implemented evidence path.

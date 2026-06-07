@@ -4,7 +4,9 @@ Version: 1.0.0
 
 ## 1. Architecture Principle
 
-AITeamOS 1.0 is a file-first greenfield system for Clara-led Ticket flow. The architecture favors inspectable local facts over premature platform infrastructure.
+AITeamOS 1.0 runs on an external-backed base: Plane for Tickets and Graphiti for persistent asset recall. The architecture does not maintain a parallel local-file Ticket mode.
+
+Inside AITeamOS, the domain object is always `Ticket`. Provider-native names from Plane or other external systems may appear in adapter metadata and external links, but API routes, Chat flows, Employee ledgers, Asset Graph projections, and analytics use AITeamOS Ticket terminology.
 
 The system is organized around:
 
@@ -24,17 +26,17 @@ Dashboard
   -> FastAPI /api/v1
       -> Chat service
       -> Ticket service
-      -> Knowledge / Memory service
+      -> Knowledge / Memory / Asset Graph service
       -> Capability service
       -> Repository service
       -> Tool Connector service
       -> System Status service
-  -> .aiteamos local files
+  -> .aiteamos local files for config, traces, and audit mirrors
 ```
 
-The Dashboard is a React/Vite application. The API is FastAPI with Pydantic models. The local file layer is the P0 persistence boundary.
+The Dashboard is a React/Vite application. The API is FastAPI with Pydantic models. Plane and Graphiti are the target persistence base. Local files are only configuration, traces, and audit mirrors; they are not the Ticket backend.
 
-## 3. Local File Layout
+## 3. Local Config And Audit Mirror Layout
 
 ```text
 .aiteamos/
@@ -42,10 +44,6 @@ The Dashboard is a React/Vite application. The API is FastAPI with Pydantic mode
     clara.yaml
     alex.yaml
     peter.yaml
-  tickets/
-    index.json
-    rd/
-      rd-0001.ticket.jsonl
   threads/
     index.json
   conversations/
@@ -58,9 +56,12 @@ The Dashboard is a React/Vite application. The API is FastAPI with Pydantic mode
   tool_connectors.json
   memory/
     candidates.json
+    approved.json
+    graphiti_state.json
+  graphiti.json
 ```
 
-Historical conversations and traces are append-only audit records. Current configuration files may be rewritten by Settings or Kernel Commands.
+Historical conversations and traces are append-only audit records. Current configuration files may be rewritten by Settings or Kernel Commands. Ticket state is not stored here as a local backend; it is accessed through the Plane-backed TicketAdapter and projected into AITeamOS Ticket facts.
 
 ## 4. Services
 
@@ -75,9 +76,9 @@ Chat service:
 Ticket service:
 
 - owns `TicketAdapter`
-- implements local file backend
-- enforces an assignee for active local Tickets
-- reconstructs Ticket state from append-only events
+- maps Plane provider-native records into AITeamOS Tickets
+- enforces an assignee for active Tickets
+- reconstructs AITeamOS Ticket state from Plane sync plus AITeamOS Ticket events
 - exposes Ticket events, Employee work ledger, Ticket assets, backend settings, and backend status
 
 Capability service:
@@ -92,20 +93,23 @@ Repository service:
 - validates local paths lightly
 - supports local bounded inspection for evidence
 
-Memory service:
+Knowledge / Memory / Asset Graph service:
 
 - stores local approved memories and candidates
-- exposes Memory Backend settings and status
+- stores or indexes durable asset projection metadata
+- exposes Memory / Asset Graph Backend settings and status
 - lets Graphiti choose a compatible AI Engine for LLM usage
+- writes approved persistent assets to Graphiti when configured
+- keeps Graphiti search results linked back to AITeamOS asset, Ticket, run, report, and evidence refs
 
 System Status service:
 
-- aggregates AI Engine, Tool Connector, Ticket Backend, Memory Backend, capability, and secret health
+- aggregates AI Engine, Tool Connector, Ticket Backend, Memory / Asset Graph Backend, capability, and secret health
 - returns read-only status only
 
 ## 5. Ticket Event Ledger
 
-Each Ticket is one JSONL file. Every line is an event. Current state is a projection.
+AITeamOS Ticket events are the internal work ledger projection over Plane-backed Tickets. Plane owns the external Ticket record; AITeamOS owns AI-team events, reports, evidence, validation, handoff, and asset provenance.
 
 Required event shape:
 
@@ -120,7 +124,7 @@ Required event shape:
 }
 ```
 
-The local backend must support:
+The Plane-backed TicketAdapter must support:
 
 - namespace sequence allocation
 - role-based namespace authority
@@ -130,6 +134,45 @@ The local backend must support:
 - report append
 - asset projection
 - employee work projection
+
+## 5.1 Persistent Asset Graph Projection
+
+Graphiti is the selected persistent asset temporal knowledge graph projection. It is not the authoritative store for the work ledger.
+
+AITeamOS owns these authoritative facts:
+
+- Ticket events
+- Employee work ledger projections
+- reports, evidence, validations, and handoffs
+- local traces and run metadata
+- Review Queue state
+- permission and approval policy
+- source docs, skill files, connector configuration, and secrets references
+
+Graphiti may ingest durable asset facts after approval or validation:
+
+- approved Memories
+- accepted Decisions
+- Docs or Doc summaries
+- Skills and Skill summaries
+- Kernel Commands, MCP Tools, and durable capability facts
+- validated Ticket summaries
+- validated Report or Evidence summaries
+- durable Employee profile facts
+- asset `supersedes`, `conflicts_with`, `derived_from`, `used_by`, and `validated_by` relationships
+
+Graphiti must not ingest raw temporary streams by default:
+
+- every chat turn
+- every Ticket event
+- every trace line
+- raw terminal output
+- raw tool-call logs
+- unapproved or rejected candidates
+- API keys, passwords, or secret values
+- permission policy as executable authority
+
+Every Graphiti episode or fact written by AITeamOS must include enough provenance to round-trip back to the local or external fact source: `asset_id`, `asset_type`, status, version/hash, source Ticket, source Employee, source run/trace, report/evidence refs when available, scope, timestamps, and source ref.
 
 ## 6. Employee Work Ledger
 

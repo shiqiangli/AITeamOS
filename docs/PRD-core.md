@@ -9,6 +9,8 @@ AITeamOS 1.0 should let a human give work to Clara through Chat, have Clara crea
 
 The product is Ticket-flow-first and Clara-led. It does not introduce a separate user-visible work module outside Tickets.
 
+AITeamOS internal language always uses `Ticket`. Plane provider-native records are mapped into AITeamOS Tickets at the adapter boundary; provider-native names do not appear as AITeamOS product concepts.
+
 ## 2. Primary Users
 
 - Human operator: delegates goals, approves high-risk work, reviews summaries.
@@ -51,6 +53,7 @@ Asset:
 - scopes and assigned Employees
 - created and updated time
 - metadata and full-text view where possible
+- Graphiti projection metadata when the asset is durable and approved or validated
 
 AI Engine:
 
@@ -71,15 +74,15 @@ AI Engine:
 
 ### Tickets
 
-- Clara can create local Tickets.
+- Clara can create Tickets through the Plane-backed Ticket Backend.
 - Active Tickets must have `assigned_employee_id` or `assigned_role`; unassigned records are not normal Ticket flow.
 - Namespace creation rules must be enforced:
   - Clara / manager can create any namespace.
   - RD can create `rd-*`.
   - PV can create `pv-*`.
   - Architect can create `arch-*`.
-- Local backend stores one append-only JSONL timeline per Ticket.
-- The current Ticket state is reconstructed from events.
+- Plane stores the external Ticket record, while AITeamOS stores and projects AI-team Ticket events, reports, evidence, validations, handoffs, and asset links.
+- The current AITeamOS Ticket state is reconstructed from Plane sync plus AITeamOS Ticket events.
 - Ticket events must be queryable.
 - Ticket reports must support content, report type, reporter Employee, evidence, and created time.
 - Reports and evidence should create traceable asset records.
@@ -114,6 +117,9 @@ AI Engine:
 - Selecting an asset must show a right-side detail panel.
 - Full text must be available in a read-only dialog for docs, skills, review items, reports, and evidence where content exists.
 - Switching asset category must close the stale detail panel.
+- Durable assets must be eligible for Graphiti projection when approved or validated.
+- Graphiti projection records must retain provenance back to source Ticket, Employee, run, report, and evidence where available.
+- Temporary execution data must remain traceable in AITeamOS without being automatically written into Graphiti.
 
 ### Settings
 
@@ -123,7 +129,7 @@ Settings order:
 2. Tool Connectors
 3. Code Repositories
 4. Ticket Backend
-5. Memory Backend
+5. Memory / Asset Graph Backend
 
 Settings must not contain System Status or Secrets Health as child pages.
 
@@ -139,7 +145,7 @@ Settings must not contain System Status or Secrets Health as child pages.
 
 ## 5. Non-Functional Requirements
 
-- File-first P0 must remain inspectable and easy to diff.
+- Plane and Graphiti are required for the target 1.0 base; no parallel local-file Ticket mode is maintained.
 - No compatibility routes for renamed product concepts.
 - API and frontend naming must stay aligned with product terms.
 - Sensitive values must not be stored in JSON/YAML config or returned to the frontend.
@@ -152,7 +158,7 @@ Settings must not contain System Status or Secrets Health as child pages.
 2. Ticket backend writes lifecycle events and exposes a current state.
 3. Employee detail shows a useful workforce record derived from Tickets.
 4. Assets exposes traceable Knowledge, Capabilities, and Review Queue views.
-5. Settings pages use the same names as backend APIs and local files.
+5. Settings pages expose Plane as Ticket Backend and Graphiti as Memory / Asset Graph Backend.
 6. System Status is top-level and read-only.
 7. `pytest`, dashboard tests, and dashboard build pass.
 
@@ -161,6 +167,6 @@ Settings must not contain System Status or Secrets Health as child pages.
 - Ticket Asset Graph with explicit edges:
   `Ticket -> Employee -> Report -> Evidence -> Decision / MemoryCandidate / Doc / Repo`
 - richer validation skills for PV flow
-- Graphiti-backed Memory in the operating loop
-- Plane Ticket Backend adapter
+- broader Graphiti-backed persistent asset recall in the operating loop
+- deeper Plane Ticket synchronization and provenance
 - deeper AI Engine handoff to agent platforms for repo edit and long-running execution

@@ -1,7 +1,9 @@
-"""Graphiti-backed memory service with a local audit mirror.
+"""Graphiti-backed memory and persistent asset graph service.
 
-AITeamOS treats Graphiti as the long-term memory backend, while keeping local
-JSON files as the review queue, provenance record, and offline recall mirror.
+AITeamOS treats Graphiti as a durable asset knowledge graph projection, while
+keeping local JSON files as the review queue, approval source, provenance
+record, and ingestion audit mirror. The current implementation starts with
+approved memories; broader durable asset projection is the next extension.
 """
 
 from __future__ import annotations
@@ -352,7 +354,7 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
     package_installed = graphiti_cls is not None and episode_type is not None
     if not enabled:
         status = "disabled"
-        detail = "Graphiti is not enabled; local memory mirror is active."
+        detail = "Graphiti is not enabled; configure Graphiti to use the target Memory / Asset Graph Backend."
     elif not graph_configured:
         status = "not_configured"
         detail = "Set Graphiti Neo4j URI/user in Settings and password via AITEAMOS_GRAPHITI_PASSWORD or NEO4J_PASSWORD."
@@ -364,7 +366,10 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
         detail = "Install the graphiti optional dependency to enable ingestion and graph search."
     else:
         status = "ready"
-        detail = f"Graphiti is configured with {config['llm_ai_engine_name']}; approved memory can be ingested."
+        detail = (
+            f"Graphiti is configured with {config['llm_ai_engine_name']}; approved memory ingestion is available, "
+            "with durable asset projection as the next extension."
+        )
     return GraphitiBackendStatus(
         enabled=enabled,
         configured=configured,
