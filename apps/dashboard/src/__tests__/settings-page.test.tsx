@@ -230,33 +230,50 @@ const ticketBackendModes = [
   {
     id: "local_file",
     label: "Local file",
-    status: "ready",
-    description: "File-backed Tickets for fast local dogfooding.",
+    status: "legacy",
+    description: "Legacy local projection.",
   },
   {
     id: "plane",
     label: "Plane",
-    status: "planned",
-    description: "Future Plane-backed source of truth.",
+    status: "ready",
+    description: "Plane-backed Ticket fact source.",
   },
 ];
 
 const ticketBackendSettings = {
-  mode: "local_file",
+  mode: "plane",
   local_file_path: ".aiteamos/tickets/index.json",
+  plane_api_base_url: "https://api.plane.so",
+  plane_web_base_url: "https://app.plane.so",
+  plane_workspace_slug: "ait",
+  plane_project_id: "plane-project-1",
+  plane_api_key_env: "PLANE_API_KEY",
+  plane_namespace_strategy: "label",
+  plane_namespace_label_ids: { rd: "label-rd" },
+  plane_state_ids: { assigned: "state-assigned" },
+  plane_employee_assignee_ids: { alex: "plane-user-alex" },
   saved_paths: {
     settings: ".aiteamos/tickets/backend.json",
-    local_file: ".aiteamos/tickets/index.json",
+    plane_projection: ".aiteamos/tickets/plane",
   },
   supported_modes: ticketBackendModes,
 };
 
 const ticketBackendStatus = {
-  mode: "local_file",
+  mode: "plane",
   status: "ready",
-  detail: "Local file Ticket backend is active.",
+  detail: "Plane Ticket Backend is active.",
   ticket_count: 2,
   local_file_path: ".aiteamos/tickets/index.json",
+  provider: "plane",
+  provider_ref_count: 2,
+  setup_required: [],
+  capabilities: ["create_ticket", "append_report_comment"],
+  mapping: {
+    Ticket: "provider record",
+    report: "Plane comment with AITeamOS metadata",
+  },
   saved_paths: ticketBackendSettings.saved_paths,
   supported_modes: ticketBackendModes,
 };
@@ -400,7 +417,11 @@ describe("SettingsPage", () => {
 
     expect((await screen.findAllByText("Ticket Backend")).length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Ticket backend mode")).toBeTruthy();
-    expect(screen.getByLabelText("Local Ticket file")).toBeTruthy();
+    expect(screen.getByLabelText("Legacy projection file")).toBeTruthy();
+    expect(screen.getByLabelText("Plane API base URL")).toBeTruthy();
+    expect(screen.getByLabelText("Plane workspace slug")).toBeTruthy();
+    expect(screen.getByLabelText("Plane namespace label mapping")).toBeTruthy();
+    expect(screen.getByText("Plane mapping")).toBeTruthy();
     expect(screen.getByText("Save Ticket backend")).toBeTruthy();
   });
 

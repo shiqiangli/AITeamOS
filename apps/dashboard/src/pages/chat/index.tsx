@@ -211,8 +211,20 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(asRecord).filter((item) => Object.keys(item).length > 0) : [];
+}
+
 function metadataText(value: unknown): string {
   return typeof value === "string" && value.trim() ? value : "-";
+}
+
+function metadataLabel(record: Record<string, unknown>, keys: string[], fallback: string): string {
+  for (const key of keys) {
+    const value = metadataText(record[key]);
+    if (value !== "-") return value;
+  }
+  return fallback;
 }
 
 const DEEPSEEK_CONTEXT_PRESETS = [200000, 400000, 1000000];
@@ -627,7 +639,7 @@ function AiteamosThread({
                 <div className={cn("h-2 w-2 shrink-0 rounded-full", aiEngineReady ? "bg-green-500" : "bg-orange-400")} />
                 <Select
                   aria-label="AI Engine for next reply"
-                  value={aiEngines?.active_engine ?? "stub"}
+                  value={aiEngines?.active_engine ?? "deepseek"}
                   onChange={(event) => onAiEngineChange(event.target.value)}
                   disabled={aiEngineSaving}
                   className="h-9 min-w-0 flex-1 text-xs"
@@ -637,7 +649,7 @@ function AiteamosThread({
                       {engine.display_name}
                     </option>
                   )) : (
-                    <option value="stub">File stub</option>
+                    <option value="deepseek">DeepSeek</option>
                   )}
                 </Select>
                 {activeAiEngine && (
@@ -1158,6 +1170,21 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
   const runEmployee = asRecord(runMetadataRecord.employee);
   const runTicketKeys = asStringArray(runMetadataRecord.ticket_keys);
   const runCommands = Array.isArray(runMetadataRecord.commands) ? runMetadataRecord.commands.map(asRecord) : [];
+  const runTrace = asRecord(runMetadataRecord.trace);
+  const runTracePath = metadataText(runTrace.path || savedPaths.trace || savedPaths.run);
+  const runProviderRefs = asRecordArray(runMetadataRecord.provider_refs);
+  const runGraphitiEpisodeRefs = asRecordArray(runMetadataRecord.graphiti_episode_refs);
+  const runRecalledMemoryRefs = asRecordArray(runMetadataRecord.recalled_memory_refs);
+  const runActionPlans = traceEvents
+    .filter((event) => event.event === "chat.action_plan.completed")
+    .map((event) => asRecord(event.data))
+    .filter((item) => Object.keys(item).length > 0);
+  const runLearningSummary = asRecord(runMetadataRecord.learning_summary);
+  const runClaraSummary = metadataText(runLearningSummary.clara_summary);
+  const runRecalledAssets = Array.isArray(runLearningSummary.recalled_assets)
+    ? runLearningSummary.recalled_assets.map(asRecord)
+    : [];
+  const runNextGuidance = asStringArray(runLearningSummary.next_round_guidance);
 
   return (
     <AiteamosAgUiRuntimeProvider
@@ -1351,12 +1378,37 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
                           {metadataText(runAiEngine.engine_thread_id || engineThreadId)}
                         </span>
                       </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">Trace path</span>
+                        <span className="truncate text-right" title={runTracePath}>{runTracePath}</span>
+                      </div>
                       <div>
                         <div className="mb-1 text-[10px] uppercase text-muted-foreground">Tickets</div>
                         <div className="flex flex-wrap gap-1">
                           {runTicketKeys.length ? runTicketKeys.map((key) => (
                             <Badge key={key} variant="secondary" className="px-1.5 text-[10px]">{key}</Badge>
                           )) : (
+                            <Badge variant="outline" className="px-1.5 text-[10px]">none</Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[10px] uppercase text-muted-foreground">Action Plan</div>
+                        <div className="flex flex-wrap gap-1">
+                          {runActionPlans.length ? runActionPlans.map((plan, index) => {
+                            const action = metadataText(plan.action);
+                            const source = metadataText(plan.source);
+                            return (
+                              <Badge
+                                key={`${action}-${source}-${index}`}
+                                variant={action === "answer_only" ? "outline" : "secondary"}
+                                className="max-w-full px-1.5 text-[10px]"
+                                title={metadataText(plan.reason)}
+                              >
+                                <span className="truncate">{action}:{source}</span>
+                              </Badge>
+                            );
+                          }) : (
                             <Badge variant="outline" className="px-1.5 text-[10px]">none</Badge>
                           )}
                         </div>
@@ -1378,6 +1430,86 @@ export function ChatPage({ routeTarget = null }: { routeTarget?: string | null }
                           )}
                         </div>
                       </div>
+                      <div>
+                        <div className="mb-1 text-[10px] uppercase text-muted-foreground">Recalled Memories</div>
+                        <div className="space-y-1">
+                          {runRecalledMemoryRefs.length ? runRecalledMemoryRefs.slice(0, 4).map((memoryRef, index) => (
+                            <div key={`${metadataLabel(memoryRef, ["memory_id", "asset_id"], `memory-${index + 1}`)}-${index}`} className="rounded border bg-background/60 px-2 py-1">
+                              <div className="truncate text-[11px] font-medium" title={metadataLabel(memoryRef, ["memory_id", "asset_id"], "-")}>
+                                {metadataLabel(memoryRef, ["memory_id", "asset_id"], "-")}
+                              </div>
+                              <div className="mt-0.5 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                                <span>Graphiti: {metadataText(memoryRef.graphiti_episode_id) !== "-" || memoryRef.graphiti_recalled === true ? "yes" : "no"}</span>
+                                <span className="truncate">Source: {metadataLabel(memoryRef, ["source_ticket_id", "source_ref", "scope"], "-")}</span>
+                              </div>
+                            </div>
+                          )) : (
+                            <Badge variant="outline" className="px-1.5 text-[10px]">none</Badge>
+                          )}
+                          {runRecalledMemoryRefs.length > 4 && (
+                            <Badge variant="outline" className="px-1.5 text-[10px]">+{runRecalledMemoryRefs.length - 4}</Badge>
+                          )}
+                        </div>
+                      </div>
+                      {(runGraphitiEpisodeRefs.length > 0 || runProviderRefs.length > 0) && (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {runGraphitiEpisodeRefs.length > 0 && (
+                            <div>
+                              <div className="mb-1 text-[10px] uppercase text-muted-foreground">Graphiti Episodes</div>
+                              <div className="flex flex-wrap gap-1">
+                                {runGraphitiEpisodeRefs.slice(0, 3).map((episodeRef, index) => (
+                                  <Badge
+                                    key={`${metadataText(episodeRef.graphiti_episode_id)}-${index}`}
+                                    variant="secondary"
+                                    className="max-w-full px-1.5 text-[10px]"
+                                    title={metadataText(episodeRef.graphiti_episode_id)}
+                                  >
+                                    <span className="truncate">{metadataText(episodeRef.graphiti_episode_id)}</span>
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {runProviderRefs.length > 0 && (
+                            <div>
+                              <div className="mb-1 text-[10px] uppercase text-muted-foreground">Provider Refs</div>
+                              <div className="flex flex-wrap gap-1">
+                                {runProviderRefs.slice(0, 3).map((providerRef, index) => (
+                                  <Badge
+                                    key={`${metadataLabel(providerRef, ["provider_ref", "provider_id", "external_id"], `provider-${index + 1}`)}-${index}`}
+                                    variant="outline"
+                                    className="max-w-full px-1.5 text-[10px]"
+                                    title={metadataLabel(providerRef, ["provider_ref", "provider_id", "external_id"], "-")}
+                                  >
+                                    <span className="truncate">{metadataLabel(providerRef, ["provider", "backend", "source"], "provider")}</span>
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {runClaraSummary !== "-" && (
+                        <div className="rounded-md border bg-background/60 p-2">
+                          <div className="mb-1 text-[10px] font-medium uppercase text-muted-foreground">Learning</div>
+                          <p className="text-[11px] leading-5 text-muted-foreground">{runClaraSummary}</p>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            <Badge variant="secondary" className="px-1.5 text-[10px]">
+                              {runRecalledAssets.length} recalled
+                            </Badge>
+                            <Badge variant="outline" className="px-1.5 text-[10px]">
+                              {String(runLearningSummary.new_candidate_count ?? 0)} candidates
+                            </Badge>
+                          </div>
+                          {runNextGuidance.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {runNextGuidance.slice(0, 2).map((item) => (
+                                <div key={item} className="text-[10px] leading-4 text-muted-foreground">{item}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">No run selected yet.</p>

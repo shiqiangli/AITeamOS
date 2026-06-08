@@ -63,6 +63,8 @@ Typical flow:
 4. Clara requests PV validation when needed.
 5. Clara summarizes the result for the human.
 
+Ask Clara what AITeamOS learned from recent self-bootstrap runs to get a Kernel-fact summary of produced candidates, approved/recalled assets, useful Graphiti recalls, missing evidence, and the next batch action.
+
 Chat records:
 
 - selected Employee
@@ -85,7 +87,10 @@ Use Tickets to inspect:
 - assignee and validator
 - reports
 - evidence
+- evidence requirement checklist
 - event timeline
+- grouped Ticket Asset Graph edges
+- contribution and quality signals
 - backend status
 
 Ticket ids are namespaced. Examples:
@@ -98,6 +103,8 @@ Only matching roles can create their namespace. Clara can create all namespaces.
 
 Normal active Tickets have an assignee. If ownership changes, the assignee change is the work handoff.
 
+Docs, frontend, backend, integration, and model/prompt change Tickets must carry evidence before a validation pass can mark them validated. Failed validation records move the Ticket into a blocked rework path.
+
 ## 5. Employees
 
 Employees are workforce records.
@@ -108,6 +115,7 @@ Employee detail tabs:
 
 - Overview: mission, current focus, identity boundary, communication signal, high-level metrics.
 - Work Ledger: current Tickets, historical Tickets, reports, PV validations, blocked records, handoffs.
+- Analytics: assigned Tickets, completed Tickets, validation pass rate, produced candidates, recalled assets, and source counts.
 - Capabilities: assigned Skills, Kernel Commands, MCP Tools, other tool sources.
 - Governance: knowledge scope, project access, permissions, connector visibility.
 - AI Engine: effective engine, profile default, Settings active engine, default engine edit field.
@@ -121,6 +129,8 @@ Assets is the unified asset entry.
 Use the top search box to search across assets. Use the first-level tabs for Knowledge, Capabilities, and Review Queue.
 
 Selecting an asset opens a right-side detail panel. For docs, skills, review items, reports, and evidence, use the full-text action to open a read-only text dialog.
+
+Approved Memory details show recall usage history and related Tickets when that provenance is available.
 
 When you switch asset tabs, stale details close automatically.
 

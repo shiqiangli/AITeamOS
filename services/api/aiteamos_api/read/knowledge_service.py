@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from .capability_service import list_capabilities
 from .memory_service import MemoryCandidate, list_approved_memories, list_memory_candidates
 from .ticket_service import ticket_asset_records
+from .validation_skill_catalog import VALIDATION_SKILL_DEFINITIONS
 
 _MAX_DOC_BYTES = 256_000
 _DOC_GLOBS = (
@@ -360,6 +361,15 @@ def _markdown_to_decision(path: Path) -> DecisionRecord | None:
         match = re.search(pattern, text, re.MULTILINE)
         return match.group(1).strip() if match else ""
 
+    def links(name: str) -> list[str]:
+        match = re.search(rf"^- {re.escape(name)}:\s*(.+)$", text, re.MULTILINE)
+        if not match:
+            return []
+        raw = match.group(1).strip()
+        if not raw or raw == "-":
+            return []
+        return sorted({item.strip() for item in raw.split(",") if item.strip() and item.strip() != "-"})
+
     return DecisionRecord(
         id=decision_id,
         title=title,
@@ -367,6 +377,8 @@ def _markdown_to_decision(path: Path) -> DecisionRecord | None:
         context=section("Context"),
         decision=section("Decision") or _excerpt(text),
         consequences=section("Consequences"),
+        linked_tickets=links("Tickets"),
+        linked_memories=links("Memories"),
         created_at=datetime.fromtimestamp(stat.st_ctime, UTC).isoformat(),
         updated_at=datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
         saved_path=_relative(path),
@@ -495,6 +507,7 @@ def _employee_skill_assignments() -> dict[str, list[str]]:
 def _skill_asset_items() -> list[AssetRecord]:
     assignments = _employee_skill_assignments()
     items: list[AssetRecord] = []
+    local_skill_ids: set[str] = set()
     for path in sorted(_skills_dir().glob("*/SKILL.md")):
         skill_id = path.parent.name
         try:
@@ -502,6 +515,7 @@ def _skill_asset_items() -> list[AssetRecord]:
             updated_at = datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat()
         except OSError:
             continue
+        local_skill_ids.add(skill_id)
         title, description = _skill_title_and_description(skill_id, text)
         resources = [
             str(resource.relative_to(path.parent))
@@ -525,6 +539,34 @@ def _skill_asset_items() -> list[AssetRecord]:
                 scopes=["capabilities", "skills"],
                 created_at=updated_at,
                 updated_at=updated_at,
+                metadata=_asset_metadata("capabilities", "skills", metadata),
+            )
+        )
+    seeded_at = _now()
+    for skill in VALIDATION_SKILL_DEFINITIONS:
+        if skill.id in local_skill_ids:
+            continue
+        metadata = {
+            "id": skill.id,
+            "description": skill.description,
+            "content": skill.content,
+            "resources": [],
+            "saved_path": skill.source_ref,
+            "source": "builtin",
+            "source_ref": skill.source_ref,
+            "owner_roles": list(skill.owner_roles),
+            "phase": "phase5_validation",
+        }
+        items.append(
+            AssetRecord(
+                id=skill.id,
+                kind="skill",
+                title=skill.title,
+                status="approved",
+                assigned_employees=assignments.get(skill.id, []),
+                scopes=["capabilities", "skills", "validation", *skill.owner_roles],
+                created_at=seeded_at,
+                updated_at=seeded_at,
                 metadata=_asset_metadata("capabilities", "skills", metadata),
             )
         )
@@ -612,7 +654,11 @@ def all_asset_items() -> list[AssetRecord]:
                 metadata=_asset_metadata("knowledge", "memories", memory.model_dump(mode="json")),
             )
         )
-    for ticket_asset in ticket_asset_records():
+    try:
+        ticket_assets = ticket_asset_records()
+    except ValueError:
+        ticket_assets = []
+    for ticket_asset in ticket_assets:
         items.append(
             AssetRecord(
                 id=ticket_asset.id,

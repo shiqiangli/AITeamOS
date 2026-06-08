@@ -21,6 +21,7 @@ export interface ChatSkillSummary {
   assigned_employees: string[];
   resources: string[];
   saved_path: string;
+  source?: string;
 }
 
 export interface ChatTraceEvent {

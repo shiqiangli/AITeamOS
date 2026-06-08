@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Archive, BookOpen, Brain, Check, ClipboardCheck, Layers3,
   FileText, RefreshCw, Search,
@@ -24,6 +24,7 @@ import {
 } from "../../api/knowledge";
 import {
   approveMemoryCandidate, listApprovedMemory, type MemoryCandidate,
+  reviewMemoryCandidate, reviewMemoryRecallUsage,
 } from "../../api/memory";
 import {
   getCapabilities, type CapabilityRecord, type CapabilityRegistryResponse,
@@ -106,6 +107,81 @@ function prettyJson(value: unknown): string {
 function metadataBlock(metadata: Record<string, unknown>): string {
   const entries = Object.entries(metadata).filter(([key]) => !["asset_domain", "asset_type", "content", "description"].includes(key));
   return entries.length ? JSON.stringify(Object.fromEntries(entries), null, 2) : "";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function provenanceText(provenance: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = provenance[key];
+    if (value === undefined || value === null || value === "") continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    } else if (Array.isArray(value)) {
+      const text = value.map((item) => typeof item === "string" ? item : prettyJson(item)).filter(Boolean).join(", ");
+      if (text) return text;
+    } else {
+      const text = prettyJson(value);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function graphitiStatusText(mem: MemoryCandidate): string {
+  const status = mem.graphiti_status?.status;
+  if (typeof status === "string" && status.trim()) return status.trim();
+  return prettyJson(mem.graphiti_status) || "-";
+}
+
+function ProvenanceRow({ children, label, title }: { children: ReactNode; label: string; title?: string }) {
+  return (
+    <div className="grid gap-1 text-xs sm:grid-cols-[7rem_minmax(0,1fr)]">
+      <div className="font-medium uppercase text-muted-foreground">{label}</div>
+      <div className="min-w-0 truncate font-medium text-foreground" title={title}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function memoryUsageSummary(mem: MemoryCandidate): Record<string, unknown> | null {
+  return asRecord(mem.provenance.usage_summary);
+}
+
+function memoryUsageHistory(mem: MemoryCandidate): Record<string, unknown>[] {
+  const history = mem.provenance.usage_history;
+  if (!Array.isArray(history)) return [];
+  return history.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+}
+
+function latestMemoryUsage(mem: MemoryCandidate): Record<string, unknown> | null {
+  const history = memoryUsageHistory(mem);
+  return history[history.length - 1] ?? null;
+}
+
+function memoryRelatedTicketIds(mem: MemoryCandidate): string[] {
+  const ids = new Set<string>();
+  const sourceTicketId = typeof mem.provenance.source_ticket_id === "string" ? mem.provenance.source_ticket_id.trim() : "";
+  if (sourceTicketId) ids.add(sourceTicketId);
+  if (mem.scope_kind === "ticket" && mem.scope_ref.trim()) ids.add(mem.scope_ref.trim());
+  const usageSummary = memoryUsageSummary(mem);
+  const latestTicketId = typeof usageSummary?.last_recalled_ticket_id === "string" ? usageSummary.last_recalled_ticket_id.trim() : "";
+  if (latestTicketId) ids.add(latestTicketId);
+  for (const usage of memoryUsageHistory(mem)) {
+    for (const ticketId of asStringArray(usage.source_ticket_ids)) ids.add(ticketId);
+  }
+  return Array.from(ids);
 }
 
 function capabilitySourceForTab(tab: CapabilityTab | null): string | null {
@@ -656,6 +732,25 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
     approveMemoryCandidate(id).then(() => load()).catch((err) => setError(err.message)).finally(() => setApproving(false));
   }
 
+  function handleReview(id: string, status: "rejected" | "stale", reason: string) {
+    setApproving(true);
+    reviewMemoryCandidate(id, { status, reason, actor_employee_id: "clara" })
+      .then(() => {
+        setDrawerId("");
+        return load();
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
+  }
+
+  function handleUsageReview(id: string, usageId: string, usefulnessStatus: "useful" | "not_useful" | "neutral", reason: string) {
+    setApproving(true);
+    reviewMemoryRecallUsage(id, usageId, { usefulness_status: usefulnessStatus, reviewer_employee_id: "clara", reason })
+      .then(() => load())
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
+  }
+
   // Breadcrumb
   const areaLabel = area ? AREA_TABS.find((t) => t.key === area)?.label ?? area : "Overview";
   const detailLabel = area === "knowledge" ? (kTab ? KNOWLEDGE_TABS.find((t) => t.key === kTab)?.label : null)
@@ -709,20 +804,120 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
           <Status label="Updated" value={fmtTime(doc.updated_at)} />
         </div>
       );
-      else if (mem) drawerContent = (
-        <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0"><h3 className="truncate text-lg font-semibold">{mem.scope_kind}:{mem.scope_ref}</h3><p className="truncate text-xs text-muted-foreground">{mem.source_kind}:{mem.source_ref || "-"}</p></div>
-            <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
+      else if (mem) {
+        const usageSummary = memoryUsageSummary(mem);
+        const usageHistory = memoryUsageHistory(mem);
+        const latestUsage = latestMemoryUsage(mem);
+        const latestUsageId = typeof latestUsage?.usage_id === "string" ? latestUsage.usage_id : "";
+        const latestUsefulness = typeof latestUsage?.usefulness_status === "string" ? latestUsage.usefulness_status : "";
+        const relatedTicketIds = memoryRelatedTicketIds(mem);
+        const sourceTicketId = provenanceText(mem.provenance, ["source_ticket_id"]) || (mem.scope_kind === "ticket" ? mem.scope_ref : "");
+        const sourceRunId = provenanceText(mem.provenance, ["source_run_id"]) || provenanceText(asRecord(mem.provenance.usage_summary) ?? {}, ["last_recalled_run_id"]);
+        const sourceReportId = provenanceText(mem.provenance, ["source_report_id"]);
+        const evidenceId = provenanceText(mem.provenance, ["evidence_id"]);
+        const versionHash = provenanceText(mem.provenance, ["version_hash", "content_hash", "hash", "version"]);
+        const providerRefs = provenanceText(mem.provenance, ["provider_refs", "provider_ref"]);
+        drawerContent = (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0"><h3 className="truncate text-lg font-semibold">{mem.scope_kind}:{mem.scope_ref}</h3><p className="truncate text-xs text-muted-foreground">{mem.source_kind}:{mem.source_ref || "-"}</p></div>
+              <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
+            </div>
+            <div className="flex flex-wrap gap-2"><Badge variant={statusVar(mem.status)}>{mem.status}</Badge>{mem.tags.map((t) => <Badge key={t} variant="outline">{t}</Badge>)}</div>
+            <p className="text-sm leading-6">{mem.content}</p>
+            <div className="rounded-md border bg-muted/30 p-3">
+              <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Graphiti Provenance</div>
+              <div className="space-y-2">
+                <ProvenanceRow label="Episode" title={mem.graphiti_episode_id || "-"}>{mem.graphiti_episode_id || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Status" title={graphitiStatusText(mem)}>{graphitiStatusText(mem)}</ProvenanceRow>
+                <ProvenanceRow label="Asset" title={`${mem.id} / ${mem.memory_type}`}>{mem.id} / {mem.memory_type}</ProvenanceRow>
+                <ProvenanceRow label="Scope" title={`${mem.scope_kind}:${mem.scope_ref}`}>{mem.scope_kind}:{mem.scope_ref}</ProvenanceRow>
+                <ProvenanceRow label="Ticket" title={sourceTicketId || "-"}>{sourceTicketId ? (
+                  <button type="button" onClick={() => navigateTo("tickets", sourceTicketId)} className="text-primary hover:underline">{sourceTicketId}</button>
+                ) : "-"}</ProvenanceRow>
+                <ProvenanceRow label="Employee" title={mem.employee_ids.join(", ") || "-"}>{mem.employee_ids.join(", ") || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Run" title={sourceRunId || "-"}>{sourceRunId || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Report" title={sourceReportId || "-"}>{sourceReportId || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Evidence" title={evidenceId || "-"}>{evidenceId || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Version" title={versionHash || "-"}>{versionHash || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Provider" title={providerRefs || "-"}>{providerRefs || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Source" title={`${mem.source_kind}:${mem.source_ref || "-"}`}>{mem.source_kind}:{mem.source_ref || "-"}</ProvenanceRow>
+              </div>
+            </div>
+            {usageSummary && (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Usage</div>
+                <div className="space-y-3">
+                  <Status label="Recall count" value={String(usageSummary.recall_count ?? 0)} />
+                  <Status label="Useful" value={String(usageSummary.useful_count ?? 0)} />
+                  <Status label="Latest status" value={String((usageSummary.last_usefulness_status ?? latestUsefulness) || "-")} />
+                  <Status label="Last recalled" value={fmtTime(typeof usageSummary.last_recalled_at === "string" ? usageSummary.last_recalled_at : "")} />
+                </div>
+              </div>
+            )}
+            {relatedTicketIds.length > 0 && (
+              <div>
+                <h4 className="mb-2 text-sm font-semibold">Related Tickets</h4>
+                <div className="flex flex-wrap gap-2">
+                  {relatedTicketIds.map((ticketId) => (
+                    <button key={ticketId} type="button" onClick={() => navigateTo("tickets", ticketId)}>
+                      <Badge variant="secondary">{ticketId}</Badge>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {usageHistory.length > 0 && (
+              <div>
+                <h4 className="mb-2 text-sm font-semibold">Usage History</h4>
+                <div className="space-y-2">
+                  {usageHistory.slice().reverse().slice(0, 5).map((usage, index) => {
+                    const usageId = typeof usage.usage_id === "string" ? usage.usage_id : `usage-${index + 1}`;
+                    const usageTickets = asStringArray(usage.source_ticket_ids);
+                    const sourceRunId = typeof usage.source_run_id === "string" ? usage.source_run_id : "";
+                    const sourceTracePath = typeof usage.source_trace_path === "string" ? usage.source_trace_path : "";
+                    const usefulnessStatus = typeof usage.usefulness_status === "string" ? usage.usefulness_status : "unreviewed";
+                    return (
+                      <div key={`${usageId}-${index}`} className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-medium text-foreground">{usageId}</span>
+                          <Badge variant={statusVar(usefulnessStatus)} className="text-[10px]">{usefulnessStatus}</Badge>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {usageTickets.map((ticketId) => (
+                            <button key={ticketId} type="button" onClick={() => navigateTo("tickets", ticketId)}>
+                              <Badge variant="outline" className="text-[10px]">{ticketId}</Badge>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="mt-1 space-y-0.5 text-muted-foreground">
+                          <div>Run: {sourceRunId || "-"}</div>
+                          <div>Trace: {sourceTracePath || "-"}</div>
+                          <div>Recalled: {fmtTime(typeof usage.at === "string" ? usage.at : "")}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setFullText({ title: `${mem.scope_kind}:${mem.scope_ref}`, source: `${mem.source_kind}:${mem.source_ref || "-"}`, content: mem.content })}>
+              <FileText className="h-4 w-4" />Open Full Text
+            </Button>
+            {mem.status === "proposed" && <Button size="sm" variant="outline" disabled={approving} onClick={() => handleApprove(mem.id)}><Check className="h-3 w-3" />Approve</Button>}
+            {mem.status === "approved" && (
+              <Button size="sm" variant="outline" disabled={approving} onClick={() => handleReview(mem.id, "stale", "Marked stale from Assets memory detail.")}>
+                <Archive className="h-3 w-3" />Mark Stale
+              </Button>
+            )}
+            {mem.status === "approved" && latestUsageId && latestUsefulness === "unreviewed" && (
+              <Button size="sm" variant="outline" disabled={approving} onClick={() => handleUsageReview(mem.id, latestUsageId, "useful", "Marked useful from Assets memory detail.")}>
+                <Check className="h-3 w-3" />Mark Useful
+              </Button>
+            )}
           </div>
-          <div className="flex flex-wrap gap-2"><Badge variant={statusVar(mem.status)}>{mem.status}</Badge>{mem.tags.map((t) => <Badge key={t} variant="outline">{t}</Badge>)}</div>
-          <p className="text-sm leading-6">{mem.content}</p>
-          <Button variant="outline" size="sm" onClick={() => setFullText({ title: `${mem.scope_kind}:${mem.scope_ref}`, source: `${mem.source_kind}:${mem.source_ref || "-"}`, content: mem.content })}>
-            <FileText className="h-4 w-4" />Open Full Text
-          </Button>
-          {mem.status === "proposed" && <Button size="sm" variant="outline" disabled={approving} onClick={() => handleApprove(mem.id)}><Check className="h-3 w-3" />Approve</Button>}
-        </div>
-      );
+        );
+      }
       else if (dec) drawerContent = (
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-3">
@@ -782,7 +977,12 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
           <Button variant="outline" size="sm" onClick={() => setFullText({ title: item.title, source: item.source_ref, content: reviewText(item) })}>
             <FileText className="h-4 w-4" />Open Full Text
           </Button>
-          {item.kind === "memory" && item.status === "proposed" && <Button size="sm" variant="outline" disabled={approving} onClick={() => handleApprove(item.id)}><Check className="h-3 w-3" />Approve</Button>}
+          {item.kind === "memory" && item.status === "proposed" && (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" disabled={approving} onClick={() => handleApprove(item.id)}><Check className="h-3 w-3" />Approve</Button>
+              <Button size="sm" variant="outline" disabled={approving} onClick={() => handleReview(item.id, "rejected", "Rejected from Assets review queue.")}><X className="h-3 w-3" />Reject</Button>
+            </div>
+          )}
         </div>
       );
     } else {

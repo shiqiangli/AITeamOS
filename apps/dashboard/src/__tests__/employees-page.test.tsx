@@ -121,6 +121,112 @@ const workByEmployee = {
   },
 };
 
+const analyticsByEmployee = {
+  clara: {
+    employee_id: "clara",
+    assigned_ticket_count: 0,
+    completed_ticket_count: 0,
+    validation_pass_rate: 0,
+    candidates_produced: 1,
+    recalled_asset_count: 0,
+    source_counts: {
+      tickets: 0,
+      reports: 0,
+      events: 1,
+      assets: 1,
+    },
+  },
+  alex: {
+    employee_id: "alex",
+    assigned_ticket_count: 1,
+    completed_ticket_count: 0,
+    validation_pass_rate: 0.75,
+    candidates_produced: 0,
+    recalled_asset_count: 1,
+    source_counts: {
+      tickets: 1,
+      reports: 0,
+      events: 2,
+      assets: 1,
+    },
+  },
+};
+
+const graphByEmployee = {
+  clara: {
+    employee_id: "clara",
+    nodes: [
+      { id: "employee:clara", kind: "employee", label: "Clara", status: "active", ref: "clara", metadata: {} },
+    ],
+    edges: [],
+    grouped_edges: {},
+    source_counts: {
+      tickets: 0,
+      reports: 0,
+      events: 1,
+      assets: 1,
+    },
+  },
+  alex: {
+    employee_id: "alex",
+    nodes: [
+      { id: "employee:alex", kind: "employee", label: "Alex", status: "active", ref: "alex", metadata: {} },
+      { id: "ticket:rd-0001", kind: "ticket", label: "Implement ticket flow", status: "assigned", ref: "rd-0001", metadata: {} },
+      { id: "asset:mem-approved-1", kind: "memory", label: "Approved Memory", status: "approved", ref: "mem-approved-1", metadata: {} },
+    ],
+    edges: [
+      {
+        id: "edge-alex-ticket-1",
+        type: "employee.assigned_ticket",
+        source_id: "employee:alex",
+        target_id: "ticket:rd-0001",
+        label: "assigned Ticket",
+        evidence_refs: ["event-assigned-1"],
+        metadata: {},
+      },
+      {
+        id: "edge-alex-memory-1",
+        type: "employee.recalled_asset",
+        source_id: "employee:alex",
+        target_id: "asset:mem-approved-1",
+        label: "recalled asset",
+        evidence_refs: ["usage-approved-1"],
+        metadata: {},
+      },
+    ],
+    grouped_edges: {
+      "employee.assigned_ticket": [
+        {
+          id: "edge-alex-ticket-1",
+          type: "employee.assigned_ticket",
+          source_id: "employee:alex",
+          target_id: "ticket:rd-0001",
+          label: "assigned Ticket",
+          evidence_refs: ["event-assigned-1"],
+          metadata: {},
+        },
+      ],
+      "employee.recalled_asset": [
+        {
+          id: "edge-alex-memory-1",
+          type: "employee.recalled_asset",
+          source_id: "employee:alex",
+          target_id: "asset:mem-approved-1",
+          label: "recalled asset",
+          evidence_refs: ["usage-approved-1"],
+          metadata: {},
+        },
+      ],
+    },
+    source_counts: {
+      tickets: 1,
+      reports: 0,
+      events: 2,
+      assets: 1,
+    },
+  },
+};
+
 const capabilities = {
   status: {
     capability_count: 2,
@@ -212,7 +318,11 @@ describe("EmployeesPage", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      const body = url.includes("/tickets/employees/")
+      const body = url.includes("/employees/") && url.includes("/analytics")
+        ? analyticsByEmployee[url.includes("alex") ? "alex" : "clara"]
+        : url.includes("/employees/") && url.includes("/graph")
+        ? graphByEmployee[url.includes("alex") ? "alex" : "clara"]
+        : url.includes("/tickets/employees/")
         ? workByEmployee[url.includes("alex") ? "alex" : "clara"]
         : url.includes("/chat/threads")
         ? threadsByEmployee[url.includes("alex") ? "alex" : "clara"]
@@ -248,11 +358,25 @@ describe("EmployeesPage", () => {
     expect(screen.queryByText("Ready Tools")).toBeNull();
     expect(screen.getByText("Workforce Record")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Work Ledger" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Analytics" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Governance" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Work Ledger" }));
     expect(screen.getAllByText("Current Tickets").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Historical Tickets").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Analytics" }));
+    expect(screen.getByText("Phase 4a Core Metrics")).toBeTruthy();
+    expect(screen.getByText("Assigned Tickets")).toBeTruthy();
+    expect(screen.getByText("Validation Pass Rate")).toBeTruthy();
+    expect(screen.getByText("75%")).toBeTruthy();
+    expect(screen.getByText("Recalled Assets")).toBeTruthy();
+    expect(screen.getByText("Evidence Sources")).toBeTruthy();
+    expect(screen.getByText("Graph Provenance")).toBeTruthy();
+    expect(screen.getByText("Graph Nodes")).toBeTruthy();
+    expect(screen.getByText("Graph Edges")).toBeTruthy();
+    expect(screen.getByText("employee.assigned_ticket")).toBeTruthy();
+    expect(screen.getByText("employee:alex -> ticket:rd-0001")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Capabilities" }));
     expect(screen.getByText("Assigned Skills")).toBeTruthy();

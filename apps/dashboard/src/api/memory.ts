@@ -77,6 +77,19 @@ export interface MemoryCandidateCreateRequest {
   provenance?: Record<string, unknown>;
 }
 
+export interface MemoryCandidateReviewRequest {
+  status: string;
+  reason?: string;
+  actor_employee_id?: string;
+  superseded_by_candidate_id?: string;
+}
+
+export interface MemoryRecallUsefulnessReviewRequest {
+  usefulness_status: string;
+  reviewer_employee_id?: string;
+  reason?: string;
+}
+
 export interface MemoryStatusResponse {
   backend: GraphitiBackendStatus;
   candidate_count: number;
@@ -137,6 +150,27 @@ export function approveMemoryCandidate(candidateId: string): Promise<MemoryCandi
   return apiRequest<MemoryCandidate>(`/memory/candidates/${encodeURIComponent(candidateId)}/approve`, {
     method: "POST",
   });
+}
+
+export function reviewMemoryCandidate(candidateId: string, payload: MemoryCandidateReviewRequest): Promise<MemoryCandidate> {
+  return apiRequest<MemoryCandidate>(`/memory/candidates/${encodeURIComponent(candidateId)}/review`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function reviewMemoryRecallUsage(
+  candidateId: string,
+  usageId: string,
+  payload: MemoryRecallUsefulnessReviewRequest,
+): Promise<MemoryCandidate> {
+  return apiRequest<MemoryCandidate>(
+    `/memory/candidates/${encodeURIComponent(candidateId)}/usage/${encodeURIComponent(usageId)}/review`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 }
 
 export function listApprovedMemory(): Promise<MemoryCandidate[]> {

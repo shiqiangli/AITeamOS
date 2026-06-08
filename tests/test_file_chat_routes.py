@@ -4,7 +4,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from aiteamos_api.read import chat_routes
+from aiteamos_api.read import chat_routes, memory_service, ticket_service
 from aiteamos_api.main import create_app
 
 
@@ -14,6 +14,55 @@ def _has_command_event(payload: dict, command_id: str, phase: str = "completed")
         and event.get("data", {}).get("command", {}).get("id") == command_id
         for event in payload["trace_events"]
     )
+
+
+class _FakePlaneResponse:
+    def __init__(self, status_code: int, payload: dict):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = json.dumps(payload)
+
+    def json(self):
+        return self._payload
+
+
+def _configure_plane_ticket_backend(client: TestClient, *, workspace_slug: str = "ait", project_id: str = "plane-project-1") -> None:
+    backend = client.put(
+        "/api/v1/tickets/backend",
+        json={
+            "mode": "plane",
+            "plane_api_base_url": "https://plane.test",
+            "plane_web_base_url": "https://app.plane.test",
+            "plane_workspace_slug": workspace_slug,
+            "plane_project_id": project_id,
+            "plane_api_key_env": "PLANE_API_KEY",
+            "plane_namespace_label_ids": {"rd": "label-rd"},
+            "plane_state_ids": {"assigned": "state-assigned"},
+            "plane_employee_assignee_ids": {"alex": "plane-user-alex"},
+        },
+    )
+    assert backend.status_code == 200
+
+
+def test_chat_action_plan_normalizes_phase1_actions():
+    cases = [
+        ({"action": "answer_only"}, "answer_only", "none", None),
+        ({"action": "create_ticket", "arguments": {"title": "Build"}}, "create_ticket", "tickets.manage:create", None),
+        ({"command": "tickets.manage:report"}, "append_report", "tickets.manage:report", None),
+        ({"command": "request_ticket_validation"}, "request_validation", "tickets.manage:request_validation", None),
+        ({"action": "record_validation"}, "record_validation", "tickets.manage:report", "validation"),
+        ({"action": "record_failure"}, "record_failure", "tickets.manage:report", "validation_failed"),
+        ({"action": "request_human_review"}, "request_human_review", "tickets.manage:request_human_review", None),
+        ({"action": "self_bootstrap_summary"}, "self_bootstrap_summary", "tickets.manage:self_bootstrap_summary", None),
+    ]
+
+    for payload, action, command, report_type in cases:
+        action_plan = chat_routes._normalize_chat_action_plan(payload, source="test")
+        kernel_plan = chat_routes._kernel_plan_from_chat_action_plan(action_plan)
+        assert action_plan.action == action
+        assert kernel_plan.command == command
+        if report_type:
+            assert kernel_plan.arguments["report_type"] == report_type
 
 
 def test_chat_employees_bootstraps_protected_clara_system_employee(tmp_path, monkeypatch):
@@ -232,14 +281,16 @@ def test_chat_ai_engine_settings_are_file_backed(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     client = TestClient(create_app())
 
     initial = client.get("/api/v1/chat/ai-engines")
     assert initial.status_code == 200
-    assert initial.json()["active_engine"] == "stub"
+    assert initial.json()["active_engine"] == "deepseek"
     assert initial.json()["api_keys_configured"]["deepseek"] is False
     assert initial.json()["deepseek_thinking"] == "enabled"
+    assert initial.json()["engines"]["deepseek"]["active"] is True
     assert initial.json()["engines"]["deepseek"]["thinking"] == "enabled"
     assert initial.json()["engines"]["deepseek"]["context_window"] == 1000000
     assert initial.json()["engines"]["deepseek"]["max_tokens"] == 384000
@@ -269,6 +320,47 @@ def test_chat_ai_engine_settings_are_file_backed(tmp_path, monkeypatch):
     assert saved["engines"]["deepseek"]["context_window"] == 1000000
     assert saved["engines"]["deepseek"]["max_tokens"] == 384000
     assert not (workspace / ".aiteamos" / "secrets.local.json").exists()
+
+
+def test_remote_first_without_api_key_returns_configuration_blocker_without_stub_reply(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.delenv("AITEAMOS_AI_ENGINE", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    employees_dir = workspace / ".aiteamos" / "employees"
+    employees_dir.mkdir(parents=True)
+    (employees_dir / "clara.yaml").write_text(
+        """
+id: clara
+display_name: Clara
+kind: ai
+role: AI Team OS Manager
+summary: Coordinator
+skills: []
+ai_engine:
+  mode: external_or_file_stub
+  engine_identity: clara
+  preserve_engine_thread: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={"message": "你是谁？", "thread_id": "remote-first-missing-key", "target_employee_id": "clara"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "远程调用被配置问题阻止" in payload["reply"]
+    assert "Clara 已收到请求" not in payload["reply"]
+    assert payload["run_metadata"]["ai_engine"]["selected_ai_engine"] == "deepseek"
+    assert payload["run_metadata"]["ai_engine"]["actual_ai_engine"] == "deepseek_configuration_blocked"
+    assert any(event["event"] == "ai_engine.remote.configuration_blocked" for event in payload["trace_events"])
+    assert not any(event["event"] == "ai_engine.stub.completed" for event in payload["trace_events"])
 
 
 def test_chat_ai_engine_settings_can_be_updated_independently(tmp_path, monkeypatch):
@@ -697,17 +789,25 @@ ai_engine:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload == [
-        {
-            "id": "test-engineering",
-            "title": "Test Engineering",
-            "description": "Test execution and validation evidence.",
-            "content": skill_content,
-            "assigned_employees": ["alex"],
-            "resources": [],
-            "saved_path": ".aiteamos/skills/test-engineering/SKILL.md",
-        }
-    ]
+    skills_by_id = {skill["id"]: skill for skill in payload}
+    assert skills_by_id["test-engineering"] == {
+        "id": "test-engineering",
+        "title": "Test Engineering",
+        "description": "Test execution and validation evidence.",
+        "content": skill_content,
+        "assigned_employees": ["alex"],
+        "resources": [],
+        "saved_path": ".aiteamos/skills/test-engineering/SKILL.md",
+        "source": "local",
+    }
+    assert {
+        "validation-strategy",
+        "evidence-review",
+        "regression-check",
+        "product-model-review",
+    }.issubset(skills_by_id)
+    assert skills_by_id["evidence-review"]["source"] == "builtin"
+    assert skills_by_id["evidence-review"]["saved_path"] == "aiteamos://builtin/validation-skills/evidence-review"
 
 
 def test_employee_chat_creates_and_assigns_skill_with_local_tools(tmp_path, monkeypatch):
@@ -805,6 +905,86 @@ ai_engine:
     assert not skill_path.exists()
     profile = chat_routes.yaml.safe_load((employees_dir / "alex.yaml").read_text(encoding="utf-8"))
     assert profile["skills"] == []
+
+
+def test_employee_chat_assigns_builtin_validation_skill(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
+
+    employees_dir = workspace / ".aiteamos" / "employees"
+    employees_dir.mkdir(parents=True)
+    (employees_dir / "clara.yaml").write_text(
+        """
+id: clara
+display_name: Clara
+kind: ai
+role: AI Team OS Manager
+summary: Coordinator
+skills: []
+ai_engine:
+  mode: deepseek_chat_or_file_stub
+  engine_identity: clara
+  preserve_engine_thread: true
+""".strip(),
+        encoding="utf-8",
+    )
+    (employees_dir / "alex.yaml").write_text(
+        """
+id: alex
+display_name: Alex
+kind: ai
+role: AI PV
+summary: Verification owner
+skills: []
+ai_engine:
+  mode: external_or_file_stub
+  engine_identity: alex
+  preserve_engine_thread: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    class FailingAsyncClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Remote AI Engine should not be called for assigning a built-in Skill")
+
+    monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
+
+    client = TestClient(create_app())
+    assign_response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "Clara，请把 evidence-review Skill 分配给 Alex。",
+            "thread_id": "assign-builtin-skill-test",
+            "target_employee_id": "clara",
+        },
+    )
+
+    assert assign_response.status_code == 200
+    assign_payload = assign_response.json()
+    assert "已把 Skill Evidence Review 分配给 Alex" in assign_payload["reply"]
+    assert _has_command_event(assign_payload, "assets.manage:assign_skill")
+    profile = chat_routes.yaml.safe_load((employees_dir / "alex.yaml").read_text(encoding="utf-8"))
+    assert profile["skills"] == ["evidence-review"]
+
+    delete_response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "Clara，请删除 Skill evidence-review。",
+            "thread_id": "delete-builtin-skill-test",
+            "target_employee_id": "clara",
+        },
+    )
+
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert "不能删除内建验证 Skill Evidence Review" in delete_payload["reply"]
+    assert _has_command_event(delete_payload, "assets.manage:delete_skill", phase="blocked")
+    profile = chat_routes.yaml.safe_load((employees_dir / "alex.yaml").read_text(encoding="utf-8"))
+    assert profile["skills"] == ["evidence-review"]
 
 
 def test_employee_chat_streams_list_employees_tool(tmp_path, monkeypatch):
@@ -991,7 +1171,13 @@ ai_engine:
     assert profile["display_name"] == "Peter"
     assert profile["kind"] == "ai"
     assert profile["role"] == "AI PV"
-    assert profile["skills"] == ["test-engineering", "validation-strategy"]
+    assert profile["skills"] == [
+        "test-engineering",
+        "validation-strategy",
+        "evidence-review",
+        "regression-check",
+        "product-model-review",
+    ]
 
 
 def test_employee_chat_uses_deepseek_tool_planner_for_create_employee(tmp_path, monkeypatch):
@@ -1336,7 +1522,7 @@ ai_engine:
     assert (employees_dir / "riley.yaml").exists()
 
 
-def test_clara_can_run_allowlisted_terminal_command(tmp_path, monkeypatch):
+def test_clara_blocks_terminal_command_without_ticket_binding(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
@@ -1355,11 +1541,303 @@ def test_clara_can_run_allowlisted_terminal_command(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert "terminal.run completed" in payload["reply"]
-    assert str(workspace) in payload["reply"]
-    assert _has_command_event(payload, "terminal.run:run")
+    assert "terminal.run requires a Ticket binding" in payload["reply"]
+    assert _has_command_event(payload, "terminal.run:run", phase="blocked")
     assert payload["run_metadata"]["commands"][0]["id"] == "terminal.run:run"
     assert payload["run_metadata"]["ai_engine"]["actual_ai_engine"] == "kernel_command"
+
+
+def test_clara_answers_self_bootstrap_learning_summary_from_kernel_facts(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+    monkeypatch.setenv("AITEAMOS_GRAPHITI_PASSWORD", "neo4j-test-password")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
+    monkeypatch.setenv("PLANE_API_KEY", "plane-test-key")
+
+    class FakeEpisodeType:
+        message = "message"
+        text = "text"
+
+    class FakeEpisode:
+        uuid = "episode-bootstrap-summary-1"
+
+    class FakeAddResult:
+        episode = FakeEpisode()
+
+    class FakeGraphiti:
+        def __init__(self, uri, user, password):
+            self.uri = uri
+            self.user = user
+            self.password = password
+
+        async def build_indices_and_constraints(self):
+            return None
+
+        async def add_episode(self, **kwargs):
+            return FakeAddResult()
+
+        async def close(self):
+            return None
+
+    class FakePlaneClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, method, url, headers, json):
+            if method == "POST" and url.endswith("/work-items/"):
+                return _FakePlaneResponse(
+                    201,
+                    {
+                        "id": "plane-ticket-bootstrap-summary-1",
+                        "project": "plane-project-1",
+                        "sequence_id": 31,
+                        "state": "state-assigned",
+                    },
+                )
+            return _FakePlaneResponse(404, {"detail": "unexpected call"})
+
+    monkeypatch.setattr(memory_service, "Graphiti", FakeGraphiti)
+    monkeypatch.setattr(memory_service, "EpisodeType", FakeEpisodeType)
+    monkeypatch.setattr(ticket_service.httpx, "Client", FakePlaneClient)
+
+    client = TestClient(create_app())
+    _configure_plane_ticket_backend(client)
+    graphiti_settings = client.put(
+        "/api/v1/memory/graphiti/settings",
+        json={
+            "enabled": True,
+            "graph_database": "neo4j",
+            "uri": "bolt://localhost:7687",
+            "user": "neo4j",
+            "group_id": "aiteamos-test",
+            "llm_ai_engine": "openai",
+        },
+    )
+    assert graphiti_settings.status_code == 200
+
+    created = client.post(
+        "/api/v1/tickets",
+        json={
+            "title": "Self-bootstrap summary smoke",
+            "description": "Follow-up Ticket should recall prior approved learning.",
+            "ticket_type": "rd",
+            "assigned_employee_id": "alex",
+            "assigned_role": "AI RD / Implementer",
+        },
+    )
+    assert created.status_code == 200
+    ticket_id = created.json()["id"]
+
+    candidate = client.post(
+        "/api/v1/memory/candidates",
+        json={
+            "content": "Self-bootstrap summary must cite recalled Graphiti-backed assets.",
+            "source_kind": "ticket_summary",
+            "source_ref": ".aiteamos/traces/run-bootstrap-prior.jsonl",
+            "scope_kind": "ticket",
+            "scope_ref": "rd-0000",
+            "memory_type": "lesson",
+            "confidence": 0.9,
+            "employee_ids": ["clara"],
+            "tags": ["self-bootstrap"],
+            "provenance": {
+                "source_ticket_id": "rd-0000",
+                "source_employee_id": "clara",
+                "source_run_id": "run-bootstrap-prior",
+                "source_report_id": "report-bootstrap-prior",
+                "evidence_id": "evidence-bootstrap-prior",
+            },
+        },
+    )
+    assert candidate.status_code == 200
+    approved = client.post(f"/api/v1/memory/candidates/{candidate.json()['id']}/approve")
+    assert approved.status_code == 200
+    usage_refs = memory_service.record_memory_recall_usage(
+        memory_refs=[
+            {
+                "memory_id": candidate.json()["id"],
+                "graphiti_recalled": True,
+                "graphiti_episode_id": "episode-bootstrap-summary-1",
+                "graphiti_result_id": "graphiti-bootstrap-summary-1",
+            }
+        ],
+        run_id="run-bootstrap-followup",
+        employee_id="alex",
+        ticket_keys=[ticket_id],
+        query="self-bootstrap learning summary",
+        trace_path=".aiteamos/traces/run-bootstrap-followup.jsonl",
+    )
+    reviewed_usage = client.post(
+        f"/api/v1/memory/candidates/{candidate.json()['id']}/usage/{usage_refs[0]['usage_id']}/review",
+        json={
+            "usefulness_status": "useful",
+            "reason": "Reused learning helped the follow-up Ticket.",
+            "reviewer_employee_id": "peter",
+        },
+    )
+    assert reviewed_usage.status_code == 200
+    stale_candidate = client.post(
+        "/api/v1/memory/candidates",
+        json={
+            "content": "Outdated self-bootstrap lesson: validation can be retried before evidence is attached.",
+            "source_kind": "ticket_summary",
+            "source_ref": ".aiteamos/traces/run-bootstrap-stale.jsonl",
+            "scope_kind": "ticket",
+            "scope_ref": ticket_id,
+            "memory_type": "lesson",
+            "confidence": 0.7,
+            "employee_ids": ["clara"],
+            "tags": ["self-bootstrap", "validation"],
+            "provenance": {
+                "source_ticket_id": ticket_id,
+                "source_employee_id": "clara",
+                "source_run_id": "run-bootstrap-stale",
+                "source_report_id": "report-bootstrap-stale",
+                "evidence_id": "evidence-bootstrap-stale",
+            },
+        },
+    )
+    assert stale_candidate.status_code == 200
+    stale_candidate_id = stale_candidate.json()["id"]
+    stale_approved = client.post(f"/api/v1/memory/candidates/{stale_candidate_id}/approve")
+    assert stale_approved.status_code == 200
+    stale_reviewed = client.post(
+        f"/api/v1/memory/candidates/{stale_candidate_id}/review",
+        json={
+            "status": "stale",
+            "reason": "Evidence discipline now blocks validation without attached proof.",
+            "actor_employee_id": "clara",
+        },
+    )
+    assert stale_reviewed.status_code == 200
+
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "Clara，请总结 AITeamOS 最近几轮自举学到了什么，复用了哪些经验，下一批怎么做。",
+            "thread_id": "self-bootstrap-summary-chat",
+            "target_employee_id": "clara",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "self-bootstrap learning summary" in payload["reply"]
+    assert "graphiti_recalled=1" in payload["reply"]
+    assert "useful_recall=1" in payload["reply"]
+    assert "stale_or_superseded=1" in payload["reply"]
+    assert "Self-bootstrap summary smoke" in payload["reply"]
+    assert _has_command_event(payload, "tickets.manage:self_bootstrap_summary")
+    command_event = next(
+        event
+        for event in payload["trace_events"]
+        if event["event"] == "command.completed"
+        and event.get("data", {}).get("command", {}).get("id") == "tickets.manage:self_bootstrap_summary"
+    )
+    summary = command_event["data"]["self_bootstrap_summary"]
+    assert summary["ticket_count"] == 1
+    assert summary["approved_memories_recalled"] == 1
+    assert summary["graphiti_memories_recalled"] == 1
+    assert summary["useful_memory_recalls"] == 1
+    assert summary["stale_or_superseded_assets"] == 1
+    assert payload["run_metadata"]["commands"][0]["id"] == "tickets.manage:self_bootstrap_summary"
+
+
+def test_clara_can_run_allowlisted_terminal_command_as_ticket_evidence(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
+    monkeypatch.setenv("PLANE_API_KEY", "plane-test-key")
+    calls: list[dict] = []
+
+    class FakePlaneClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, method, url, headers, json):
+            calls.append({"method": method, "url": url, "headers": headers, "json": json})
+            if method == "POST" and url.endswith("/work-items/"):
+                return _FakePlaneResponse(
+                    201,
+                    {
+                        "id": "plane-ticket-terminal-1",
+                        "project": "plane-project-1",
+                        "sequence_id": 21,
+                        "state": "state-assigned",
+                    },
+                )
+            if method == "POST" and url.endswith("/work-items/plane-ticket-terminal-1/comments/"):
+                return _FakePlaneResponse(201, {"id": "plane-comment-terminal-1"})
+            if method == "GET" and url.endswith("/work-items/plane-ticket-terminal-1/"):
+                return _FakePlaneResponse(
+                    200,
+                    {
+                        "id": "plane-ticket-terminal-1",
+                        "project": "plane-project-1",
+                        "state": "state-assigned",
+                    },
+                )
+            return _FakePlaneResponse(404, {"detail": "unexpected call"})
+
+    monkeypatch.setattr(ticket_service.httpx, "Client", FakePlaneClient)
+
+    client = TestClient(create_app())
+    _configure_plane_ticket_backend(client)
+    created = client.post(
+        "/api/v1/tickets",
+        json={
+            "title": "Terminal evidence",
+            "description": "Run an allowlisted command as Ticket evidence.",
+            "ticket_type": "rd",
+            "assigned_employee_id": "alex",
+            "assigned_role": "AI RD / Implementer",
+        },
+    )
+    assert created.status_code == 200
+    ticket_id = created.json()["id"]
+
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": f"Clara，请为 {ticket_id} 执行命令 `pwd`。",
+            "thread_id": "terminal-command-test",
+            "target_employee_id": "clara",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "terminal.run completed" in payload["reply"]
+    assert str(workspace) in payload["reply"]
+    assert "Ticket evidence:" in payload["reply"]
+    assert f"- Ticket: {ticket_id}" in payload["reply"]
+    assert _has_command_event(payload, "terminal.run:run")
+    completed = next(event for event in payload["trace_events"] if event["event"] == "command.completed" and event["data"]["command"]["id"] == "terminal.run:run")
+    assert completed["data"]["ticket_id"] == ticket_id
+    assert completed["data"]["ticket_evidence"]["evidence_ref"].startswith("terminal:")
+    assert completed["data"]["ticket_evidence"]["report_id"].startswith("report-")
+    assert payload["run_metadata"]["ai_engine"]["actual_ai_engine"] == "kernel_command"
+    comment_call = next(call for call in calls if call["method"] == "POST" and call["url"].endswith("/comments/"))
+    assert comment_call["json"]["comment_json"]["aiteamos"]["report_type"] == "terminal_evidence"
+    assert comment_call["json"]["comment_json"]["aiteamos"]["ticket_id"] == ticket_id
+    assert comment_call["json"]["comment_json"]["aiteamos"]["evidence"][0].startswith("terminal:")
 
 
 def test_clara_reports_kernel_permissions_from_profile(tmp_path, monkeypatch):
@@ -1458,13 +1936,66 @@ def test_terminal_command_streams_progress(tmp_path, monkeypatch):
     monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
     monkeypatch.setenv("AITEAMOS_CHAT_KERNEL_COMMANDS", "legacy")
+    monkeypatch.setenv("PLANE_API_KEY", "plane-test-key")
+    calls: list[dict] = []
+
+    class FakePlaneClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, method, url, headers, json):
+            calls.append({"method": method, "url": url, "headers": headers, "json": json})
+            if method == "POST" and url.endswith("/work-items/"):
+                return _FakePlaneResponse(
+                    201,
+                    {
+                        "id": "plane-ticket-terminal-stream-1",
+                        "project": "plane-project-1",
+                        "sequence_id": 22,
+                        "state": "state-assigned",
+                    },
+                )
+            if method == "POST" and url.endswith("/work-items/plane-ticket-terminal-stream-1/comments/"):
+                return _FakePlaneResponse(201, {"id": "plane-comment-terminal-stream-1"})
+            if method == "GET" and url.endswith("/work-items/plane-ticket-terminal-stream-1/"):
+                return _FakePlaneResponse(
+                    200,
+                    {
+                        "id": "plane-ticket-terminal-stream-1",
+                        "project": "plane-project-1",
+                        "state": "state-assigned",
+                    },
+                )
+            return _FakePlaneResponse(404, {"detail": "unexpected call"})
+
+    monkeypatch.setattr(ticket_service.httpx, "Client", FakePlaneClient)
 
     client = TestClient(create_app())
+    _configure_plane_ticket_backend(client)
+    created = client.post(
+        "/api/v1/tickets",
+        json={
+            "title": "Streaming terminal evidence",
+            "description": "Run streamed allowlisted command as Ticket evidence.",
+            "ticket_type": "rd",
+            "assigned_employee_id": "alex",
+            "assigned_role": "AI RD / Implementer",
+        },
+    )
+    assert created.status_code == 200
+    ticket_id = created.json()["id"]
+
     with client.stream(
         "POST",
         "/api/v1/chat/messages/stream",
         json={
-            "message": "terminal.run `pwd`",
+            "message": f"terminal.run `pwd` ticket_id={ticket_id}",
             "thread_id": "terminal-stream-test",
             "target_employee_id": "clara",
         },
@@ -1478,6 +2009,10 @@ def test_terminal_command_streams_progress(tmp_path, monkeypatch):
     assert str(workspace) in body
     assert "command.completed" in body
     assert "terminal.run:run" in body
+    assert "Ticket evidence:" in body
+    comment_call = next(call for call in calls if call["method"] == "POST" and call["url"].endswith("/comments/"))
+    assert comment_call["json"]["comment_json"]["aiteamos"]["report_type"] == "terminal_evidence"
+    assert comment_call["json"]["comment_json"]["aiteamos"]["ticket_id"] == ticket_id
 
 
 def test_employee_chat_can_use_openai_ai_engine(tmp_path, monkeypatch):
@@ -1934,3 +2469,106 @@ handoff_rules:
     assert state["ai_engine"] == "deepseek_chat_completions"
     assert state["deepseek_last_response_id"] == "ds-test-1"
     assert state["assumed_agent_session"] is True
+
+
+def test_remote_chat_does_not_fallback_to_local_ticket_heuristics_when_planner_fails(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_AI_ENGINE", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("AITEAMOS_DEEPSEEK_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("AITEAMOS_DEEPSEEK_THINKING", "disabled")
+
+    employees_dir = workspace / ".aiteamos" / "employees"
+    employees_dir.mkdir(parents=True)
+    (employees_dir / "clara.yaml").write_text(
+        """
+id: clara
+display_name: Clara
+kind: ai
+role: AI Team OS Manager
+summary: Coordinator
+skills: []
+permissions:
+  - chat
+ai_engine:
+  mode: deepseek_chat_or_file_stub
+  engine_identity: clara
+  preserve_engine_thread: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    calls = []
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def __init__(self, content: str, response_id: str):
+            self._content = content
+            self._response_id = response_id
+
+        def json(self):
+            return {
+                "id": self._response_id,
+                "model": "deepseek-v4-flash",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": self._content,
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 8},
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers, json):
+            calls.append({"url": url, "headers": headers, "json": json})
+            if len(calls) == 1:
+                return FakeResponse("not-json", "planner-bad-json")
+            return FakeResponse("我会先用远程模型回答，不会用本地 heuristic 创建 Ticket。", "ds-agent-1")
+
+    monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FakeAsyncClient)
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/v1/chat/messages",
+        json={
+            "message": "create_ticket: create a Ticket to validate Plane provider refs.",
+            "thread_id": "planner-failure-no-heuristic",
+            "target_employee_id": "clara",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reply"] == "我会先用远程模型回答，不会用本地 heuristic 创建 Ticket。"
+    assert len(calls) == 2
+    assert payload["run_metadata"]["commands"] == []
+    assert any(event["event"] == "command.intent_planner.failed" for event in payload["trace_events"])
+    assert any(event["event"] == "command.intent_planner.skipped" for event in payload["trace_events"])
+    assert any(
+        event["event"] == "chat.action_plan.completed"
+        and event["data"]["action"] == "answer_only"
+        and event["data"]["source"] == "remote_action_plan_required"
+        for event in payload["trace_events"]
+    )
+    assert not any(event["event"] == "command.intent_planner.fallback" for event in payload["trace_events"])
+    assert not any(
+        event["event"].startswith("command.")
+        and event["event"] not in {"command.intent_planner.failed", "command.intent_planner.skipped"}
+        for event in payload["trace_events"]
+    )

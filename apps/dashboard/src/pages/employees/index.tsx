@@ -38,6 +38,7 @@ import {
   type ChatThreadListResponse,
 } from "../../api/chat";
 import { getCapabilities, type CapabilityRecord, type CapabilityRegistryResponse } from "../../api/capabilities";
+import { getEmployeeAnalytics, getEmployeeGraph, type EmployeeAnalytics, type EmployeeGraphProjection } from "../../api/employees";
 import {
   getEmployeeWorkLedger,
   type EmployeeTicketReportRecord,
@@ -46,11 +47,12 @@ import {
 } from "../../api/tickets";
 import { cn } from "@/lib/utils";
 
-type DetailTab = "overview" | "work" | "capabilities" | "governance" | "ai_engine";
+type DetailTab = "overview" | "work" | "analytics" | "capabilities" | "governance" | "ai_engine";
 
 const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "work", label: "Work Ledger" },
+  { key: "analytics", label: "Analytics" },
   { key: "capabilities", label: "Capabilities" },
   { key: "governance", label: "Governance" },
   { key: "ai_engine", label: "AI Engine" },
@@ -143,6 +145,25 @@ function effectiveAiEngine(employee: ChatEmployeeSummary, aiEngines: ChatAiEngin
 
 function contributionValue(work: EmployeeWorkLedger | null, key: string): number {
   const value = work?.contribution?.[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function analyticsValue(analytics: EmployeeAnalytics | null, key: keyof EmployeeAnalytics): number {
+  const value = analytics?.[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function formatRate(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function sourceCount(analytics: EmployeeAnalytics | null, key: string): number {
+  const value = analytics?.source_counts?.[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function graphSourceCount(graph: EmployeeGraphProjection | null, key: string): number {
+  const value = graph?.source_counts?.[key];
   return typeof value === "number" ? value : 0;
 }
 
@@ -414,15 +435,19 @@ function EmployeeAvatar({ employee, size = "md" }: { employee: ChatEmployeeSumma
 
 function EmployeeDrawer({
   aiEngines,
+  analytics,
   capabilities,
   employee,
+  graph,
   onDefaultEngineChange,
   threads,
   work,
 }: {
   aiEngines: ChatAiEngineSettings | null;
+  analytics: EmployeeAnalytics | null;
   capabilities: CapabilityRecord[];
   employee: ChatEmployeeSummary;
+  graph: EmployeeGraphProjection | null;
   onDefaultEngineChange: (employeeId: string, defaultAiEngine: string) => Promise<ChatEmployeeSummary>;
   threads: ChatThreadListResponse | null;
   work: EmployeeWorkLedger | null;
@@ -438,6 +463,7 @@ function EmployeeDrawer({
   const permissions = uniquePermissions(capabilities);
   const connectorIds = uniqueConnectorIds(capabilities);
   const currentTicket = work?.current_tickets?.[0] ?? null;
+  const groupedGraphEdges = Object.entries(graph?.grouped_edges ?? {});
   const aiEngineOptions = useMemo(() => {
     const engines = Object.values(aiEngines?.engines ?? {}).filter((engine) => (engine.support_status ?? "supported") === "supported");
     return [
@@ -630,6 +656,86 @@ function EmployeeDrawer({
           </div>
         )}
 
+        {tab === "analytics" && (
+          <div className="space-y-4">
+            <section className="rounded-md border p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold">Phase 4a Core Metrics</h4>
+                <Badge variant="outline">Ticket facts</Badge>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <StatCard icon={GitBranch} label="Assigned Tickets" value={analyticsValue(analytics, "assigned_ticket_count")} />
+                <StatCard icon={ClipboardCheck} label="Completed Tickets" value={analyticsValue(analytics, "completed_ticket_count")} />
+                <StatCard icon={ShieldCheck} label="Validation Pass Rate" value={formatRate(analyticsValue(analytics, "validation_pass_rate"))} />
+                <StatCard icon={Sparkles} label="Candidates Produced" value={analyticsValue(analytics, "candidates_produced")} />
+                <StatCard icon={Brain} label="Recalled Assets" value={analyticsValue(analytics, "recalled_asset_count")} />
+              </div>
+            </section>
+
+            <section className="rounded-md border p-4">
+              <h4 className="mb-3 text-sm font-semibold">Evidence Sources</h4>
+              <InfoRow label="Tickets" value={sourceCount(analytics, "tickets")} />
+              <InfoRow label="Reports" value={sourceCount(analytics, "reports")} />
+              <InfoRow label="Events" value={sourceCount(analytics, "events")} />
+              <InfoRow label="Assets" value={sourceCount(analytics, "assets")} />
+            </section>
+
+            <section className="rounded-md border p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold">Graph Provenance</h4>
+                <Badge variant="outline">Employee graph</Badge>
+              </div>
+              {!graph ? (
+                <p className="text-sm text-muted-foreground">Employee graph facts are not available yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <StatCard icon={GitBranch} label="Graph Nodes" value={graph.nodes.length} />
+                    <StatCard icon={Activity} label="Graph Edges" value={graph.edges.length} />
+                  </div>
+                  <div>
+                    <h5 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Source Counts</h5>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <InfoRow label="Tickets" value={graphSourceCount(graph, "tickets")} />
+                      <InfoRow label="Reports" value={graphSourceCount(graph, "reports")} />
+                      <InfoRow label="Events" value={graphSourceCount(graph, "events")} />
+                      <InfoRow label="Assets" value={graphSourceCount(graph, "assets")} />
+                    </div>
+                  </div>
+                  {groupedGraphEdges.length > 0 && (
+                    <div>
+                      <h5 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Grouped Edges</h5>
+                      <div className="space-y-2">
+                        {groupedGraphEdges.slice(0, 5).map(([edgeType, edges]) => (
+                          <div key={edgeType} className="rounded-md border bg-muted/30 p-3">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <span className="truncate text-sm font-medium" title={edgeType}>{edgeType}</span>
+                              <Badge variant="outline">{edges.length}</Badge>
+                            </div>
+                            <div className="space-y-1">
+                              {edges.slice(0, 3).map((edge) => (
+                                <div key={edge.id} className="truncate text-xs text-muted-foreground" title={`${edge.source_id} -> ${edge.target_id}`}>
+                                  {edge.source_id} -&gt; {edge.target_id}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+
+            {!analytics && (
+              <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900">
+                Analytics facts are not available for this Employee yet.
+              </section>
+            )}
+          </div>
+        )}
+
         {tab === "capabilities" && (
           <div className="space-y-4">
             <section className="rounded-md border p-4">
@@ -788,6 +894,8 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
   const [loading, setLoading] = useState(true);
   const [threadsMap, setThreadsMap] = useState<Record<string, ChatThreadListResponse>>({});
   const [workMap, setWorkMap] = useState<Record<string, EmployeeWorkLedger>>({});
+  const [analyticsMap, setAnalyticsMap] = useState<Record<string, EmployeeAnalytics>>({});
+  const [graphMap, setGraphMap] = useState<Record<string, EmployeeGraphProjection>>({});
   const [capabilityRegistry, setCapabilityRegistry] = useState<CapabilityRegistryResponse | null>(null);
   const [aiEngines, setAiEngines] = useState<ChatAiEngineSettings | null>(null);
   const [query, setQuery] = useState("");
@@ -807,9 +915,11 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
       setCapabilityRegistry(loadedCapabilities);
       setAiEngines(loadedAiEngines);
 
-      const [threadsResults, workResults] = await Promise.all([
+      const [threadsResults, workResults, analyticsResults, graphResults] = await Promise.all([
         Promise.allSettled(loaded.map((m) => listChatThreads(m.id))),
         Promise.allSettled(loaded.map((m) => getEmployeeWorkLedger(m.id))),
+        Promise.allSettled(loaded.map((m) => getEmployeeAnalytics(m.id))),
+        Promise.allSettled(loaded.map((m) => getEmployeeGraph(m.id))),
       ]);
       const newMap: Record<string, ChatThreadListResponse> = {};
       threadsResults.forEach((result, idx) => {
@@ -825,6 +935,20 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
         }
       });
       setWorkMap(newWorkMap);
+      const newAnalyticsMap: Record<string, EmployeeAnalytics> = {};
+      analyticsResults.forEach((result, idx) => {
+        if (result.status === "fulfilled") {
+          newAnalyticsMap[loaded[idx].id] = result.value;
+        }
+      });
+      setAnalyticsMap(newAnalyticsMap);
+      const newGraphMap: Record<string, EmployeeGraphProjection> = {};
+      graphResults.forEach((result, idx) => {
+        if (result.status === "fulfilled") {
+          newGraphMap[loaded[idx].id] = result.value;
+        }
+      });
+      setGraphMap(newGraphMap);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load employees");
     } finally {
@@ -864,6 +988,8 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
 
   const selectedThreads = selectedEmployee ? threadsMap[selectedEmployee.id] ?? null : null;
   const selectedWork = selectedEmployee ? workMap[selectedEmployee.id] ?? null : null;
+  const selectedAnalytics = selectedEmployee ? analyticsMap[selectedEmployee.id] ?? null : null;
+  const selectedGraph = selectedEmployee ? graphMap[selectedEmployee.id] ?? null : null;
   const selectedCapabilities = useMemo(
     () => capabilitiesForEmployee(selectedEmployee, capabilityRegistry),
     [capabilityRegistry, selectedEmployee],
@@ -1023,8 +1149,10 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
       {selectedEmployee && (
         <EmployeeDrawer
           aiEngines={aiEngines}
+          analytics={selectedAnalytics}
           capabilities={selectedCapabilities}
           employee={selectedEmployee}
+          graph={selectedGraph}
           onDefaultEngineChange={handleDefaultEngineChange}
           threads={selectedThreads}
           work={selectedWork}

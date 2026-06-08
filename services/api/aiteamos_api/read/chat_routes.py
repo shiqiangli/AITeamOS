@@ -12,7 +12,6 @@ import asyncio
 import json
 import os
 import re
-import shlex
 import shutil
 import sqlite3
 from dataclasses import dataclass
@@ -45,7 +44,126 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
+from .agui_chat_utils import (
+    agui_message_payload as _agui_message_payload,
+    checkpoint_id_from_config as _checkpoint_id_from_config,
+    latest_agui_user_message_payload as _latest_agui_user_message_payload,
+    latest_agui_user_message_text as _latest_agui_user_message_text,
+    latest_human_message_text as _latest_human_message_text,
+    message_content_to_text as _message_content_to_text,
+    reply_chunks as _reply_chunks,
+    sse_payload as _sse_payload,
+)
 from .ai_engine_catalog import AI_ENGINE_CATALOG, SUPPORTED_AI_ENGINE_IDS
+from .ai_engine_clients import (
+    call_deepseek_chat_completion as _call_deepseek_chat_completion,
+    call_openai_responses as _call_openai_responses,
+    extract_openai_text as _extract_openai_text,
+)
+from .ai_engine_config_store import (
+    ai_engine_file_payload as _store_ai_engine_file_payload,
+    ai_engine_secrets as _store_ai_engine_secrets,
+    field_value as _field_value,
+    load_ai_engine_config as _store_load_ai_engine_config,
+    normalize_int_setting as _normalize_int_setting,
+    normalize_openai_reasoning_effort as _normalize_openai_reasoning_effort,
+    normalize_openai_speed as _normalize_openai_speed,
+    normalize_thinking as _normalize_thinking,
+    secret_configured as _secret_configured,
+    write_json_file as _write_json_file,
+)
+from .ai_engine_context import (
+    build_ai_engine_context_gate as _build_ai_engine_context_gate,
+    build_employee_agent_context_bundle as _build_employee_agent_context_bundle,
+    format_context_list as _format_context_list,
+    message_prefers_chinese as _message_prefers_chinese,
+    trim_context_text as _trim_context_text,
+)
+from .ai_engine_errors import (
+    build_ai_engine_configuration_reply as _build_ai_engine_configuration_reply,
+    safe_ai_engine_error_summary as _safe_ai_engine_error_summary,
+)
+from .ai_engine_runtime_config import AiEngineRuntimeConfig as _AiEngineRuntimeConfig
+from .ai_engine_selection import (
+    normalize_ai_engine as _normalize_ai_engine,
+    normalize_employee_default_ai_engine as _normalize_employee_default_ai_engine,
+)
+from .chat_action_plan import (
+    ChatKernelCommandPlan,
+    chat_action_plan_from_kernel_plan as _chat_action_plan_from_kernel_plan,
+    kernel_plan_from_chat_action_plan as _kernel_plan_from_chat_action_plan,
+    normalize_chat_action_plan as _normalize_chat_action_plan,
+    normalize_kernel_command_plan as _normalize_kernel_command_plan,
+    plan_trace_data as _plan_trace_data,
+)
+from .chat_trace_utils import (
+    append_jsonl as _append_jsonl,
+)
+from .chat_thread_store import (
+    conversation_path as _store_conversation_path,
+    conversation_saved_path as _store_conversation_saved_path,
+    ensure_run_dirs as _store_ensure_run_dirs,
+    load_conversation_messages as _store_load_conversation_messages,
+    load_thread_index as _store_load_thread_index,
+    thread_index_path as _store_thread_index_path,
+    thread_index_saved_path as _store_thread_index_saved_path,
+    thread_title_from_message as _store_thread_title_from_message,
+    threads_dir as _store_threads_dir,
+    write_thread_index as _store_write_thread_index,
+)
+from .chat_tool_args import (
+    clean_extracted_value as _clean_extracted_value_data,
+    dedupe as _dedupe_data,
+    listify_tool_arg as _listify_tool_arg_data,
+    split_list_value as _split_list_value_data,
+    stringify_tool_arg as _stringify_tool_arg_data,
+    tool_arg as _tool_arg_data,
+)
+from .chat_kernel_catalog import (
+    COMMAND_PLANNING_SIGNAL_RE as _COMMAND_PLANNING_SIGNAL_RE,
+    COMMAND_ID_TO_CHAT_ACTION as _COMMAND_ID_TO_CHAT_ACTION,
+    KERNEL_COMMAND_SPECS as _KERNEL_COMMAND_SPECS,
+)
+from .chat_kernel_execution import (
+    kernel_command_from_handler_result as _kernel_command_from_handler_result_data,
+    kernel_command_from_plan as _kernel_command_from_plan_data,
+    kernel_policy_blocked_reply as _kernel_policy_blocked_reply,
+    kernel_policy_blocked_result as _kernel_policy_blocked_result,
+)
+from .chat_kernel_permission_utils import (
+    build_permissions_reply as _build_permissions_reply,
+    command_access_rows as _command_access_rows,
+)
+from .chat_kernel_planning import (
+    chat_kernel_command_intercept_enabled as _chat_kernel_command_intercept_enabled_data,
+    local_kernel_heuristics_allowed as _local_kernel_heuristics_allowed_data,
+    should_use_llm_command_planner as _should_use_llm_command_planner_data,
+)
+from .chat_kernel_reply_utils import build_blocked_command_reply as _build_blocked_command_reply
+from .chat_response_metadata import (
+    ai_engine_event_metadata as _ai_engine_event_metadata_data,
+    build_run_metadata as _build_run_metadata_data,
+    build_stub_reply as _build_stub_reply,
+)
+from . import chat_request_classifiers as _request_classifier
+from .chat_terminal_utils import (
+    extract_terminal_command_line as _extract_terminal_command_line,
+    is_terminal_run_request as _is_terminal_run_request,
+    terminal_argv_from_command as _terminal_argv_from_command,
+    terminal_cwd_from_raw as _terminal_cwd_from_raw,
+    terminal_evidence_ref as _terminal_evidence_ref,
+    terminal_reply as _terminal_reply,
+    terminal_report_content as _terminal_report_content,
+    run_terminal_command_collect as _run_terminal_command_collect,
+    validate_terminal_workspace_args as _validate_terminal_workspace_args,
+)
+from .chat_engine_thread_store import (
+    delete_engine_thread_states as _delete_engine_thread_states,
+    delete_thread_engine_state_mappings as _delete_thread_engine_state_mappings,
+    engine_thread_id as _engine_thread_id,
+    engine_thread_state as _engine_thread_state,
+    save_engine_thread_state as _save_engine_thread_state,
+)
 from .capability_service import local_kernel_command_ids, local_kernel_command_prompt, local_kernel_command_union
 from .kernel_command_service import (
     KernelCommand,
@@ -54,16 +172,20 @@ from .kernel_command_service import (
     expand_employee_permissions,
 )
 from .knowledge_service import knowledge_snippets, search_knowledge_sync
-from .memory_service import propose_memory_from_chat_turn, recall_memory_snippets
+from .memory_service import propose_memory_from_chat_turn, recall_memory_records, record_memory_recall_usage, search_memory
 from .repository_service import CodeRepository, get_code_repository, inspect_code_repository, list_code_repositories
 from .ticket_service import (
     TicketCreateRequest,
     TicketReportRequest,
+    TicketValidationRequest,
     add_ticket_report,
     create_ticket,
     get_ticket,
     list_tickets,
+    request_ticket_validation,
+    self_bootstrap_learning_summary,
 )
+from .validation_skill_catalog import VALIDATION_SKILL_DEFINITIONS, ValidationSkillDefinition
 
 try:  # The dependency is explicit in pyproject, but keep dev checkouts bootable.
     from langgraph.checkpoint.sqlite import SqliteSaver
@@ -78,186 +200,12 @@ _TICKET_KEY_RE = re.compile(
     r"\b[A-Z][A-Z0-9]+-\d+\b|\b(?:ticket-[A-Za-z0-9_.:-]+|(?:rd|pv|arch|rel|mem|doc|ops|trace)-\d{4,})\b",
     re.IGNORECASE,
 )
-_LIST_EMPLOYEES_EN_RE = re.compile(
-    r"\b(list|show|display|view)\b.*\b(ai\s+)?employees\b|\bemployees\b.*\b(list|show|all|available)\b"
-)
-_CREATE_EMPLOYEE_EN_RE = re.compile(r"\b(create|add|new|setup|set up)\b.*\b(employee|profile|user|employee)\b")
-_EDIT_EMPLOYEE_EN_RE = re.compile(r"\b(edit|update|modify|change)\b.*\b(employee|profile)\b")
 _DELETE_EMPLOYEE_EN_RE = re.compile(r"\b(delete|remove|drop)\b.*\b(employee|profile|user|employee)\b")
-_LIST_SKILLS_EN_RE = re.compile(r"\b(list|show|display|view)\b.*\bskills?\b|\bskills?\b.*\b(list|show|all|available)\b")
-_CREATE_SKILL_EN_RE = re.compile(r"\b(create|add|new|setup|set up)\b.*\bskill\b")
 _ASSIGN_SKILL_EN_RE = re.compile(r"\b(assign|add|give|attach)\b.*\bskill\b.*\b(to|for)\b")
 _DELETE_SKILL_EN_RE = re.compile(r"\b(delete|remove|drop)\b.*\bskill\b")
-_SEARCH_KNOWLEDGE_EN_RE = re.compile(r"\b(search|find|lookup|read|query)\b.*\b(knowledge|docs?|documents?|memories|decisions)\b")
-_CREATE_TICKET_EN_RE = re.compile(r"\b(create|open|plan|delegate|assign)\b.*\bticket\b")
-_REPORT_TICKET_EN_RE = re.compile(r"\b(report|record|complete|finish|validate)\b.*\bticket\b")
-_LIST_CODE_REPOSITORIES_EN_RE = re.compile(
-    r"\b(list|show|display|view)\b.*\b(code\s+)?(repos?|repositories)\b|"
-    r"\b(code\s+)?(repos?|repositories)\b.*\b(list|show|all|available)\b"
-)
-_INSPECT_CODE_REPOSITORY_EN_RE = re.compile(
-    r"\b(inspect|search|read|check|review|analy[sz]e|look)\b.*\b(codebase|source|files?|paths?|repos?|repositories|repository)\b|"
-    r"\b(codebase|source|files?|paths?|repos?|repositories|repository)\b.*\b(inspect|search|read|check|review|analy[sz]e|look)\b"
-)
 _FILE_PATH_RE = re.compile(
     r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\.(?:css|html|json|md|py|sh|toml|ts|tsx|txt|yaml|yml)"
 )
-_COMMAND_PLANNING_SIGNAL_RE = re.compile(
-    r"employees\.manage|assets\.manage|tickets\.manage|knowledge\.search|repositories\.(?:list|inspect)|terminal\.run|"
-    r"kernel\.permissions|permissions\.inspect|"
-    r"create_employee|edit_employee_profile|delete_employee|list_employees|"
-    r"list_skills|create_skill|assign_skill_to_employee|delete_skill|"
-    r"search_knowledge|create_ticket|record_ticket_report|list_tickets|list_code_repositories|inspect_code_repository|"
-    r"创建|新增|添加|新建|补|配置|设置|编辑|修改|更新|调整|改成|改为|删除|移除|删掉|分配|关联|权限|授权|"
-    r"列出|列表|清单|有哪些|所有|员工|成员|用户|委派|派给|交给|推进|汇报|验证|完成|"
-    r"技能|知识库|文档|决策|记忆|代码仓库|代码库|仓库|工单|任务|终端|命令|执行|\brepos?\b|\brepository\b|\brepositories\b|"
-    r"\b(create|add|new|setup|edit|update|modify|change|delete|remove|drop|assign|list|show|employee|employee|profile|user|skills?|terminal|command|run|permissions?|capabilities)\b",
-    re.IGNORECASE,
-)
-_TERMINAL_RUN_EN_RE = re.compile(
-    r"\b(terminal\.run|run|execute)\b.*\b(command|terminal|shell|pytest|npm|git|pwd|ls)\b|"
-    r"\b(pytest|npm\s+(?:test|run\s+build)|git\s+(?:status|diff|show)|pwd|ls)\b",
-    re.IGNORECASE,
-)
-_TERMINAL_ALLOWED_EXECUTABLES = {"git", "ls", "npm", "pwd", "pytest"}
-_TERMINAL_ALLOWED_NPM_COMMANDS = {("npm", "test"), ("npm", "run", "build")}
-_TERMINAL_ALLOWED_GIT_COMMANDS = {("git", "status"), ("git", "diff"), ("git", "show")}
-_KERNEL_COMMAND_SPECS: dict[str, KernelCommandSpec] = {
-    "employees.manage:list": KernelCommandSpec(
-        id="employees.manage:list",
-        capability="employees.manage",
-        operation="list",
-        permissions=("employees:read",),
-        description="List local Employee workforce records.",
-    ),
-    "employees.manage:create": KernelCommandSpec(
-        id="employees.manage:create",
-        capability="employees.manage",
-        operation="create",
-        permissions=("employees:write",),
-        description="Create an Employee workforce record.",
-    ),
-    "employees.manage:update": KernelCommandSpec(
-        id="employees.manage:update",
-        capability="employees.manage",
-        operation="update",
-        permissions=("employees:write",),
-        description="Update an Employee profile.",
-    ),
-    "employees.manage:delete": KernelCommandSpec(
-        id="employees.manage:delete",
-        capability="employees.manage",
-        operation="delete",
-        permissions=("employees:delete",),
-        risk="destructive",
-        description="Delete a non-protected Employee profile.",
-    ),
-    "assets.manage:list_skills": KernelCommandSpec(
-        id="assets.manage:list_skills",
-        capability="assets.manage",
-        operation="list_skills",
-        permissions=("skills:read",),
-        description="List local Skill assets.",
-    ),
-    "assets.manage:create_skill": KernelCommandSpec(
-        id="assets.manage:create_skill",
-        capability="assets.manage",
-        operation="create_skill",
-        permissions=("skills:write",),
-        description="Create a Skill asset.",
-    ),
-    "assets.manage:assign_skill": KernelCommandSpec(
-        id="assets.manage:assign_skill",
-        capability="assets.manage",
-        operation="assign_skill",
-        permissions=("assets:assign", "employees:write", "skills:read"),
-        description="Assign a Skill asset to an Employee.",
-    ),
-    "assets.manage:delete_skill": KernelCommandSpec(
-        id="assets.manage:delete_skill",
-        capability="assets.manage",
-        operation="delete_skill",
-        permissions=("skills:delete", "employees:write"),
-        risk="destructive",
-        description="Delete a Skill asset and detach it from Employees.",
-    ),
-    "knowledge.search:search": KernelCommandSpec(
-        id="knowledge.search:search",
-        capability="knowledge.search",
-        operation="search",
-        permissions=("knowledge:read",),
-        description="Search local Knowledge.",
-    ),
-    "tickets.manage:create": KernelCommandSpec(
-        id="tickets.manage:create",
-        capability="tickets.manage",
-        operation="create",
-        permissions=("tickets:write",),
-        description="Create and assign a local Ticket.",
-    ),
-    "tickets.manage:list": KernelCommandSpec(
-        id="tickets.manage:list",
-        capability="tickets.manage",
-        operation="list",
-        permissions=("tickets:read",),
-        description="List local Tickets.",
-    ),
-    "tickets.manage:report": KernelCommandSpec(
-        id="tickets.manage:report",
-        capability="tickets.manage",
-        operation="report",
-        permissions=("tickets:write",),
-        description="Append a report to a local Ticket.",
-    ),
-    "repositories.list:list": KernelCommandSpec(
-        id="repositories.list:list",
-        capability="repositories.list",
-        operation="list",
-        permissions=("repositories:read",),
-        description="List configured code repositories.",
-    ),
-    "repositories.inspect:inspect": KernelCommandSpec(
-        id="repositories.inspect:inspect",
-        capability="repositories.inspect",
-        operation="inspect",
-        permissions=("repositories:read", "repo:read"),
-        description="Inspect configured repository text for Ticket evidence.",
-    ),
-    "terminal.run:run": KernelCommandSpec(
-        id="terminal.run:run",
-        capability="terminal.run",
-        operation="run",
-        permissions=("terminal:run",),
-        risk="execution",
-        streaming=True,
-        description="Run an approved non-interactive terminal command.",
-    ),
-    "kernel.permissions:inspect": KernelCommandSpec(
-        id="kernel.permissions:inspect",
-        capability="kernel.permissions",
-        operation="inspect",
-        permissions=("employees:read",),
-        description="Inspect an Employee's effective Kernel permissions and command access.",
-    ),
-}
-_HANDLER_TO_COMMAND_ID: dict[str, str] = {
-    "list_employees": "employees.manage:list",
-    "create_employee": "employees.manage:create",
-    "edit_employee_profile": "employees.manage:update",
-    "delete_employee": "employees.manage:delete",
-    "list_skills": "assets.manage:list_skills",
-    "create_skill": "assets.manage:create_skill",
-    "assign_skill_to_employee": "assets.manage:assign_skill",
-    "delete_skill": "assets.manage:delete_skill",
-    "search_knowledge": "knowledge.search:search",
-    "create_ticket": "tickets.manage:create",
-    "list_tickets": "tickets.manage:list",
-    "record_ticket_report": "tickets.manage:report",
-    "list_code_repositories": "repositories.list:list",
-    "inspect_code_repository": "repositories.inspect:inspect",
-    "terminal_run": "terminal.run:run",
-    "inspect_permissions": "kernel.permissions:inspect",
-}
 CLARA_SYSTEM_EMPLOYEE_ID = "clara"
 CLARA_SYSTEM_DISPLAY_NAME = "Clara"
 CLARA_SYSTEM_ROLE = "AI Team OS Manager"
@@ -278,11 +226,17 @@ _ROLE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("AI Team OS Manager", ("clara", "ai team os", "os manager", "系统管理", "团队运营")),
 )
 _ROLE_DEFAULT_SKILLS: dict[str, list[str]] = {
-    "AI Team OS Manager": ["ticket-specification", "employee-ticket-flow-design", "technical-decision", "validation-strategy"],
-    "AI Architect": ["system-architecture-design", "architecture-review", "technical-decision"],
-    "AI PV": ["test-engineering", "validation-strategy"],
-    "AI Release": ["resource-planning", "validation-strategy"],
-    "AI QA / Harness Runner": ["test-engineering", "validation-strategy"],
+    "AI Team OS Manager": [
+        "ticket-specification",
+        "employee-ticket-flow-design",
+        "technical-decision",
+        "validation-strategy",
+        "product-model-review",
+    ],
+    "AI Architect": ["system-architecture-design", "architecture-review", "technical-decision", "product-model-review"],
+    "AI PV": ["test-engineering", "validation-strategy", "evidence-review", "regression-check", "product-model-review"],
+    "AI Release": ["resource-planning", "validation-strategy", "evidence-review", "regression-check"],
+    "AI QA / Harness Runner": ["test-engineering", "validation-strategy", "evidence-review", "regression-check"],
     "AI Memory Curator": ["technical-decision"],
     "AI RD / Implementer": ["backend-api-implementation", "frontend-api-integration", "test-engineering"],
 }
@@ -309,6 +263,7 @@ class ChatSkillSummary(BaseModel):
     assigned_employees: list[str] = Field(default_factory=list)
     resources: list[str] = Field(default_factory=list)
     saved_path: str
+    source: str = "local"
 
 
 class ChatMessageRequest(BaseModel):
@@ -433,7 +388,7 @@ class ChatAiEngineUpdateRequest(BaseModel):
 
 
 class ChatAiEngineSettings(BaseModel):
-    active_engine: str = "stub"
+    active_engine: str = "deepseek"
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_thinking: str = "enabled"
     openai_model: str = "gpt-5.5"
@@ -445,7 +400,7 @@ class ChatAiEngineSettings(BaseModel):
 
 
 class ChatAiEngineSettingsRequest(BaseModel):
-    active_engine: str = "stub"
+    active_engine: str = "deepseek"
     deepseek_model: str = "deepseek-v4-flash"
     deepseek_thinking: str = "enabled"
     openai_model: str = "gpt-5.5"
@@ -454,14 +409,6 @@ class ChatAiEngineSettingsRequest(BaseModel):
 
 class ChatEmployeeAiEngineUpdateRequest(BaseModel):
     default_ai_engine: str = "system"
-
-
-class ChatKernelCommandPlan(BaseModel):
-    command: str = "none"
-    arguments: dict[str, Any] = Field(default_factory=dict)
-    confidence: float = 0.0
-    reason: str = ""
-    source: str = "heuristic"
 
 
 class AiteamosChatGraphState(TypedDict, total=False):
@@ -485,6 +432,7 @@ class ChatRunContext:
     engine_thread_id: str
     skills: list[str]
     memories: list[str]
+    memory_refs: list[dict[str, Any]]
     recent_messages: list[ConversationMessage]
     trace_events: list[ChatTraceEvent]
 
@@ -508,34 +456,6 @@ def _ai_engine_settings_path() -> Path:
     return _workspace_dir() / "ai_engines.json"
 
 
-
-def _read_json_file(path: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-
-
-def _normalize_ai_engine(value: str | None) -> str:
-    engine = (value or "stub").strip().lower()
-    return engine if engine in SUPPORTED_AI_ENGINE_IDS else "stub"
-
-
-def _normalize_employee_default_ai_engine(value: str | None) -> str:
-    engine = (value or "system").strip().lower()
-    if engine in {"", "active", "default", "global", "settings", "system_default"}:
-        return "system"
-    if engine in {"fallback", "file_stub", "file-stub"}:
-        return "stub"
-    return engine if engine in {"system", *SUPPORTED_AI_ENGINE_IDS} else "system"
-
-
 def _require_employee_default_ai_engine(value: str) -> str:
     raw = (value or "").strip().lower()
     engine = _normalize_employee_default_ai_engine(value)
@@ -554,209 +474,16 @@ def _require_ai_engine(value: str) -> str:
     return engine
 
 
-def _normalize_thinking(value: str | None) -> str:
-    thinking = (value or "enabled").strip().lower()
-    return "enabled" if thinking in {"1", "true", "yes", "on", "enabled"} else "disabled"
-
-
-def _normalize_openai_reasoning_effort(value: Any) -> str:
-    effort = str(value or "medium").strip().lower()
-    aliases = {
-        "0": "none",
-        "off": "none",
-        "disabled": "none",
-        "none": "none",
-        "fast": "low",
-        "quick": "low",
-        "low": "low",
-        "balanced": "medium",
-        "default": "medium",
-        "medium": "medium",
-        "hard": "high",
-        "high": "high",
-        "deep": "xhigh",
-        "x-high": "xhigh",
-        "xhigh": "xhigh",
-    }
-    return aliases.get(effort, "medium")
-
-
-def _normalize_openai_speed(value: Any) -> str:
-    speed = str(value or "standard").strip().lower()
-    aliases = {
-        "auto": "standard",
-        "default": "standard",
-        "normal": "standard",
-        "standard": "standard",
-        "fast": "priority",
-        "priority": "priority",
-        "slow": "flex",
-        "cheap": "flex",
-        "cost": "flex",
-        "flex": "flex",
-    }
-    return aliases.get(speed, "standard")
-
-
-def _normalize_bool(value: Any, default: bool) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-    return bool(value)
-
-
-def _normalize_int_setting(value: Any, *, default: int, min_value: int, max_value: int) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        parsed = default
-    return max(min_value, min(parsed, max_value))
-
-
-def _engine_file_config(engine_id: str, file_config: dict[str, Any]) -> dict[str, Any]:
-    engines = file_config.get("engines") if isinstance(file_config.get("engines"), dict) else {}
-    engine_config = engines.get(engine_id) if isinstance(engines.get(engine_id), dict) else {}
-    return dict(engine_config)
-
-
-def _engine_config(engine_id: str, file_config: dict[str, Any]) -> dict[str, Any]:
-    catalog = AI_ENGINE_CATALOG[engine_id]
-    engine_file_config = _engine_file_config(engine_id, file_config)
-    model = (
-        engine_file_config.get("model")
-        or file_config.get(f"{engine_id}_model")
-        or os.environ.get(f"AITEAMOS_{engine_id.upper().replace('-', '_')}_MODEL")
-        or catalog.get("default_model")
-        or ""
-    )
-    thinking = (
-        engine_file_config.get("thinking")
-        or file_config.get(f"{engine_id}_thinking")
-        or os.environ.get(f"AITEAMOS_{engine_id.upper().replace('-', '_')}_THINKING")
-        or catalog.get("default_thinking")
-        or ""
-    )
-    speed = (
-        engine_file_config.get("speed")
-        or file_config.get(f"{engine_id}_speed")
-        or os.environ.get(f"AITEAMOS_{engine_id.upper().replace('-', '_')}_SPEED")
-        or catalog.get("default_speed")
-        or ""
-    )
-    base_url = (
-        engine_file_config.get("base_url")
-        or file_config.get(f"{engine_id}_base_url")
-        or os.environ.get(f"AITEAMOS_{engine_id.upper().replace('-', '_')}_BASE_URL")
-        or catalog.get("default_base_url")
-        or ""
-    )
-    api_key_env = (
-        engine_file_config.get("api_key_env")
-        or file_config.get(f"{engine_id}_api_key_env")
-        or catalog.get("default_api_key_env")
-        or ""
-    )
-    if engine_id == "deepseek":
-        normalized_thinking = _normalize_thinking(str(thinking))
-    elif engine_id == "openai":
-        normalized_thinking = _normalize_openai_reasoning_effort(thinking)
-    else:
-        normalized_thinking = str(thinking)
-
-    config = {
-        **engine_file_config,
-        "model": str(model),
-        "thinking": normalized_thinking,
-        "speed": _normalize_openai_speed(speed) if engine_id == "openai" else str(speed),
-        "base_url": str(base_url),
-        "api_key_env": str(api_key_env),
-        "enabled": _normalize_bool(engine_file_config.get("enabled"), True),
-    }
-    if catalog.get("default_context_window") or catalog.get("default_max_tokens"):
-        env_prefix = engine_id.upper().replace("-", "_")
-        default_context_window = int(catalog.get("default_context_window") or 1_000_000)
-        default_max_tokens = int(catalog.get("default_max_tokens") or 4096)
-        max_supported_tokens = int(catalog.get("max_output_tokens") or default_max_tokens)
-        context_window = _normalize_int_setting(
-            engine_file_config.get("context_window")
-            or file_config.get(f"{engine_id}_context_window")
-            or os.environ.get(f"AITEAMOS_{env_prefix}_CONTEXT_WINDOW")
-            or default_context_window,
-            default=default_context_window,
-            min_value=1024,
-            max_value=default_context_window,
-        )
-        max_tokens = _normalize_int_setting(
-            engine_file_config.get("max_tokens")
-            or file_config.get(f"{engine_id}_max_tokens")
-            or os.environ.get(f"AITEAMOS_{env_prefix}_MAX_OUTPUT_TOKENS")
-            or os.environ.get(f"AITEAMOS_{env_prefix}_MAX_TOKENS")
-            or default_max_tokens,
-            default=default_max_tokens,
-            min_value=64,
-            max_value=max_supported_tokens,
-        )
-        config["context_window"] = context_window
-        config["max_tokens"] = min(max_tokens, context_window)
-    return config
-
-
 def _ai_engine_config() -> dict[str, Any]:
-    file_config = _read_json_file(_ai_engine_settings_path())
-    engine_configs = {
-        engine_id: _engine_config(engine_id, file_config)
-        for engine_id in AI_ENGINE_CATALOG
-    }
-    return {
-        "active_engine": _normalize_ai_engine(file_config.get("active_engine") or os.environ.get("AITEAMOS_AI_ENGINE")),
-        "deepseek_model": str(engine_configs["deepseek"]["model"] or "deepseek-v4-flash"),
-        "deepseek_thinking": _normalize_thinking(str(engine_configs["deepseek"]["thinking"] or "enabled")),
-        "openai_model": str(engine_configs["openai"]["model"] or "gpt-5.5"),
-        "fallback_on_error": _normalize_bool(
-            file_config.get(
-                "fallback_on_error",
-                os.environ.get("AITEAMOS_AI_ENGINE_FALLBACK_ON_ERROR", "1").lower() in {"1", "true", "yes", "on"},
-            ),
-            True,
-        ),
-        "engine_configs": engine_configs,
-    }
+    return _store_load_ai_engine_config(_ai_engine_settings_path())
 
 
 def _ai_engine_secrets() -> dict[str, str]:
-    config = _ai_engine_config()
-    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
-
-    def env_value(engine_id: str) -> str:
-        engine_config = engine_configs.get(engine_id) if isinstance(engine_configs.get(engine_id), dict) else {}
-        env_name = str(engine_config.get("api_key_env") or AI_ENGINE_CATALOG[engine_id].get("default_api_key_env") or "")
-        return str(os.environ.get(env_name) or "") if env_name else ""
-
-    return {
-        "deepseek_api_key": env_value("deepseek"),
-        "openai_api_key": env_value("openai"),
-    }
+    return _store_ai_engine_secrets(_ai_engine_config())
 
 
-def _secret_configured(engine_id: str, engine_config: dict[str, Any]) -> bool:
-    api_key_env = str(engine_config.get("api_key_env") or "")
-    if not api_key_env:
-        return True
-    return bool(os.environ.get(api_key_env))
-
-
-def _field_value(engine_config: dict[str, Any], field_id: str) -> str | bool | None:
-    if field_id == "enabled":
-        return bool(engine_config.get("enabled", True))
-    value = engine_config.get(field_id)
-    return str(value) if value is not None else ""
+def _ai_engine_runtime() -> _AiEngineRuntimeConfig:
+    return _AiEngineRuntimeConfig(config=_ai_engine_config(), secrets=_ai_engine_secrets())
 
 
 def _config_fields(
@@ -799,7 +526,7 @@ def _ai_engine_records(config: dict[str, Any], secrets: dict[str, str]) -> dict[
         engine_config = engine_configs.get(engine_id) if isinstance(engine_configs.get(engine_id), dict) else {}
         support_status = str(catalog.get("support_status") or "planned")
         editable = support_status == "supported"
-        api_key_configured = _secret_configured(engine_id, engine_config)
+        api_key_configured = _secret_configured(engine_config)
         if support_status == "planned":
             config_status = "planned"
         elif api_key_configured:
@@ -844,38 +571,7 @@ def _ai_engine_records(config: dict[str, Any], secrets: dict[str, str]) -> dict[
 
 
 def _ai_engine_file_payload(config: dict[str, Any]) -> dict[str, Any]:
-    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
-    if "deepseek_model" in config or "deepseek_thinking" in config or "openai_model" in config:
-        engine_configs = dict(engine_configs)
-        engine_configs["deepseek"] = {
-            **dict(engine_configs.get("deepseek") or {}),
-            "model": str(config.get("deepseek_model") or "deepseek-v4-flash"),
-            "thinking": _normalize_thinking(str(config.get("deepseek_thinking") or "enabled")),
-        }
-        engine_configs["openai"] = {
-            **dict(engine_configs.get("openai") or {}),
-            "model": str(config.get("openai_model") or "gpt-5.5"),
-        }
-
-    persisted_engines: dict[str, dict[str, Any]] = {}
-    for engine_id in AI_ENGINE_CATALOG:
-        if engine_id not in SUPPORTED_AI_ENGINE_IDS:
-            continue
-        engine_config = engine_configs.get(engine_id) if isinstance(engine_configs.get(engine_id), dict) else {}
-        persisted: dict[str, Any] = {}
-        for key in ("model", "thinking", "speed", "context_window", "max_tokens", "base_url", "api_key_env", "enabled", "command", "workspace", "profile"):
-            value = engine_config.get(key)
-            if value is not None and value != "":
-                persisted[key] = value
-        if persisted:
-            persisted_engines[engine_id] = persisted
-
-    return {
-        "active_engine": _normalize_ai_engine(str(config.get("active_engine"))),
-        "fallback_on_error": bool(config.get("fallback_on_error", True)),
-        "engines": persisted_engines,
-        "updated_at": _now(),
-    }
+    return _store_ai_engine_file_payload(config, updated_at=_now())
 
 
 def _ai_engine_settings_response() -> ChatAiEngineSettings:
@@ -1094,7 +790,7 @@ def _employee_sort_key(employee: ChatEmployeeSummary) -> tuple[int, str]:
 
 
 def _clean_extracted_value(value: str) -> str:
-    return value.strip().strip("\"'`“”‘’").strip()
+    return _clean_extracted_value_data(value)
 
 
 def _extract_first(patterns: list[str], message: str) -> str | None:
@@ -1124,41 +820,21 @@ def _slugify_skill_id(value: str) -> str:
 
 
 def _split_list_value(value: str) -> list[str]:
-    normalized = re.sub(r"\s+(and|和)\s+", ",", value, flags=re.IGNORECASE)
-    normalized = normalized.replace("、", ",").replace("，", ",").replace("；", ",").replace(";", ",")
-    return [_clean_extracted_value(item) for item in normalized.split(",") if _clean_extracted_value(item)]
+    return _split_list_value_data(value)
 
 
 def _stringify_tool_arg(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        cleaned = _clean_extracted_value(value)
-        return cleaned or None
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int | float):
-        return str(value)
-    return None
+    return _stringify_tool_arg_data(value)
 
 
 def _listify_tool_arg(value: Any) -> list[str] | None:
-    if value is None:
-        return None
-    if isinstance(value, list):
-        return [_clean_extracted_value(str(item)) for item in value if _clean_extracted_value(str(item))]
-    if isinstance(value, str):
-        return _split_list_value(value)
-    return None
+    return _listify_tool_arg_data(value)
 
 
 def _tool_arg(plan: ChatKernelCommandPlan | None, *names: str) -> Any:
     if plan is None:
         return None
-    for name in names:
-        if name in plan.arguments:
-            return plan.arguments[name]
-    return None
+    return _tool_arg_data(plan.arguments, *names)
 
 
 def _tool_str_arg(plan: ChatKernelCommandPlan | None, *names: str) -> str | None:
@@ -1170,15 +846,7 @@ def _tool_list_arg(plan: ChatKernelCommandPlan | None, *names: str) -> list[str]
 
 
 def _dedupe(values: list[str]) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        key = value.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(value)
-    return result
+    return _dedupe_data(values)
 
 
 def _extract_employee_display_name(message: str) -> str | None:
@@ -1354,107 +1022,42 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _normalize_kernel_command_plan(payload: dict[str, Any], *, source: str) -> ChatKernelCommandPlan:
-    raw_command = str(payload.get("command") or "none").strip().lower()
-    command_aliases = {
-        "list_employee": "employees.manage:list",
-        "list_employees": "employees.manage:list",
-        "list_ai_employees": "employees.manage:list",
-        "create_employee": "employees.manage:create",
-        "create_ai_employee": "employees.manage:create",
-        "add_employee": "employees.manage:create",
-        "new_employee": "employees.manage:create",
-        "edit_employee_profile": "employees.manage:update",
-        "edit_employee": "employees.manage:update",
-        "update_employee": "employees.manage:update",
-        "update_employee_profile": "employees.manage:update",
-        "delete_employee": "employees.manage:delete",
-        "remove_employee": "employees.manage:delete",
-        "delete_ai_employee": "employees.manage:delete",
-        "delete_user": "employees.manage:delete",
-        "list_skill": "assets.manage:list_skills",
-        "list_skills": "assets.manage:list_skills",
-        "show_skills": "assets.manage:list_skills",
-        "create_skill": "assets.manage:create_skill",
-        "create_agent_skill": "assets.manage:create_skill",
-        "new_skill": "assets.manage:create_skill",
-        "add_skill": "assets.manage:create_skill",
-        "assign_skill_to_employee": "assets.manage:assign_skill",
-        "assign_skill": "assets.manage:assign_skill",
-        "attach_skill": "assets.manage:assign_skill",
-        "add_skill_to_employee": "assets.manage:assign_skill",
-        "delete_skill": "assets.manage:delete_skill",
-        "remove_skill": "assets.manage:delete_skill",
-        "drop_skill": "assets.manage:delete_skill",
-        "search_knowledge": "knowledge.search:search",
-        "query_knowledge": "knowledge.search:search",
-        "read_docs": "knowledge.search:search",
-        "search_docs": "knowledge.search:search",
-        "create_ticket": "tickets.manage:create",
-        "open_ticket": "tickets.manage:create",
-        "list_tickets": "tickets.manage:list",
-        "record_ticket_report": "tickets.manage:report",
-        "add_ticket_report": "tickets.manage:report",
-        "complete_ticket": "tickets.manage:report",
-        "list_code_repositories": "repositories.list:list",
-        "list_repositories": "repositories.list:list",
-        "list_repos": "repositories.list:list",
-        "list_code_repos": "repositories.list:list",
-        "show_repositories": "repositories.list:list",
-        "show_code_repositories": "repositories.list:list",
-        "inspect_code_repository": "repositories.inspect:inspect",
-        "inspect_repository": "repositories.inspect:inspect",
-        "inspect_repo": "repositories.inspect:inspect",
-        "search_repository": "repositories.inspect:inspect",
-        "search_repo": "repositories.inspect:inspect",
-        "read_repository": "repositories.inspect:inspect",
-        "read_repo": "repositories.inspect:inspect",
-        "read_file": "repositories.inspect:inspect",
-        "search_code": "repositories.inspect:inspect",
-        "terminal_run": "terminal.run:run",
-        "run_terminal": "terminal.run:run",
-        "run_command": "terminal.run:run",
-        "inspect_permissions": "kernel.permissions:inspect",
-        "list_permissions": "kernel.permissions:inspect",
-        "describe_permissions": "kernel.permissions:inspect",
-        "permissions_inspect": "kernel.permissions:inspect",
-    }
-    command = command_aliases.get(raw_command, raw_command)
-    if command not in {"none", *local_kernel_command_ids()}:
-        command = "none"
+def _maybe_append_chat_action_plan_trace(context: ChatRunContext, plan: ChatKernelCommandPlan) -> None:
+    if plan.command not in _COMMAND_ID_TO_CHAT_ACTION:
+        return
+    action_plan = _chat_action_plan_from_kernel_plan(plan)
+    context.trace_events.append(
+        ChatTraceEvent(
+            event="chat.action_plan.completed",
+            detail=f"Planned ChatActionPlan action: {action_plan.action}.",
+            data={
+                **action_plan.model_dump(),
+                "kernel_command": plan.command,
+            },
+        )
+    )
 
-    arguments = payload.get("arguments")
-    if not isinstance(arguments, dict):
-        arguments = {}
-
-    confidence = payload.get("confidence", 0)
-    try:
-        confidence_value = max(0.0, min(float(confidence), 1.0))
-    except (TypeError, ValueError):
-        confidence_value = 0.0
-
-    return ChatKernelCommandPlan(
-        command=command,
-        arguments=arguments,
-        confidence=confidence_value,
-        reason=str(payload.get("reason") or ""),
-        source=source,
+def _should_use_llm_command_planner(context: ChatRunContext) -> bool:
+    return _should_use_llm_command_planner_data(
+        message=context.request.message,
+        selected_ai_engine=context.selected_ai_engine,
+        has_deepseek_api_key=bool(_ai_engine_secrets()["deepseek_api_key"]),
     )
 
 
-def _should_use_llm_command_planner(context: ChatRunContext) -> bool:
-    if not _COMMAND_PLANNING_SIGNAL_RE.search(context.request.message):
-        return False
-    if context.selected_ai_engine != "deepseek":
-        return False
-    return bool(_ai_engine_secrets()["deepseek_api_key"])
+def _local_kernel_heuristics_allowed(context: ChatRunContext) -> bool:
+    return _local_kernel_heuristics_allowed_data(
+        mode=os.environ.get("AITEAMOS_CHAT_KERNEL_COMMANDS", "fallback"),
+        selected_ai_engine=context.selected_ai_engine,
+    )
 
 
 async def _call_deepseek_command_planner(context: ChatRunContext) -> ChatKernelCommandPlan:
     employees = [_employee_summary(profile).model_dump() for profile in _load_employees()]
     skills = [skill.model_dump() for skill in _load_skills()]
+    runtime = _ai_engine_runtime()
     request_body: dict[str, Any] = {
-        "model": _deepseek_model(),
+        "model": runtime.deepseek_model(),
         "messages": [
             {
                 "role": "system",
@@ -1482,10 +1085,15 @@ async def _call_deepseek_command_planner(context: ChatRunContext) -> ChatKernelC
                     "assigned_role, validation_employee_id, validation_role, code_repository_ids or code_repository_name. "
                     "Arguments for tickets.manage:report: ticket_id, reporter_employee_id, reporter_role, content, "
                     "report_type, evidence. "
+                    "Arguments for tickets.manage:request_validation: ticket_id, validation_employee_id, "
+                    "validation_employee_name, validation_role, content. "
+                    "Arguments for tickets.manage:request_human_review: ticket_id, content, reason, "
+                    "reviewer_employee_id or reviewer_employee_name, evidence. "
+                    "Arguments for tickets.manage:self_bootstrap_summary: optional scope or theme. "
                     "Arguments for repositories.list:list: none. "
                     "Arguments for repositories.inspect:inspect: ticket_id, code_repository_id or code_repository_name, "
                     "query, file_path or file_paths. "
-                    "Arguments for terminal.run:run: command, cwd, ticket_id. "
+                    "Arguments for terminal.run:run: command, cwd, ticket_id. terminal.run requires ticket_id. "
                     "Arguments for kernel.permissions:inspect: target_employee_id or target_employee_name. "
                     "Map PV, verification, regression, and harness triage roles to role='AI PV'. "
                     "Map release Tickets to role='AI Release'. Map QA or harness runner to role='AI QA / Harness Runner'. "
@@ -1497,10 +1105,17 @@ async def _call_deepseek_command_planner(context: ChatRunContext) -> ChatKernelC
                     "what code repositories, repos, GitHub/Gitea repositories, or local repository paths are configured. "
                     "Choose repositories.inspect:inspect when an RD, PV, QA, Architect, or other non-Clara employee is asked "
                     "to inspect, search, read, review, or analyze configured repository files. "
-                    "Choose terminal.run:run only when the user explicitly asks to run a terminal command in the workspace. "
+                    "Choose terminal.run:run only when the user explicitly asks to run a terminal command in the workspace and binds it to a Ticket. "
                     "Choose kernel.permissions:inspect when the user asks what permissions, authorization, or commands Clara "
                     "or another Employee has. "
-                    "Choose tickets.manage:report when an employee or Clara records a result or validation report for an existing ticket."
+                    "Choose tickets.manage:request_validation when Clara asks PV or another validator to review an existing Ticket. "
+                    "Choose tickets.manage:request_human_review when the user asks for human review, human approval, "
+                    "or manual review of a specific Ticket. "
+                    "Choose tickets.manage:self_bootstrap_summary when the user asks what AITeamOS learned, "
+                    "which approved assets were reused, or what the next self-bootstrap batch should do. "
+                    "Choose tickets.manage:report when an employee or Clara records a result, validation report, "
+                    "or validation failure for an existing Ticket. Use report_type='validation' for a passed "
+                    "validation and report_type='validation_failed' for a failed validation."
                 ),
             },
             {
@@ -1521,14 +1136,14 @@ async def _call_deepseek_command_planner(context: ChatRunContext) -> ChatKernelC
         ],
         "stream": False,
         "max_tokens": 600,
-        "thinking": {"type": _deepseek_thinking_type()},
+        "thinking": {"type": runtime.deepseek_thinking_type()},
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            f"{_deepseek_base_url()}/chat/completions",
+            f"{runtime.deepseek_base_url()}/chat/completions",
             headers={
-                "Authorization": f"Bearer {_ai_engine_secrets()['deepseek_api_key']}",
+                "Authorization": f"Bearer {runtime.secrets.get('deepseek_api_key', '')}",
                 "Content-Type": "application/json",
             },
             json=request_body,
@@ -1564,6 +1179,24 @@ def _heuristic_kernel_command_plan(message: str) -> ChatKernelCommandPlan:
             arguments={"command": command_line} if command_line else {},
             confidence=0.55 if command_line else 0.45,
             reason="Matched terminal command fallback.",
+        )
+    if _is_request_ticket_validation_request(message):
+        return ChatKernelCommandPlan(
+            command="tickets.manage:request_validation",
+            confidence=0.45,
+            reason="Matched local ticket validation-request fallback.",
+        )
+    if _is_request_human_review_request(message):
+        return ChatKernelCommandPlan(
+            command="tickets.manage:request_human_review",
+            confidence=0.45,
+            reason="Matched local human-review request fallback.",
+        )
+    if _is_self_bootstrap_summary_request(message):
+        return ChatKernelCommandPlan(
+            command="tickets.manage:self_bootstrap_summary",
+            confidence=0.5,
+            reason="Matched local self-bootstrap learning summary fallback.",
         )
     if _is_record_ticket_report_request(message):
         return ChatKernelCommandPlan(
@@ -1627,18 +1260,37 @@ async def _plan_kernel_command_intent(context: ChatRunContext) -> ChatKernelComm
                     data=plan.model_dump(),
                 )
             )
+            _maybe_append_chat_action_plan_trace(context, plan)
             if plan.command != "none" and plan.confidence >= 0.5:
                 return plan
         except Exception as exc:
             context.trace_events.append(
                 ChatTraceEvent(
                     event="command.intent_planner.failed",
-                    detail="LLM command planner failed; falling back to local heuristics.",
+                    detail="LLM command planner failed.",
                     data={"source": "deepseek_command_planner", "error": str(exc)[:300]},
                 )
             )
 
+    if not _local_kernel_heuristics_allowed(context):
+        plan = ChatKernelCommandPlan(
+            command="none",
+            confidence=0,
+            reason="Remote AI Engine mode requires an explicit LLM ChatActionPlan; local heuristics were not used.",
+            source="remote_action_plan_required",
+        )
+        _maybe_append_chat_action_plan_trace(context, plan)
+        context.trace_events.append(
+            ChatTraceEvent(
+                event="command.intent_planner.skipped",
+                detail="No explicit remote action plan was available; Kernel command execution was skipped.",
+                data=plan.model_dump(),
+            )
+        )
+        return plan
+
     plan = _heuristic_kernel_command_plan(context.request.message)
+    _maybe_append_chat_action_plan_trace(context, plan)
     if plan.command != "none":
         context.trace_events.append(
             ChatTraceEvent(
@@ -1781,55 +1433,15 @@ def _extract_edit_employee_target(message: str, context: ChatRunContext) -> str 
 
 
 def _is_list_employees_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "list_employees" in normalized:
-        return True
-    if _LIST_EMPLOYEES_EN_RE.search(normalized):
-        return True
-
-    compact = re.sub(r"\s+", "", normalized)
-    if not any(token in compact for token in ("成员", "员工", "employee", "employee")):
-        return False
-    return any(
-        token in compact
-        for token in (
-            "列出",
-            "列表",
-            "清单",
-            "有哪些",
-            "所有",
-            "全部",
-            "团队成员",
-            "成员列表",
-            "成员清单",
-        )
-    )
+    return _request_classifier.is_list_employees_request(message)
 
 
 def _is_create_employee_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "create_employee" in normalized:
-        return True
-    if _CREATE_EMPLOYEE_EN_RE.search(normalized):
-        return True
-    compact = re.sub(r"\s+", "", normalized)
-    if not any(token in compact for token in ("成员", "员工", "employee", "employee", "用户", "user")):
-        return False
-    return any(token in compact for token in ("创建", "新增", "添加", "新建"))
+    return _request_classifier.is_create_employee_request(message)
 
 
 def _is_edit_employee_profile_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "edit_employee_profile" in normalized:
-        return True
-    if _EDIT_EMPLOYEE_EN_RE.search(normalized):
-        return True
-    compact = re.sub(r"\s+", "", normalized)
-    has_profile_token = any(token in compact for token in ("成员", "员工", "employee", "employee", "profile", "用户", "user"))
-    has_field_token = any(token in compact for token in ("summary", "role", "skills", "skill", "技能", "ai_engine", "运行引擎", "名字", "角色", "摘要", "描述"))
-    if not has_profile_token and not has_field_token:
-        return False
-    return any(token in compact for token in ("编辑", "修改", "更新", "调整", "改成", "改为"))
+    return _request_classifier.is_edit_employee_profile_request(message)
 
 
 def _is_delete_employee_request(message: str) -> bool:
@@ -1861,30 +1473,11 @@ def _is_delete_employee_request(message: str) -> bool:
 
 
 def _is_list_skills_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "list_skills" in normalized:
-        return True
-    if _LIST_SKILLS_EN_RE.search(normalized):
-        return True
-
-    compact = re.sub(r"\s+", "", normalized)
-    if not any(token in compact for token in ("skill", "skills", "技能")):
-        return False
-    return any(token in compact for token in ("列出", "列表", "清单", "有哪些", "所有", "全部"))
+    return _request_classifier.is_list_skills_request(message)
 
 
 def _is_create_skill_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "create_skill" in normalized:
-        return True
-    if _CREATE_SKILL_EN_RE.search(normalized):
-        return True
-    compact = re.sub(r"\s+", "", normalized)
-    if not any(token in compact for token in ("skill", "skills", "技能")):
-        return False
-    if any(token in compact for token in ("成员", "员工", "employee", "employee", "用户", "user")):
-        return False
-    return any(token in compact for token in ("创建", "新增", "新建"))
+    return _request_classifier.is_create_skill_request(message)
 
 
 def _is_assign_skill_request(message: str) -> bool:
@@ -1926,151 +1519,52 @@ def _is_delete_skill_request(message: str) -> bool:
 
 
 def _is_search_knowledge_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "search_knowledge" in normalized:
-        return True
-    if _SEARCH_KNOWLEDGE_EN_RE.search(normalized):
-        return True
-    compact = re.sub(r"\s+", "", normalized)
-    if not any(token in compact for token in ("知识库", "文档", "docs", "doc", "memory", "memories", "记忆", "decision", "决策")):
-        return False
-    return any(token in compact for token in ("搜索", "查找", "查询", "读取", "检索", "看看", "相关"))
+    return _request_classifier.is_search_knowledge_request(message)
 
 
 def _is_create_ticket_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "create_ticket" in normalized:
-        return True
-    if _CREATE_TICKET_EN_RE.search(normalized):
-        return True
-    compact = re.sub(r"\s+", "", normalized)
-    if any(token in compact for token in ("ticket", "工单", "本地ticket", "本地任务", "任务")) and any(
-        token in compact for token in ("创建", "新增", "打开", "分解", "委派", "分配", "派给", "交给")
-    ):
-        return True
-    return any(token in compact for token in ("委派给", "派给", "交给")) and any(
-        token in compact for token in ("alex", "rd", "pv", "architect", "架构", "研发", "验证")
-    )
+    return _request_classifier.is_create_ticket_request(message)
 
 
 def _is_list_tickets_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "list_tickets" in normalized:
-        return True
-    compact = re.sub(r"\s+", "", normalized)
-    if any(token in compact for token in ("ticket", "tickets", "工单", "本地ticket", "本地任务", "任务")):
-        return any(token in compact for token in ("列出", "列表", "清单", "查看", "有哪些", "所有", "list", "show"))
-    return False
+    return _request_classifier.is_list_tickets_request(message)
 
 
 def _is_record_ticket_report_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "record_ticket_report" in normalized:
-        return True
-    if not _LOCAL_TICKET_ID_RE.search(message):
-        return False
-    if _REPORT_TICKET_EN_RE.search(normalized):
-        return True
-    compact = re.sub(r"\s+", "", normalized)
-    return any(token in compact for token in ("汇报", "报告", "完成", "验证", "记录", "结果"))
+    return _request_classifier.is_record_ticket_report_request(message)
+
+
+def _is_request_ticket_validation_request(message: str) -> bool:
+    return _request_classifier.is_request_ticket_validation_request(message)
+
+
+def _is_request_human_review_request(message: str) -> bool:
+    return _request_classifier.is_request_human_review_request(message)
 
 
 def _is_list_code_repositories_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "list_code_repositories" in normalized:
-        return True
-    if _LIST_CODE_REPOSITORIES_EN_RE.search(normalized):
-        return True
-    compact = re.sub(r"\s+", "", normalized)
-    has_repo_token = any(token in compact for token in ("代码仓库", "代码库", "仓库")) or bool(
-        re.search(r"\b(repos?|repositories|repository)\b", normalized)
-    )
-    if not has_repo_token:
-        return False
-    return any(token in compact for token in ("列出", "列表", "清单", "查看", "有哪些", "所有", "全部", "配置", "可用"))
+    return _request_classifier.is_list_code_repositories_request(message)
 
 
 def _is_inspect_code_repository_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "inspect_code_repository" in normalized:
-        return True
-    if _INSPECT_CODE_REPOSITORY_EN_RE.search(normalized):
-        return True
-    compact = re.sub(r"\s+", "", normalized)
-    has_repo_token = any(token in compact for token in ("代码仓库", "代码库", "仓库", "代码", "源码", "文件", "实现")) or bool(
-        re.search(r"\b(codebase|source|files?|paths?|repos?|repositories|repository)\b", normalized)
-    )
-    if not has_repo_token and not _LOCAL_TICKET_ID_RE.search(message):
-        return False
-    return any(
-        token in compact
-        for token in ("检查", "读取", "搜索", "分析", "查看", "review", "inspect", "search", "read", "check", "analyze", "analyse")
-    )
-
-
-def _strip_terminal_command_candidate(value: str) -> str:
-    cleaned = _clean_extracted_value(value.strip())
-    cleaned = re.split(r"[\n\r]", cleaned, maxsplit=1)[0].strip()
-    cleaned = cleaned.strip("。；;")
-    return cleaned[:240].strip()
-
-
-def _extract_terminal_command_line(message: str) -> str | None:
-    code_match = re.search(r"`([^`\n]{1,240})`", message)
-    if code_match:
-        command = _strip_terminal_command_candidate(code_match.group(1))
-        if command:
-            return command
-
-    patterns = [
-        r"\b(?:command|cmd)\s*[:=]\s*([^\n]{1,240})",
-        r"\bterminal\.run\s*[:=]?\s*([^\n]{1,240})",
-        r"(?:运行|执行|跑一下)\s*(?:terminal\s*)?(?:命令|command)?\s*[:：]?\s*([A-Za-z0-9_./:-][^\n]{0,239})",
-        r"\b(?:run|execute)\s+(?:command\s*)?[:=]?\s*([A-Za-z0-9_./:-][^\n]{0,239})",
-    ]
-    for pattern in patterns:
-        value = _extract_first([pattern], message)
-        if value:
-            command = _strip_terminal_command_candidate(value)
-            if command:
-                return command
-
-    stripped = message.strip()
-    if re.match(r"^(?:pytest|npm\s+(?:test|run\s+build)|git\s+(?:status|diff|show)|pwd|ls)(?:\s|$)", stripped, re.IGNORECASE):
-        return _strip_terminal_command_candidate(stripped)
-    return None
-
-
-def _is_terminal_run_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "terminal.run" in normalized:
-        return True
-    if not _TERMINAL_RUN_EN_RE.search(normalized):
-        compact = re.sub(r"\s+", "", normalized)
-        if not any(token in compact for token in ("执行命令", "运行命令", "跑命令", "终端执行", "terminal执行")):
-            return False
-    return _extract_terminal_command_line(message) is not None
+    return _request_classifier.is_inspect_code_repository_request(message)
 
 
 def _is_permission_inspection_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    if "kernel.permissions" in normalized or "permissions.inspect" in normalized:
-        return True
-    compact = re.sub(r"\s+", "", normalized)
-    if any(token in compact for token in ("权限", "授权", "可执行", "能做什么", "能不能", "可以做什么", "具备哪些", "有哪些能力")):
-        return any(token in compact for token in ("权限", "授权", "command", "命令", "能力", "employee", "clara", "你", "我"))
-    return bool(
-        re.search(
-            r"\b(what|which|list|show|describe|inspect)\b.*\b(permissions?|authorization|commands?|capabilities)\b|"
-            r"\b(can|could)\b.*\b(create|delete|update|assign|run)\b",
-            normalized,
-        )
+    return _request_classifier.is_permission_inspection_request(
+        message,
+        is_human_review_request=_is_request_human_review_request(message),
     )
+
+
+def _is_self_bootstrap_summary_request(message: str) -> bool:
+    return _request_classifier.is_self_bootstrap_summary_request(message)
 
 
 def _is_kernel_command_request(message: str) -> bool:
     return (
         _is_permission_inspection_request(message)
+        or _is_self_bootstrap_summary_request(message)
         or _is_create_employee_request(message)
         or _is_edit_employee_profile_request(message)
         or _is_delete_employee_request(message)
@@ -2082,6 +1576,48 @@ def _is_kernel_command_request(message: str) -> bool:
         or _is_search_knowledge_request(message)
         or _is_create_ticket_request(message)
         or _is_list_tickets_request(message)
+        or _is_request_ticket_validation_request(message)
+        or _is_request_human_review_request(message)
+        or _is_self_bootstrap_summary_request(message)
+        or _is_record_ticket_report_request(message)
+        or _is_list_code_repositories_request(message)
+        or _is_inspect_code_repository_request(message)
+        or _is_terminal_run_request(message)
+    )
+
+
+def _is_remote_kernel_action_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    compact = re.sub(r"\s+", "", normalized)
+    if _is_permission_inspection_request(message):
+        return False
+    if any(
+        token in compact
+        for token in (
+            "能不能",
+            "能否",
+            "可以吗",
+            "能处理",
+            "能做什么",
+            "可以做什么",
+            "具备哪些",
+        )
+    ):
+        return False
+    return (
+        _is_create_employee_request(message)
+        or _is_edit_employee_profile_request(message)
+        or _is_delete_employee_request(message)
+        or _is_list_employees_request(message)
+        or _is_list_skills_request(message)
+        or _is_create_skill_request(message)
+        or _is_assign_skill_request(message)
+        or _is_delete_skill_request(message)
+        or _is_search_knowledge_request(message)
+        or _is_create_ticket_request(message)
+        or _is_list_tickets_request(message)
+        or _is_request_ticket_validation_request(message)
+        or _is_request_human_review_request(message)
         or _is_record_ticket_report_request(message)
         or _is_list_code_repositories_request(message)
         or _is_inspect_code_repository_request(message)
@@ -2243,14 +1779,6 @@ def _build_list_code_repositories_reply(tool_result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _build_blocked_command_reply(command_label: str, reason: str, hint: str) -> str:
-    return (
-        f"{command_label} 暂时没有执行。\n\n"
-        f"原因：{reason}\n\n"
-        f"你可以这样说：{hint}"
-    )
-
-
 def _actor_permissions(context: ChatRunContext) -> list[str]:
     raw_permissions = context.selected_profile.get("permissions")
     if not isinstance(raw_permissions, list):
@@ -2264,27 +1792,10 @@ def _command_from_handler_result(
     handler_name: str,
     result: dict[str, Any],
 ) -> tuple[KernelCommand, KernelCommandSpec]:
-    command_id = _HANDLER_TO_COMMAND_ID[handler_name]
-    spec = _KERNEL_COMMAND_SPECS[command_id]
-    plan = result.get("plan") if isinstance(result.get("plan"), dict) else {}
-    arguments = plan.get("arguments") if isinstance(plan.get("arguments"), dict) else {}
-    confidence = plan.get("confidence", 0)
-    try:
-        confidence_value = max(0.0, min(float(confidence), 1.0))
-    except (TypeError, ValueError):
-        confidence_value = 0.0
-    return (
-        KernelCommand(
-            id=command_id,
-            capability=spec.capability,
-            operation=spec.operation,
-            arguments=dict(arguments),
-            confidence=confidence_value,
-            reason=str(plan.get("reason") or ""),
-            source=str(plan.get("source") or "handler"),
-            ticket_keys=context.ticket_keys,
-        ),
-        spec,
+    return _kernel_command_from_handler_result_data(
+        handler_name=handler_name,
+        result=result,
+        ticket_keys=context.ticket_keys,
     )
 
 
@@ -2326,10 +1837,6 @@ def _persist_kernel_command_response(
             ),
         ],
     )
-
-
-def _plan_trace_data(plan: ChatKernelCommandPlan | None) -> dict[str, Any]:
-    return plan.model_dump() if plan is not None else {"source": "unknown"}
 
 
 def _employee_from_plan_or_name(plan: ChatKernelCommandPlan | None, *names: str) -> ChatEmployeeSummary | None:
@@ -2542,7 +2049,7 @@ def _complete_search_knowledge_tool(context: ChatRunContext, plan: ChatKernelCom
 
 def _complete_list_tickets_tool(context: ChatRunContext, plan: ChatKernelCommandPlan | None = None) -> ChatMessageResponse:
     items = list_tickets()
-    lines = [f"我找到了 {len(items)} 个本地 Tickets。", ""]
+    lines = [f"我找到了 {len(items)} 个 Tickets。", ""]
     if not items:
         lines.append("- none")
     for item in items:
@@ -2554,13 +2061,54 @@ def _complete_list_tickets_tool(context: ChatRunContext, plan: ChatKernelCommand
     lines.extend(["", "入口：", "- Tickets: #/tickets/tickets"])
     result = {
         "status": "completed",
-        "detail": "Listed local Tickets.",
+        "detail": "Listed Tickets.",
         "tickets": [item.model_dump(mode="json") for item in items],
         "plan": _plan_trace_data(plan),
     }
     return _persist_kernel_command_response(
         context,
         handler_name="list_tickets",
+        reply="\n".join(lines),
+        result=result,
+        completed=True,
+    )
+
+
+def _complete_self_bootstrap_summary_tool(context: ChatRunContext, plan: ChatKernelCommandPlan | None = None) -> ChatMessageResponse:
+    summary = self_bootstrap_learning_summary()
+    lines = [
+        "这是 AITeamOS 当前 self-bootstrap learning summary：",
+        "",
+        (
+            f"- Tickets: {summary.ticket_count}；validated={summary.validated_ticket_count}；"
+            f"blocked={summary.blocked_ticket_count}；needs_evidence={summary.tickets_missing_required_evidence}"
+        ),
+        (
+            f"- Assets: candidates={summary.memory_candidates_produced}；approved_candidates={summary.approved_memory_candidates}；"
+            f"recalled={summary.approved_memories_recalled}；graphiti_recalled={summary.graphiti_memories_recalled}；"
+            f"useful_recall={summary.useful_memory_recalls}；"
+            f"stale_or_superseded={summary.stale_or_superseded_assets}"
+        ),
+        f"- Learning delta: {summary.learning_delta}",
+    ]
+    if summary.tickets:
+        lines.extend(["", "需要关注的 Ticket："])
+        for ticket in summary.tickets[:5]:
+            lines.append(
+                f"- {ticket.ticket_id}: {ticket.title}；status={ticket.status}；"
+                f"evidence={ticket.evidence_count}；recalled={ticket.approved_memories_recalled}；"
+                f"next={ticket.next_learning_action}"
+            )
+    lines.extend(["", "入口：", "- Tickets: #/tickets/tickets"])
+    result = {
+        "status": "completed",
+        "detail": "Summarized self-bootstrap learning facts.",
+        "self_bootstrap_summary": summary.model_dump(mode="json"),
+        "plan": _plan_trace_data(plan),
+    }
+    return _persist_kernel_command_response(
+        context,
+        handler_name="self_bootstrap_summary",
         reply="\n".join(lines),
         result=result,
         completed=True,
@@ -2771,7 +2319,7 @@ def _complete_create_ticket_tool(context: ChatRunContext, plan: ChatKernelComman
         )
 
     lines = [
-        "已创建本地 Ticket。",
+        "已创建 Ticket。",
         "",
         f"- ID: {item.id}",
         f"- Title: {item.title}",
@@ -2779,12 +2327,16 @@ def _complete_create_ticket_tool(context: ChatRunContext, plan: ChatKernelComman
         f"- Validation: {item.validation_employee_id or item.validation_role or '-'}",
         f"- Knowledge refs: {len(item.knowledge_refs)}",
         f"- Code repositories: {', '.join(item.code_repository_ids) if item.code_repository_ids else '-'}",
+    ]
+    if item.external_url:
+        lines.append(f"- External link: {item.external_url}")
+    lines.extend([
         "",
         "下一步：被分派的 Employee 应基于这些 Knowledge refs、自己的 Skills/Memory 和必要的 repo 状态执行；PV 负责验证后写回报告。",
-    ]
+    ])
     result = {
         "status": "completed",
-        "detail": "Created a local delegated Ticket.",
+        "detail": "Created a delegated Ticket.",
         "ticket": item.model_dump(mode="json"),
         "knowledge_results": [entry.model_dump(mode="json") for entry in knowledge.results],
         "plan": _plan_trace_data(plan),
@@ -2810,7 +2362,7 @@ def _complete_record_ticket_report_tool(
             reply=_build_blocked_command_reply(
                 "record_ticket_report",
                 "没有识别到 ticket id。",
-                "请包含类似 ticket-xxx 的本地 Ticket ID。",
+                "请包含类似 ticket-xxx 的 Ticket ID。",
             ),
             result={"status": "blocked", "detail": "Missing ticket_id.", "plan": _plan_trace_data(plan)},
             completed=False,
@@ -2839,7 +2391,7 @@ def _complete_record_ticket_report_tool(
             reply=_build_blocked_command_reply(
                 "record_ticket_report",
                 f"没有找到 Ticket: {ticket_id}",
-                "请先让我列出本地 Tickets，或确认 ID 是否正确。",
+                "请先让我列出 Tickets，或确认 ID 是否正确。",
             ),
             result={"status": "blocked", "detail": "Ticket not found.", "ticket_id": ticket_id},
             completed=False,
@@ -2854,13 +2406,206 @@ def _complete_record_ticket_report_tool(
     )
     result = {
         "status": "completed",
-        "detail": "Recorded a local Ticket report.",
+        "detail": "Recorded a Ticket report.",
         "ticket": item.model_dump(mode="json"),
         "plan": _plan_trace_data(plan),
     }
     return _persist_kernel_command_response(
         context,
         handler_name="record_ticket_report",
+        reply=reply,
+        result=result,
+        completed=True,
+    )
+
+
+def _complete_request_ticket_validation_tool(
+    context: ChatRunContext,
+    plan: ChatKernelCommandPlan | None = None,
+) -> ChatMessageResponse:
+    ticket_id = _extract_ticket_id(context.request.message, plan)
+    if not ticket_id:
+        return _persist_kernel_command_response(
+            context,
+            handler_name="request_ticket_validation",
+            reply=_build_blocked_command_reply(
+                "request_ticket_validation",
+                "没有识别到 ticket id。",
+                "请包含类似 rd-0001 的 Ticket ID，并说明要交给谁验证。",
+            ),
+            result={"status": "blocked", "detail": "Missing ticket_id.", "plan": _plan_trace_data(plan)},
+            completed=False,
+        )
+
+    validation_employee = _employee_from_plan_or_name(
+        plan,
+        "validation_employee_id",
+        "validation_employee_name",
+        "target_employee_id",
+        "target_employee_name",
+        "pv_employee_id",
+    )
+    validation_role = _tool_str_arg(plan, "validation_role", "role", "assigned_role") or "AI PV"
+    if validation_employee is None:
+        validation_employee = _employee_for_role(validation_role) or _employee_for_role("AI PV") or _employee_for_role("AI QA / Harness Runner")
+    if validation_employee is not None:
+        validation_role = validation_employee.role
+
+    content = _tool_str_arg(plan, "content", "reason", "request") or context.request.message
+    try:
+        item = request_ticket_validation(
+            ticket_id,
+            TicketValidationRequest(
+                validation_employee_id=validation_employee.id if validation_employee else "",
+                validation_role=validation_role,
+                content=content,
+                actor_employee_id=context.employee.id,
+                actor_role=context.employee.role,
+                source_run_id=context.run_id,
+            ),
+        )
+    except KeyError:
+        return _persist_kernel_command_response(
+            context,
+            handler_name="request_ticket_validation",
+            reply=_build_blocked_command_reply(
+                "request_ticket_validation",
+                f"没有找到 Ticket: {ticket_id}",
+                "请先让我列出 Tickets，或确认 ID 是否正确。",
+            ),
+            result={"status": "blocked", "detail": "Ticket not found.", "ticket_id": ticket_id, "plan": _plan_trace_data(plan)},
+            completed=False,
+        )
+    except ValueError as exc:
+        return _persist_kernel_command_response(
+            context,
+            handler_name="request_ticket_validation",
+            reply=_build_blocked_command_reply(
+                "request_ticket_validation",
+                str(exc),
+                "请确认 Ticket backend 已就绪，并提供验证 Employee 或 role。",
+            ),
+            result={"status": "blocked", "detail": str(exc), "ticket_id": ticket_id, "plan": _plan_trace_data(plan)},
+            completed=False,
+        )
+
+    reply = (
+        "已请求 Ticket 验证。\n\n"
+        f"- ID: {item.id}\n"
+        f"- Status: {item.status}\n"
+        f"- Validator: {item.validation_employee_id or item.validation_role or validation_role}\n"
+        f"- External link: {item.external_url or '-'}"
+    )
+    result = {
+        "status": "completed",
+        "detail": "Requested Ticket validation.",
+        "ticket": item.model_dump(mode="json"),
+        "plan": _plan_trace_data(plan),
+    }
+    return _persist_kernel_command_response(
+        context,
+        handler_name="request_ticket_validation",
+        reply=reply,
+        result=result,
+        completed=True,
+    )
+
+
+def _complete_request_human_review_tool(
+    context: ChatRunContext,
+    plan: ChatKernelCommandPlan | None = None,
+) -> ChatMessageResponse:
+    ticket_id = _extract_ticket_id(context.request.message, plan)
+    if not ticket_id:
+        return _persist_kernel_command_response(
+            context,
+            handler_name="request_human_review",
+            reply=_build_blocked_command_reply(
+                "request_human_review",
+                "没有识别到 ticket id。",
+                "请包含类似 rd-0001 的 Ticket ID，并说明需要人类复核的原因。",
+            ),
+            result={"status": "blocked", "detail": "Missing ticket_id.", "plan": _plan_trace_data(plan)},
+            completed=False,
+        )
+
+    reviewer = _employee_from_plan_or_name(
+        plan,
+        "reviewer_employee_id",
+        "reviewer_employee_name",
+        "human_employee_id",
+        "human_employee_name",
+        "target_employee_id",
+        "target_employee_name",
+    )
+    reviewer_label = (
+        reviewer.display_name
+        if reviewer is not None
+        else (_tool_str_arg(plan, "reviewer", "human_reviewer", "reviewer_name") or "human")
+    )
+    reason = _tool_str_arg(plan, "reason", "content", "request") or context.request.message
+    evidence = _tool_list_arg(plan, "evidence") or []
+    content = (
+        "Human review requested.\n\n"
+        f"Reviewer: {reviewer_label}\n"
+        f"Reason: {reason}"
+    )
+    try:
+        item = add_ticket_report(
+            ticket_id,
+            TicketReportRequest(
+                reporter_employee_id=context.employee.id,
+                reporter_role=context.employee.role,
+                content=content,
+                evidence=evidence,
+                report_type="human_review_requested",
+                source_run_id=context.run_id,
+            ),
+        )
+    except KeyError:
+        return _persist_kernel_command_response(
+            context,
+            handler_name="request_human_review",
+            reply=_build_blocked_command_reply(
+                "request_human_review",
+                f"没有找到 Ticket: {ticket_id}",
+                "请先让我列出 Tickets，或确认 ID 是否正确。",
+            ),
+            result={"status": "blocked", "detail": "Ticket not found.", "ticket_id": ticket_id, "plan": _plan_trace_data(plan)},
+            completed=False,
+        )
+    except ValueError as exc:
+        return _persist_kernel_command_response(
+            context,
+            handler_name="request_human_review",
+            reply=_build_blocked_command_reply(
+                "request_human_review",
+                str(exc),
+                "请确认 Ticket Backend 已就绪，且这个 Ticket 可追加 review report。",
+            ),
+            result={"status": "blocked", "detail": str(exc), "ticket_id": ticket_id, "plan": _plan_trace_data(plan)},
+            completed=False,
+        )
+
+    reply = (
+        "已请求 Human Review。\n\n"
+        f"- ID: {item.id}\n"
+        f"- Status: {item.status}\n"
+        f"- Reviewer: {reviewer_label}\n"
+        f"- Requested by: {context.employee.display_name} ({context.employee.role})\n"
+        f"- External link: {item.external_url or '-'}"
+    )
+    result = {
+        "status": "completed",
+        "detail": "Requested human review for a Ticket.",
+        "ticket": item.model_dump(mode="json"),
+        "reviewer": reviewer.model_dump(mode="json") if reviewer is not None else {"label": reviewer_label},
+        "report_type": "human_review_requested",
+        "plan": _plan_trace_data(plan),
+    }
+    return _persist_kernel_command_response(
+        context,
+        handler_name="request_human_review",
         reply=reply,
         result=result,
         completed=True,
@@ -3215,7 +2960,7 @@ def _complete_delete_employee_tool(context: ChatRunContext, plan: ChatKernelComm
         profile_path.unlink()
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Cannot delete employee profile: {employee.id}") from exc
-    removed_engine_thread_keys = _delete_engine_thread_states(employee.id)
+    removed_engine_thread_keys = _delete_engine_thread_states(_workspace_dir(), employee.id)
     archived_thread_ids = _archive_employee_thread_metadata(employee.id)
 
     result = {
@@ -3535,6 +3280,29 @@ def _complete_delete_skill_tool(context: ChatRunContext, plan: ChatKernelCommand
             result=result,
             completed=False,
         )
+    if skill.source != "local":
+        result = {
+            "status": "blocked",
+            "reason": "builtin_skill_read_only",
+            "detail": f"Built-in validation Skill cannot be deleted: {skill.id}",
+            "skill": skill.model_dump(),
+            "deep_links": {"skills": "#/assets/capabilities/skills"},
+            "plan": _plan_trace_data(plan),
+        }
+        reply = (
+            f"不能删除内建验证 Skill {skill.title}。\n\n"
+            f"- Skill: {skill.id}\n"
+            f"- Source: {skill.source}\n"
+            "- 这些 Phase 5 验证 Skill 是只读基线；如需定制，可以创建同名本地 SKILL.md 覆盖它。\n"
+            "- Skills: #/assets/capabilities/skills"
+        )
+        return _persist_kernel_command_response(
+            context,
+            handler_name="delete_skill",
+            reply=reply,
+            result=result,
+            completed=False,
+        )
 
     skill_dir = _skill_dir(skill.id)
     relative_skill_dir = str(skill_dir.relative_to(_workspace_root()))
@@ -3621,101 +3389,76 @@ def _select_employee(
     return by_id.get("clara") or profiles[0]
 
 
+def _normalize_ticket_key(value: str) -> str:
+    candidate = value.strip()
+    if not candidate:
+        return ""
+    if _LOCAL_TICKET_ID_RE.fullmatch(candidate):
+        return candidate.lower()
+    return candidate.upper()
+
+
 def _extract_ticket_keys(message: str, explicit: str | None) -> list[str]:
     keys: list[str] = []
     if explicit:
-        keys.append(explicit.strip().upper())
-    keys.extend(match.upper() for match in _TICKET_KEY_RE.findall(message))
+        keys.append(_normalize_ticket_key(explicit))
+    keys.extend(_normalize_ticket_key(match) for match in _TICKET_KEY_RE.findall(message))
     return sorted(set(filter(None, keys)))
 
 
 def _ensure_run_dirs() -> dict[str, Path]:
-    base = _workspace_dir()
-    paths = {
-        "conversations": base / "conversations",
-        "traces": base / "traces",
-        "threads": base / "threads",
-    }
-    for path in paths.values():
-        path.mkdir(parents=True, exist_ok=True)
-    return paths
+    return _store_ensure_run_dirs(_workspace_dir())
 
 
 def _threads_dir() -> Path:
-    return _workspace_dir() / "threads"
+    return _store_threads_dir(_workspace_dir())
 
 
 def _thread_index_path() -> Path:
-    return _threads_dir() / "index.json"
+    return _store_thread_index_path(_workspace_dir())
 
 
 def _conversation_path(thread_id: str) -> Path:
-    thread_id = _require_safe_id(thread_id, field="thread_id")
-    return _workspace_dir() / "conversations" / f"{thread_id}.jsonl"
+    return _store_conversation_path(
+        _workspace_dir(),
+        thread_id,
+        require_safe_id=lambda value: _require_safe_id(value, field="thread_id"),
+    )
 
 
 def _load_conversation_messages(thread_id: str, *, limit: int | None = None) -> list[ConversationMessage]:
-    path = _conversation_path(thread_id)
-    messages: list[ConversationMessage] = []
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            messages.append(ConversationMessage.model_validate_json(line))
-    return messages[-limit:] if limit and limit > 0 else messages
+    return _store_load_conversation_messages(
+        _workspace_dir(),
+        thread_id,
+        message_model=ConversationMessage,
+        require_safe_id=lambda value: _require_safe_id(value, field="thread_id"),
+        limit=limit,
+    )
 
 
 def _load_thread_index() -> dict[str, Any]:
-    path = _thread_index_path()
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except (OSError, json.JSONDecodeError):
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
-
-    threads = payload.get("threads") if isinstance(payload.get("threads"), dict) else {}
-    active_by_employee = (
-        payload.get("active_by_employee")
-        if isinstance(payload.get("active_by_employee"), dict)
-        else {}
-    )
-    return {
-        "threads": {str(key): value for key, value in threads.items() if isinstance(value, dict)},
-        "active_by_employee": {
-            str(key): str(value)
-            for key, value in active_by_employee.items()
-            if isinstance(value, str)
-        },
-    }
+    return _store_load_thread_index(_workspace_dir())
 
 
 def _write_thread_index(index: dict[str, Any]) -> None:
-    payload = {
-        "threads": index.get("threads") if isinstance(index.get("threads"), dict) else {},
-        "active_by_employee": (
-            index.get("active_by_employee")
-            if isinstance(index.get("active_by_employee"), dict)
-            else {}
-        ),
-        "updated_at": _now(),
-    }
-    _write_json_file(_thread_index_path(), payload)
+    _store_write_thread_index(_workspace_dir(), index, updated_at=_now())
 
 
 def _thread_index_saved_path() -> str:
-    return str(_thread_index_path().relative_to(_workspace_root()))
+    return _store_thread_index_saved_path(_workspace_dir(), _workspace_root())
 
 
 def _conversation_saved_path(thread_id: str) -> str:
-    return str(_conversation_path(thread_id).relative_to(_workspace_root()))
+    return _store_conversation_saved_path(
+        _workspace_dir(),
+        _workspace_root(),
+        thread_id,
+        require_safe_id=lambda value: _require_safe_id(value, field="thread_id"),
+    )
 
 
 def _thread_title_from_message(content: str) -> str:
-    text = re.sub(r"\s+", " ", content).strip()
-    if not text:
-        return "New thread"
-    return text[:56] + ("..." if len(text) > 56 else "")
+    return _store_thread_title_from_message(content)
 
 
 def _default_thread_title(employee: ChatEmployeeSummary, thread_id: str) -> str:
@@ -3969,66 +3712,6 @@ def _archive_employee_thread_metadata(employee_id: str) -> list[str]:
     return removed
 
 
-def _engine_thread_id(employee_id: str, thread_id: str) -> str:
-    path = _workspace_dir() / "engine_threads.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    try:
-        mapping = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except (OSError, json.JSONDecodeError):
-        mapping = {}
-
-    key = f"{employee_id}::{thread_id}"
-    if key not in mapping:
-        mapping[key] = f"engine-{employee_id}-{thread_id[:8]}"
-        path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
-    return str(mapping[key])
-
-
-def _load_engine_threads() -> tuple[Path, dict[str, Any]]:
-    path = _workspace_dir() / "engine_threads.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        mapping = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except (OSError, json.JSONDecodeError):
-        mapping = {}
-    return path, mapping if isinstance(mapping, dict) else {}
-
-
-def _engine_thread_state(employee_id: str, thread_id: str) -> dict[str, Any]:
-    path, mapping = _load_engine_threads()
-    key = f"{employee_id}::{thread_id}"
-    existing = mapping.get(key)
-    if isinstance(existing, dict):
-        return existing
-    if isinstance(existing, str):
-        return {"ai_engine": "file_stub", "engine_thread_id": existing}
-
-    state = {
-        "ai_engine": "file_stub",
-        "engine_thread_id": f"engine-{employee_id}-{thread_id[:8]}",
-    }
-    mapping[key] = state["engine_thread_id"]
-    path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
-    return state
-
-
-def _save_engine_thread_state(employee_id: str, thread_id: str, state: dict[str, Any]) -> None:
-    path, mapping = _load_engine_threads()
-    mapping[f"{employee_id}::{thread_id}"] = state
-    path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
-
-
-def _delete_engine_thread_states(employee_id: str) -> list[str]:
-    path, mapping = _load_engine_threads()
-    removed_keys = [key for key in mapping if key.startswith(f"{employee_id}::")]
-    if removed_keys:
-        for key in removed_keys:
-            mapping.pop(key, None)
-        path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
-    return removed_keys
-
-
 def _skill_titles(skill_ids: list[str]) -> list[str]:
     titles: list[str] = []
     for skill_id in skill_ids:
@@ -4116,14 +3799,32 @@ def _skill_summary(skill_path: Path) -> ChatSkillSummary:
     )
 
 
+def _seed_skill_summary(skill: ValidationSkillDefinition) -> ChatSkillSummary:
+    return ChatSkillSummary(
+        id=skill.id,
+        title=skill.title,
+        description=skill.description,
+        content=skill.content,
+        assigned_employees=_assigned_employees_for_skill(skill.id),
+        resources=[],
+        saved_path=skill.source_ref,
+        source="builtin",
+    )
+
+
 def _load_skills() -> list[ChatSkillSummary]:
     skills_dir = _skills_dir()
-    if not skills_dir.exists():
-        return []
-    return [
+    local_skills = [] if not skills_dir.exists() else [
         _skill_summary(path)
         for path in sorted(skills_dir.glob("*/SKILL.md"))
     ]
+    local_ids = {skill.id for skill in local_skills}
+    seeded_skills = [
+        _seed_skill_summary(skill)
+        for skill in VALIDATION_SKILL_DEFINITIONS
+        if skill.id not in local_ids
+    ]
+    return [*local_skills, *seeded_skills]
 
 
 def _find_skill(skill_id_or_name: str) -> ChatSkillSummary | None:
@@ -4138,195 +3839,12 @@ def _find_skill(skill_id_or_name: str) -> ChatSkillSummary | None:
     return _skill_summary(path) if path.exists() else None
 
 
-def _openai_enabled(engine: str | None = None) -> bool:
-    return (engine or _active_ai_engine()) == "openai"
-
-
-def _active_ai_engine() -> str:
-    return str(_ai_engine_config()["active_engine"])
-
-
-def _selected_ai_engine_for_employee(employee: ChatEmployeeSummary) -> str:
-    default_engine = _normalize_employee_default_ai_engine(employee.default_ai_engine)
-    return _active_ai_engine() if default_engine == "system" else default_engine
-
-
-def _openai_model() -> str:
-    return str(_ai_engine_config()["openai_model"])
-
-
-def _openai_config() -> dict[str, Any]:
-    config = _ai_engine_config()
-    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
-    return engine_configs.get("openai") if isinstance(engine_configs.get("openai"), dict) else {}
-
-
-def _openai_base_url() -> str:
-    return str(_openai_config().get("base_url") or "https://api.openai.com/v1").rstrip("/")
-
-
-def _openai_reasoning_effort() -> str:
-    return _normalize_openai_reasoning_effort(_openai_config().get("thinking"))
-
-
-def _openai_speed() -> str:
-    return _normalize_openai_speed(_openai_config().get("speed"))
-
-
-def _openai_service_tier() -> str | None:
-    speed = _openai_speed()
-    return speed if speed in {"priority", "flex"} else None
-
-
-def _openai_max_output_tokens() -> int:
-    openai_config = _openai_config()
-    default_max_tokens = int(AI_ENGINE_CATALOG["openai"].get("default_max_tokens") or 4096)
-    max_supported_tokens = int(AI_ENGINE_CATALOG["openai"].get("max_output_tokens") or 128_000)
-    raw_value = openai_config.get("max_tokens") or os.environ.get("AITEAMOS_OPENAI_MAX_OUTPUT_TOKENS") or default_max_tokens
-    return _normalize_int_setting(raw_value, default=default_max_tokens, min_value=64, max_value=max_supported_tokens)
-
-
-def _openai_fallback_on_error() -> bool:
-    return _ai_engine_fallback_on_error()
-
-
-def _deepseek_enabled(engine: str | None = None) -> bool:
-    return (engine or _active_ai_engine()) == "deepseek"
-
-
-def _deepseek_model() -> str:
-    return str(_ai_engine_config()["deepseek_model"])
-
-
-def _deepseek_base_url() -> str:
-    config = _ai_engine_config()
-    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
-    deepseek_config = engine_configs.get("deepseek") if isinstance(engine_configs.get("deepseek"), dict) else {}
-    return str(deepseek_config.get("base_url") or "https://api.deepseek.com").rstrip("/")
-
-
-def _deepseek_max_tokens() -> int:
-    config = _ai_engine_config()
-    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
-    deepseek_config = engine_configs.get("deepseek") if isinstance(engine_configs.get("deepseek"), dict) else {}
-    return int(deepseek_config.get("max_tokens") or 384_000)
-
-
-def _deepseek_context_window() -> int:
-    config = _ai_engine_config()
-    engine_configs = config.get("engine_configs") if isinstance(config.get("engine_configs"), dict) else {}
-    deepseek_config = engine_configs.get("deepseek") if isinstance(engine_configs.get("deepseek"), dict) else {}
-    return int(deepseek_config.get("context_window") or 1_000_000)
-
-
-def _deepseek_thinking_type() -> str:
-    return str(_ai_engine_config()["deepseek_thinking"])
-
-
-def _ai_engine_fallback_on_error() -> bool:
-    return bool(_ai_engine_config()["fallback_on_error"])
-
-
-def _remote_ai_engine_available(engine: str) -> bool:
-    secrets = _ai_engine_secrets()
-    if engine == "deepseek":
-        return bool(secrets["deepseek_api_key"])
-    if engine == "openai":
-        return bool(secrets["openai_api_key"])
-    return False
-
-
 def _chat_kernel_command_intercept_enabled(context: ChatRunContext) -> bool:
-    mode = os.environ.get("AITEAMOS_CHAT_KERNEL_COMMANDS", "fallback").strip().lower()
-    if mode in {"0", "false", "no", "off", "disabled", "never", "llm"}:
-        return False
-    if mode in {"1", "true", "yes", "on", "enabled", "always", "legacy"}:
-        return True
-    return context.selected_ai_engine == "stub"
-
-
-def _ai_engine_error_text(exc: HTTPException | RuntimeError) -> str:
-    if isinstance(exc, HTTPException):
-        return str(exc.detail)
-    return str(exc)
-
-
-def _is_ai_engine_configuration_error(exc: HTTPException | RuntimeError) -> bool:
-    text = _ai_engine_error_text(exc).lower()
-    return any(
-        token in text
-        for token in (
-            "401",
-            "403",
-            "429",
-            "api key",
-            "apikey",
-            "authentication",
-            "authorization",
-            "billing",
-            "invalid_api_key",
-            "invalid api key",
-            "incorrect api key",
-            "insufficient_quota",
-            "missing_secret",
-            "not enabled",
-            "not configured",
-            "quota",
-            "rate limit",
-            "rate_limit",
-        )
+    return _chat_kernel_command_intercept_enabled_data(
+        mode=os.environ.get("AITEAMOS_CHAT_KERNEL_COMMANDS", "fallback"),
+        selected_ai_engine=context.selected_ai_engine,
+        is_remote_kernel_action=_is_remote_kernel_action_request(context.request.message),
     )
-
-
-def _safe_ai_engine_error_summary(exc: HTTPException | RuntimeError) -> str:
-    text = _ai_engine_error_text(exc)
-    if not text.strip():
-        return "unknown AI Engine configuration error"
-    text = re.sub(r"sk-[A-Za-z0-9_*.-]+", "sk-***", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:360]
-
-
-def _build_ai_engine_configuration_reply(context: ChatRunContext, *, ai_engine_id: str, error: HTTPException | RuntimeError) -> str:
-    reason = _safe_ai_engine_error_summary(error)
-    if _message_prefers_chinese(context.request.message):
-        return (
-            "这次没有进入本地 file stub，也没有让 Kernel 抢答；我已经把对话路由到选中的远程 AI Engine，"
-            "但远程调用被配置问题阻止了。\n\n"
-            f"- 选中的 AI Engine：{ai_engine_id}\n"
-            f"- 问题：{reason}\n\n"
-            "请更新对应的 API key 并重启后端，或临时把 Chat AI Engine 切回 stub。"
-        )
-
-    return (
-        "This turn was not answered by the local file stub and was not intercepted by Kernel commands. "
-        "AITeamOS routed it to the selected remote AI Engine, but the remote call was blocked by configuration.\n\n"
-        f"- Selected AI Engine: {ai_engine_id}\n"
-        f"- Problem: {reason}\n\n"
-        "Update the API key and restart the backend, or temporarily switch Chat AI Engine back to stub."
-    )
-
-
-def _message_prefers_chinese(message: str) -> bool:
-    return bool(re.search(r"[\u4e00-\u9fff]", message))
-
-
-def _response_language_instruction(message: str) -> str:
-    if _message_prefers_chinese(message):
-        return "Language: Reply in concise Simplified Chinese because the user's latest message contains Chinese."
-    return "Language: Reply in the same language as the user's latest message."
-
-
-def _trim_context_text(value: str, *, limit: int = 1200) -> str:
-    text = re.sub(r"\s+", " ", value).strip()
-    if len(text) <= limit:
-        return text
-    return f"{text[:limit].rstrip()}..."
-
-
-def _format_context_list(items: list[Any]) -> str:
-    values = [str(item).strip() for item in items if str(item).strip()]
-    return "\n".join(f"- {item}" for item in values) or "- none"
 
 
 def _employee_skill_context(employee: ChatEmployeeSummary) -> str:
@@ -4392,22 +3910,12 @@ def _employee_agent_context_bundle(
     memory_scope_text = ", ".join(str(item) for item in memory_scopes) if memory_scopes else "none"
     skill_context = _employee_skill_context(employee)
     capability_context = _employee_capability_context(employee_profile)
-    return (
-        "Agent context bundle:\n"
-        f"- Memory scopes: {memory_scope_text}\n"
-        f"- Ticket keys bound to this turn: {ticket_text}\n\n"
-        "Skill context:\n"
-        f"{skill_context}\n\n"
-        "Memory and Knowledge snippets:\n"
-        f"{memory_text}\n\n"
-        "Capability and permission context:\n"
-        f"{capability_context}\n\n"
-        "Runtime policy:\n"
-        "- This chat turn is answer-first: the selected AI Engine receives the bundled context before answering.\n"
-        "- Treat Kernel commands as capability facts and execution boundaries, not as proof that work was already done.\n"
-        "- If the user asks what you can do, answer naturally from the bundle instead of dumping raw lists.\n"
-        "- If the user asks for an action that requires a Kernel command, describe the intended action and any needed confirmation; "
-        "do not claim the command actually ran unless trace evidence is present in the conversation."
+    return _build_employee_agent_context_bundle(
+        memory_scope_text=memory_scope_text,
+        ticket_text=ticket_text,
+        skill_context=skill_context,
+        memory_text=memory_text,
+        capability_context=capability_context,
     )
 
 
@@ -4433,45 +3941,18 @@ def _ai_engine_context_gate(
         memory_snippets=memory_snippets,
     )
 
-    return (
-        "You are an AI Employee inside AITeamOS. Answer as the addressed employee, "
-        "not as a generic assistant. Be concise, truthful, and explicit about what "
-        "you can and cannot do in this P0 AI Engine setup. Use the bundled profile, "
-        "memory, knowledge, capability, permission, and skill facts below to answer "
-        "naturally.\n\n"
-        f"Employee id: {employee.id}\n"
-        f"Display name: {employee.display_name}\n"
-        f"Role: {employee.role}\n"
-        f"Summary: {employee.summary}\n"
-        f"Personality: {personality}\n"
-        f"Responsibilities:\n{responsibilities_text}\n\n"
-        f"Skill names available through AITeamOS context gate: {skill_text}\n\n"
-        f"{agent_bundle}\n\n"
-        f"Handoff rules:\n{handoff_text}\n\n"
-        f"{_response_language_instruction(user_message)}\n\n"
-        "AITeamOS currently gates your profile, skills, memory, Ticket context, "
-        "permissions, and trace capture before sending this turn to the AI Engine. "
-        "Do not claim that Ticket, Harness, repository edits, or external tools were "
-        "actually invoked unless the user provided evidence in this conversation."
+    return _build_ai_engine_context_gate(
+        employee_id=employee.id,
+        display_name=employee.display_name,
+        role=employee.role,
+        summary=employee.summary,
+        personality=personality,
+        responsibilities_text=responsibilities_text,
+        skill_text=skill_text,
+        agent_bundle=agent_bundle,
+        handoff_text=handoff_text,
+        user_message=user_message,
     )
-
-
-def _extract_openai_text(payload: dict[str, Any]) -> str:
-    output_text = payload.get("output_text")
-    if isinstance(output_text, str) and output_text.strip():
-        return output_text.strip()
-
-    chunks: list[str] = []
-    for output in payload.get("output", []):
-        if not isinstance(output, dict):
-            continue
-        for content in output.get("content", []):
-            if not isinstance(content, dict):
-                continue
-            text = content.get("text")
-            if isinstance(text, str):
-                chunks.append(text)
-    return "\n".join(chunks).strip()
 
 
 def _chat_completion_history(messages: list[ConversationMessage]) -> list[dict[str, str]]:
@@ -4497,12 +3978,15 @@ async def _call_openai_agent(
     memory_snippets: list[str],
     engine_state: dict[str, Any],
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-    api_key = _ai_engine_secrets()["openai_api_key"]
-    if not _openai_enabled(ai_engine_id) or not api_key:
+    runtime = _ai_engine_runtime()
+    api_key = runtime.secrets.get("openai_api_key", "")
+    if not runtime.openai_enabled(ai_engine_id) or not api_key:
         raise RuntimeError("OpenAI AI Engine is not enabled")
+    model = runtime.openai_model()
+    reasoning_effort = runtime.openai_reasoning_effort()
 
     request_body: dict[str, Any] = {
-        "model": _openai_model(),
+        "model": model,
         "instructions": _ai_engine_context_gate(
             employee_profile=employee_profile,
             employee=employee,
@@ -4513,32 +3997,22 @@ async def _call_openai_agent(
         ),
         "input": [{"role": "user", "content": message}],
         "store": True,
-        "max_output_tokens": _openai_max_output_tokens(),
-        "reasoning": {"effort": _openai_reasoning_effort()},
+        "max_output_tokens": runtime.openai_max_output_tokens(),
+        "reasoning": {"effort": reasoning_effort},
     }
-    service_tier = _openai_service_tier()
+    service_tier = runtime.openai_service_tier()
     if service_tier:
         request_body["service_tier"] = service_tier
     previous_response_id = engine_state.get("openai_previous_response_id")
     if isinstance(previous_response_id, str) and previous_response_id:
         request_body["previous_response_id"] = previous_response_id
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            f"{_openai_base_url()}/responses",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=request_body,
-        )
-    if response.status_code >= 400:
-        raise HTTPException(
-            status_code=502,
-            detail=f"OpenAI AI Engine failed: {response.status_code} {response.text[:500]}",
-        )
-
-    payload = response.json()
+    payload = await _call_openai_responses(
+        async_client_factory=httpx.AsyncClient,
+        base_url=runtime.openai_base_url(),
+        api_key=api_key,
+        request_body=request_body,
+    )
     reply = _extract_openai_text(payload)
     if not reply:
         raise HTTPException(status_code=502, detail="OpenAI AI Engine returned no text output")
@@ -4553,15 +4027,15 @@ async def _call_openai_agent(
         "engine_thread_id": engine_state.get("engine_thread_id")
         or f"openai-{employee.id}-{uuid4().hex[:8]}",
         "openai_previous_response_id": response_id,
-        "model": payload.get("model") or _openai_model(),
+        "model": payload.get("model") or model,
         "last_response_id": response_id,
         "updated_at": _now(),
     }
     metadata = {
         "ai_engine": "openai_responses",
         "model": next_state["model"],
-        "reasoning_effort": _openai_reasoning_effort(),
-        "speed": _openai_speed(),
+        "reasoning_effort": reasoning_effort,
+        "speed": runtime.openai_speed(),
         "service_tier": service_tier or payload.get("service_tier"),
         "response_id": response_id,
         "previous_response_id": previous_response_id,
@@ -4582,12 +4056,15 @@ async def _call_deepseek_agent(
     recent_messages: list[ConversationMessage],
     engine_state: dict[str, Any],
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-    api_key = _ai_engine_secrets()["deepseek_api_key"]
-    if not _deepseek_enabled(ai_engine_id) or not api_key:
+    runtime = _ai_engine_runtime()
+    api_key = runtime.secrets.get("deepseek_api_key", "")
+    if not runtime.deepseek_enabled(ai_engine_id) or not api_key:
         raise RuntimeError("DeepSeek AI Engine is not enabled")
+    model = runtime.deepseek_model()
+    thinking = runtime.deepseek_thinking_type()
 
     request_body: dict[str, Any] = {
-        "model": _deepseek_model(),
+        "model": model,
         "messages": [
             {
                 "role": "system",
@@ -4604,26 +4081,16 @@ async def _call_deepseek_agent(
             {"role": "user", "content": message},
         ],
         "stream": False,
-        "max_tokens": _deepseek_max_tokens(),
-        "thinking": {"type": _deepseek_thinking_type()},
+        "max_tokens": runtime.deepseek_max_tokens(),
+        "thinking": {"type": thinking},
     }
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            f"{_deepseek_base_url()}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=request_body,
-        )
-    if response.status_code >= 400:
-        raise HTTPException(
-            status_code=502,
-            detail=f"DeepSeek AI Engine failed: {response.status_code} {response.text[:500]}",
-        )
-
-    payload = response.json()
+    payload = await _call_deepseek_chat_completion(
+        async_client_factory=httpx.AsyncClient,
+        base_url=runtime.deepseek_base_url(),
+        api_key=api_key,
+        request_body=request_body,
+    )
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
         raise HTTPException(status_code=502, detail="DeepSeek AI Engine returned no choices")
@@ -4645,7 +4112,7 @@ async def _call_deepseek_agent(
         or f"deepseek-{employee.id}-{uuid4().hex[:8]}",
         "assumed_agent_session": True,
         "deepseek_last_response_id": response_id,
-        "model": payload.get("model") or _deepseek_model(),
+        "model": payload.get("model") or model,
         "updated_at": _now(),
     }
     metadata = {
@@ -4655,9 +4122,9 @@ async def _call_deepseek_agent(
         "assumed_agent_session": True,
         "usage": payload.get("usage"),
         "finish_reason": finish_reason,
-        "thinking": _deepseek_thinking_type(),
-        "context_window": _deepseek_context_window(),
-        "max_tokens": _deepseek_max_tokens(),
+        "thinking": thinking,
+        "context_window": runtime.deepseek_context_window(),
+        "max_tokens": runtime.deepseek_max_tokens(),
     }
     return reply.strip(), next_state, metadata
 
@@ -4665,12 +4132,15 @@ async def _call_deepseek_agent(
 async def _stream_deepseek_agent(
     context: ChatRunContext,
 ) -> AsyncIterator[tuple[str, str | dict[str, Any]]]:
-    api_key = _ai_engine_secrets()["deepseek_api_key"]
-    if not _deepseek_enabled(context.selected_ai_engine) or not api_key:
+    runtime = _ai_engine_runtime()
+    api_key = runtime.secrets.get("deepseek_api_key", "")
+    if not runtime.deepseek_enabled(context.selected_ai_engine) or not api_key:
         raise RuntimeError("DeepSeek AI Engine is not enabled")
+    model = runtime.deepseek_model()
+    thinking = runtime.deepseek_thinking_type()
 
     request_body: dict[str, Any] = {
-        "model": _deepseek_model(),
+        "model": model,
         "messages": [
             {
                 "role": "system",
@@ -4688,12 +4158,11 @@ async def _stream_deepseek_agent(
         ],
         "stream": True,
         "stream_options": {"include_usage": True},
-        "max_tokens": _deepseek_max_tokens(),
-        "thinking": {"type": _deepseek_thinking_type()},
+        "max_tokens": runtime.deepseek_max_tokens(),
+        "thinking": {"type": thinking},
     }
 
     response_id = f"deepseek-{uuid4().hex[:12]}"
-    model = _deepseek_model()
     usage: Any = None
     finish_reason: str | None = None
     reply_parts: list[str] = []
@@ -4701,7 +4170,7 @@ async def _stream_deepseek_agent(
     async with httpx.AsyncClient(timeout=60) as client:
         async with client.stream(
             "POST",
-            f"{_deepseek_base_url()}/chat/completions",
+            f"{runtime.deepseek_base_url()}/chat/completions",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -4767,9 +4236,9 @@ async def _stream_deepseek_agent(
         "assumed_agent_session": True,
         "usage": usage,
         "finish_reason": finish_reason,
-        "thinking": _deepseek_thinking_type(),
-        "context_window": _deepseek_context_window(),
-        "max_tokens": _deepseek_max_tokens(),
+        "thinking": thinking,
+        "context_window": runtime.deepseek_context_window(),
+        "max_tokens": runtime.deepseek_max_tokens(),
         "native_stream": True,
     }
     final_response = _persist_chat_response(
@@ -4788,54 +4257,8 @@ async def _stream_deepseek_agent(
     yield "final", final_response.model_dump()
 
 
-def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
-
-
-def _commands_from_trace_events(trace_events: list[ChatTraceEvent]) -> list[dict[str, Any]]:
-    calls: dict[str, dict[str, Any]] = {}
-    order: list[str] = []
-    terminal_phases = {"completed", "blocked", "failed"}
-    for event in trace_events:
-        parts = event.event.split(".")
-        if len(parts) < 2 or parts[0] != "command":
-            continue
-        phase = ".".join(parts[1:])
-        if phase.startswith("intent_planner"):
-            continue
-        if phase not in {"called", *terminal_phases}:
-            continue
-        command_data = event.data.get("command") if isinstance(event.data.get("command"), dict) else {}
-        command_id = str(command_data.get("id") or event.data.get("command_id") or "unknown")
-
-        if command_id not in calls:
-            order.append(command_id)
-            calls[command_id] = {
-                "id": command_id,
-                "capability": command_data.get("capability", ""),
-                "operation": command_data.get("operation", ""),
-                "status": "planned",
-                "events": [],
-            }
-        call = calls[command_id]
-        call["events"].append(event.model_dump(mode="json"))
-        if phase == "called" and call.get("status") == "planned":
-            call["status"] = "called"
-        if phase in terminal_phases:
-            call["status"] = phase
-            call["result"] = event.data
-    return [calls[command_id] for command_id in order]
-
-
 def _ai_engine_event_metadata(trace_events: list[ChatTraceEvent]) -> dict[str, Any]:
-    for event in reversed(trace_events):
-        if event.event.startswith("ai_engine."):
-            data = dict(event.data)
-            data["event"] = event.event
-            data["detail"] = event.detail
-            return data
-    return {}
+    return _ai_engine_event_metadata_data(trace_events)
 
 
 def _selected_ai_engine_model(engine: str) -> str | None:
@@ -4854,40 +4277,24 @@ def _build_run_metadata(
     trace_events: list[ChatTraceEvent],
     trace_path: Path,
 ) -> dict[str, Any]:
-    command_calls = _commands_from_trace_events(trace_events)
-    ai_engine_event = _ai_engine_event_metadata(trace_events)
     selected_ai_engine = context.selected_ai_engine
-    if command_calls:
-        actual_ai_engine = "kernel_command"
-    elif ai_engine_event.get("event") == "ai_engine.stub.completed":
-        actual_ai_engine = "stub"
-    else:
-        actual_ai_engine = str(ai_engine_event.get("ai_engine") or context.engine_state.get("ai_engine") or selected_ai_engine)
-
-    return {
-        "run_id": context.run_id,
-        "thread_id": context.thread_id,
-        "employee": {
-            "id": context.employee.id,
-            "display_name": context.employee.display_name,
-            "role": context.employee.role,
-        },
-        "ticket_keys": context.ticket_keys,
-        "ai_engine": {
-            "selected_ai_engine": selected_ai_engine,
-            "employee_default_ai_engine": context.employee.default_ai_engine,
-            "actual_ai_engine": actual_ai_engine,
-            "model": ai_engine_event.get("model") or _selected_ai_engine_model(selected_ai_engine),
-            "engine_thread_id": final_engine_thread_id,
-            "event": ai_engine_event.get("event"),
-        },
-        "commands": command_calls,
-        "trace": {
-            "path": str(trace_path.relative_to(_workspace_root())),
-            "event_count": len(trace_events),
-        },
-        "created_at": _now(),
-    }
+    return _build_run_metadata_data(
+        run_id=context.run_id,
+        thread_id=context.thread_id,
+        employee_id=context.employee.id,
+        employee_display_name=context.employee.display_name,
+        employee_role=context.employee.role,
+        employee_default_ai_engine=context.employee.default_ai_engine,
+        ticket_keys=context.ticket_keys,
+        memory_refs=context.memory_refs,
+        selected_ai_engine=selected_ai_engine,
+        selected_model=_selected_ai_engine_model(selected_ai_engine),
+        engine_state=context.engine_state,
+        final_engine_thread_id=final_engine_thread_id,
+        trace_events=trace_events,
+        trace_relative_path=str(trace_path.relative_to(_workspace_root())),
+        created_at=_now(),
+    )
 
 
 def _build_reply(
@@ -4899,41 +4306,266 @@ def _build_reply(
     skills: list[str],
     memory_snippets: list[str],
 ) -> str:
-    ticket_text = ", ".join(ticket_keys) if ticket_keys else "not bound"
-    skill_text = ", ".join(skills[:4]) if skills else "no local skills loaded"
-    memory_text = f"{len(memory_snippets)} local memory snippet(s)" if memory_snippets else "no local memory snippets"
+    return _build_stub_reply(
+        employee_display_name=employee.display_name,
+        employee_role=employee.role,
+        employee_ai_engine_mode=employee.ai_engine_mode,
+        employee_default_ai_engine=employee.default_ai_engine,
+        message_prefers_chinese=_message_prefers_chinese(message),
+        ticket_keys=ticket_keys,
+        engine_thread_id=engine_thread_id,
+        skills=skills,
+        memory_snippets=memory_snippets,
+    )
 
-    if _message_prefers_chinese(message):
-        ticket_text_zh = ", ".join(ticket_keys) if ticket_keys else "未绑定"
-        skill_text_zh = ", ".join(skills[:4]) if skills else "未加载本地技能"
-        memory_text_zh = f"{len(memory_snippets)} 条本地记忆片段" if memory_snippets else "无本地记忆片段"
-        return (
-            f"{employee.display_name} 已收到请求。\n\n"
-            f"角色：{employee.role}\n"
-            f"工单：{ticket_text_zh}\n"
-            f"AI Engine：{employee.ai_engine_mode}；默认：{employee.default_ai_engine}；engine thread：{engine_thread_id}\n"
-            f"上下文门控：{skill_text_zh}；{memory_text_zh}\n\n"
-            "本轮回复来自本地 file-backed fallback/stub：我已加载目标员工 profile，"
-            "解析可复用 AI Engine thread 映射，记录对话并写入本地 trace。"
-            "本轮没有实际调用外部 Ticket、harness 或远程 AI Engine。\n\n"
-            "下一步预览：读取 Ticket 上下文，选择相关 Skills 和 Memory，"
-            "通过已配置的外部或本地 AI Engine 执行，并带着 trace evidence 回到这个线程汇报进展。"
+
+def _recalled_memory_ref(result: Any) -> dict[str, Any]:
+    provenance = result.provenance if isinstance(result.provenance, dict) else {}
+    memory_id = str(provenance.get("asset_id") or result.id)
+    ref: dict[str, Any] = {
+        "memory_id": memory_id,
+        "source": result.source,
+        "source_kind": result.source_kind,
+        "source_ref": result.source_ref,
+        "scope": {"kind": result.scope_kind, "ref": result.scope_ref},
+        "memory_type": result.memory_type,
+        "employee_ids": list(result.employee_ids),
+        "tags": list(result.tags),
+    }
+    if provenance:
+        ref["provenance"] = dict(provenance)
+    if result.graphiti_episode_id:
+        ref["graphiti_episode_id"] = result.graphiti_episode_id
+    return ref
+
+
+def _memory_snippet_from_result(result: Any) -> str:
+    return (
+        f"[memory:{result.id}] {result.content} "
+        f"(scope={result.scope_kind}:{result.scope_ref}; source={result.source_kind}:{result.source_ref})"
+    )
+
+
+def _merge_recalled_memory_result(context: ChatRunContext, result: Any) -> bool:
+    ref = _recalled_memory_ref(result)
+    for existing_ref in context.memory_refs:
+        if existing_ref.get("memory_id") != ref.get("memory_id"):
+            continue
+        if ref.get("graphiti_episode_id") and not existing_ref.get("graphiti_episode_id"):
+            existing_ref["graphiti_episode_id"] = ref["graphiti_episode_id"]
+        if result.source == "graphiti":
+            existing_ref["graphiti_recalled"] = True
+            existing_ref["graphiti_result_id"] = result.id
+        if ref.get("provenance") and not existing_ref.get("provenance"):
+            existing_ref["provenance"] = ref["provenance"]
+        return False
+    key = json.dumps(ref, ensure_ascii=False, sort_keys=True, default=str)
+    existing = {
+        json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+        for item in context.memory_refs
+    }
+    if key in existing:
+        return False
+    snippet = _memory_snippet_from_result(result)
+    if snippet not in context.memories:
+        context.memories.append(snippet)
+    context.memory_refs.append(ref)
+    return True
+
+
+def _update_context_loaded_memory_counts(context: ChatRunContext) -> None:
+    memory_count = len([item for item in context.memories if item.startswith("[memory:")])
+    for event in context.trace_events:
+        if event.event != "context.loaded":
+            continue
+        event.data["memory_count"] = memory_count
+        event.data["memory_and_knowledge_count"] = len(context.memories)
+        event.data["recalled_memory_refs"] = context.memory_refs
+        return
+
+
+async def _enrich_chat_context_with_graphiti_recall(context: ChatRunContext) -> None:
+    response = await search_memory(
+        query=context.request.message,
+        employee_id=context.employee.id,
+        ticket_key=context.ticket_keys[0] if context.ticket_keys else None,
+        limit=5,
+        include_graphiti=True,
+    )
+    graphiti_results = [result for result in response.results if result.source == "graphiti"]
+    added = 0
+    for result in graphiti_results:
+        if _merge_recalled_memory_result(context, result):
+            added += 1
+    if not graphiti_results:
+        return
+
+    _update_context_loaded_memory_counts(context)
+    trace_path = context.run_dirs["traces"] / f"{context.run_id}.jsonl"
+    context.trace_events.append(
+        ChatTraceEvent(
+            event="memory.recall.completed",
+            detail="Recalled approved durable Memory through Graphiti for this Chat run.",
+            data={
+                "query": context.request.message,
+                "employee_id": context.employee.id,
+                "ticket_keys": context.ticket_keys,
+                "scopes": [
+                    {"kind": ref.get("scope", {}).get("kind"), "ref": ref.get("scope", {}).get("ref")}
+                    for ref in context.memory_refs
+                    if isinstance(ref.get("scope"), dict)
+                ],
+                "source_trace": str(trace_path.relative_to(_workspace_root())),
+                "graphiti_result_count": len(graphiti_results),
+                "added_result_count": added,
+                "recalled_memory_refs": context.memory_refs,
+                "graphiti_recalled_memory_refs": [_recalled_memory_ref(result) for result in graphiti_results],
+                "backend": response.backend.model_dump(mode="json"),
+            },
+        )
+    )
+
+
+def _latest_ticket_report_refs(trace_events: list[ChatTraceEvent]) -> dict[str, str]:
+    for event in reversed(trace_events):
+        ticket_payload = event.data.get("ticket") if isinstance(event.data.get("ticket"), dict) else None
+        if ticket_payload is None:
+            continue
+        reports = ticket_payload.get("reports")
+        if not isinstance(reports, list) or not reports:
+            continue
+        report = reports[-1] if isinstance(reports[-1], dict) else {}
+        evidence = report.get("evidence")
+        evidence_id = ""
+        if isinstance(evidence, list) and evidence:
+            evidence_id = str(evidence[0])
+        return {
+            "source_report_id": str(report.get("id") or ""),
+            "evidence_id": evidence_id,
+        }
+    return {"source_report_id": "", "evidence_id": ""}
+
+
+def _latest_chat_action_plan(trace_events: list[ChatTraceEvent]) -> dict[str, Any]:
+    for event in reversed(trace_events):
+        if event.event == "chat.action_plan.completed":
+            return dict(event.data)
+        plan = event.data.get("plan")
+        if isinstance(plan, dict):
+            action_plan = plan.get("chat_action_plan")
+            if isinstance(action_plan, dict):
+                return dict(action_plan)
+    return {}
+
+
+def _memory_candidate_run_ref(candidate: Any) -> dict[str, Any]:
+    return {
+        "candidate_id": candidate.id,
+        "asset_id": candidate.id,
+        "asset_type": f"memory:{candidate.memory_type}",
+        "asset_status": candidate.status,
+        "source_kind": candidate.source_kind,
+        "source_ref": candidate.source_ref,
+        "scope": {"kind": candidate.scope_kind, "ref": candidate.scope_ref},
+        "confidence": candidate.confidence,
+        "provenance": dict(candidate.provenance),
+    }
+
+
+def _learning_summary_from_candidate(candidate: Any) -> dict[str, Any]:
+    provenance = candidate.provenance if isinstance(candidate.provenance, dict) else {}
+    hints = provenance.get("future_recall_query_hints")
+    return {
+        "learned_facts": [candidate.content],
+        "avoided_pitfalls": [],
+        "reusable_decisions": [],
+        "suggested_skill_doc_updates": [],
+        "future_recall_query_hints": hints if isinstance(hints, list) else [],
+        "candidate_id": candidate.id,
+        "source_ticket_id": provenance.get("source_ticket_id", ""),
+    }
+
+
+def _learning_summary_from_run(
+    context: ChatRunContext,
+    *,
+    memory_usage_refs: list[dict[str, Any]],
+    memory_candidate: Any | None = None,
+) -> dict[str, Any]:
+    usage_by_memory_id = {
+        str(ref.get("memory_id") or ref.get("asset_id")): ref
+        for ref in memory_usage_refs
+        if ref.get("memory_id") or ref.get("asset_id")
+    }
+    recalled_assets: list[dict[str, Any]] = []
+    seen_memory_ids: set[str] = set()
+    for ref in context.memory_refs:
+        memory_id = str(ref.get("memory_id") or "")
+        if not memory_id or memory_id in seen_memory_ids:
+            continue
+        seen_memory_ids.add(memory_id)
+        usage_ref = usage_by_memory_id.get(memory_id, {})
+        recalled_assets.append(
+            {
+                "memory_id": memory_id,
+                "asset_id": memory_id,
+                "source": ref.get("source", ""),
+                "scope": ref.get("scope", {}),
+                "graphiti_recalled": bool(ref.get("graphiti_recalled") or usage_ref.get("graphiti_recalled")),
+                "graphiti_episode_id": ref.get("graphiti_episode_id") or usage_ref.get("graphiti_episode_id") or "",
+                "usage_id": usage_ref.get("usage_id", ""),
+                "usefulness_status": usage_ref.get("usefulness_status", "unreviewed") if usage_ref else "",
+            }
         )
 
-    return (
-        f"{employee.display_name} received the request.\n\n"
-        f"Role: {employee.role}\n"
-        f"Ticket: {ticket_text}\n"
-        f"AI Engine: {employee.ai_engine_mode}; default: {employee.default_ai_engine}; engine thread: {engine_thread_id}\n"
-        f"Context gate: {skill_text}; {memory_text}\n\n"
-        "P0 file-backed run completed: I loaded the addressed employee profile, "
-        "resolved the reusable AI Engine thread mapping, captured the conversation, "
-        "and wrote a local trace. External Ticket, harness, and AI Engine execution are "
-        "not invoked in this first slice.\n\n"
-        "Next action preview: read the Ticket context, pick the relevant skills and "
-        "memory, execute through the configured external or local AI Engine, "
-        "and report progress back into this thread with trace evidence."
+    candidate_summary = _learning_summary_from_candidate(memory_candidate) if memory_candidate is not None else {}
+    if not recalled_assets and not candidate_summary:
+        return {}
+
+    future_hints = candidate_summary.get("future_recall_query_hints")
+    if not isinstance(future_hints, list):
+        future_hints = []
+    future_hints = sorted({str(item) for item in [*future_hints, *context.ticket_keys] if str(item).strip()})
+    next_round_guidance: list[str] = []
+    if recalled_assets:
+        next_round_guidance.append("Review whether each recalled approved Memory was useful before the next similar Ticket.")
+        next_round_guidance.append("Prefer approved Memories already marked useful for future Ticket context.")
+    if memory_candidate is not None:
+        next_round_guidance.append("Review the proposed Memory candidate and approve it only if its provenance is sufficient.")
+    source_ticket_id = (
+        str(candidate_summary.get("source_ticket_id") or "")
+        or (context.ticket_keys[0] if context.ticket_keys else "")
     )
+    candidate_refs = [_memory_candidate_run_ref(memory_candidate)] if memory_candidate is not None else []
+    if recalled_assets and memory_candidate is not None:
+        clara_summary = (
+            f"本轮 AITeamOS 复用了 {len(recalled_assets)} 条 approved Memory，并提出 1 条新的 Memory candidate；"
+            "下一轮应复查 recall usefulness，并优先使用已证明有用的经验。"
+        )
+    elif recalled_assets:
+        clara_summary = (
+            f"本轮 AITeamOS 复用了 {len(recalled_assets)} 条 approved Memory；"
+            "下一轮应让 Clara/PV 标记这些 recall 是否 useful。"
+        )
+    else:
+        clara_summary = "本轮 AITeamOS 提出 1 条 Memory candidate；审核通过后可在类似 Ticket 中召回。"
+
+    return {
+        "learned_facts": candidate_summary.get("learned_facts", []),
+        "avoided_pitfalls": candidate_summary.get("avoided_pitfalls", []),
+        "reusable_decisions": candidate_summary.get("reusable_decisions", []),
+        "suggested_skill_doc_updates": candidate_summary.get("suggested_skill_doc_updates", []),
+        "future_recall_query_hints": future_hints,
+        "candidate_id": candidate_summary.get("candidate_id", ""),
+        "memory_candidate_refs": candidate_refs,
+        "source_ticket_id": source_ticket_id,
+        "recalled_assets": recalled_assets,
+        "used_approved_asset_count": len(recalled_assets),
+        "new_candidate_count": 1 if memory_candidate is not None else 0,
+        "memory_usage_refs": memory_usage_refs,
+        "next_round_guidance": next_round_guidance,
+        "clara_summary": clara_summary,
+    }
 
 
 def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
@@ -4944,7 +4576,7 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
         message=request.message,
     )
     employee = _employee_summary(selected)
-    selected_ai_engine = _selected_ai_engine_for_employee(employee)
+    selected_ai_engine = _ai_engine_runtime().selected_engine_for_employee(employee.default_ai_engine)
 
     thread_id = request.thread_id or _employee_default_thread_id(employee.id)
     thread_id = _require_safe_id(thread_id, field="thread_id")
@@ -4952,19 +4584,24 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
     ticket_keys = _extract_ticket_keys(request.message, request.ticket_key)
     run_dirs = _ensure_run_dirs()
     recent_messages = _load_conversation_messages(thread_id, limit=12)
-    engine_state = _engine_thread_state(employee.id, thread_id)
-    engine_thread_id = str(engine_state.get("engine_thread_id") or _engine_thread_id(employee.id, thread_id))
+    engine_state = _engine_thread_state(_workspace_dir(), employee.id, thread_id)
+    engine_thread_id = str(engine_state.get("engine_thread_id") or _engine_thread_id(_workspace_dir(), employee.id, thread_id))
     skills = _skill_titles(employee.skills)
-    memories = recall_memory_snippets(
+    recalled_memory_records = recall_memory_records(
         employee_id=employee.id,
         query=request.message,
         ticket_keys=ticket_keys,
     )
+    recalled_memories = [_memory_snippet_from_result(result) for result in recalled_memory_records]
+    memory_refs = [_recalled_memory_ref(result) for result in recalled_memory_records]
+    memories = list(recalled_memories)
+    recalled_knowledge: list[str] = []
     for snippet in knowledge_snippets(request.message, limit=3):
         if snippet.startswith("[memory:"):
             continue
         if snippet not in memories:
             memories.append(snippet)
+            recalled_knowledge.append(snippet)
 
     trace_events = [
         ChatTraceEvent(
@@ -4987,7 +4624,10 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
             detail="Loaded bundled Employee profile, skill, memory, knowledge, capability, and recent-message context.",
             data={
                 "skills": skills,
+                "memory_count": len(recalled_memories),
+                "knowledge_count": len(recalled_knowledge),
                 "memory_and_knowledge_count": len(memories),
+                "recalled_memory_refs": memory_refs,
                 "recent_message_count": len(recent_messages),
                 "command_intercept_policy": os.environ.get("AITEAMOS_CHAT_KERNEL_COMMANDS", "fallback"),
             },
@@ -5023,6 +4663,7 @@ def _prepare_chat_run(request: ChatMessageRequest) -> ChatRunContext:
         engine_thread_id=engine_thread_id,
         skills=skills,
         memories=memories,
+        memory_refs=memory_refs,
         recent_messages=recent_messages,
         trace_events=trace_events,
     )
@@ -5037,7 +4678,7 @@ def _persist_chat_response(
     extra_trace_events: list[ChatTraceEvent] | None = None,
 ) -> ChatMessageResponse:
     if engine_state is not None:
-        _save_engine_thread_state(context.employee.id, context.thread_id, engine_state)
+        _save_engine_thread_state(_workspace_dir(), context.employee.id, context.thread_id, engine_state)
     final_engine_thread_id = engine_thread_id or context.engine_thread_id
 
     trace_events = [
@@ -5048,12 +4689,55 @@ def _persist_chat_response(
 
     conversation_path = context.run_dirs["conversations"] / f"{context.thread_id}.jsonl"
     trace_path = context.run_dirs["traces"] / f"{context.run_id}.jsonl"
+    memory_usage_refs: list[dict[str, Any]] = []
+    try:
+        memory_usage_refs = record_memory_recall_usage(
+            memory_refs=context.memory_refs,
+            run_id=context.run_id,
+            employee_id=context.employee.id,
+            ticket_keys=context.ticket_keys,
+            query=context.request.message,
+            trace_path=str(trace_path.relative_to(_workspace_root())),
+        )
+        if memory_usage_refs:
+            trace_events.append(
+                ChatTraceEvent(
+                    event="memory.recall.usage_recorded",
+                    detail="Recorded learning-effectiveness usage refs for recalled approved Memory assets.",
+                    data={
+                        "usage_refs": memory_usage_refs,
+                        "usage_count": len(memory_usage_refs),
+                        "ticket_keys": context.ticket_keys,
+                        "employee_id": context.employee.id,
+                    },
+                )
+            )
+    except Exception as exc:
+        trace_events.append(
+            ChatTraceEvent(
+                event="memory.recall.usage_failed",
+                detail="Memory recall usage recording failed; chat response was still persisted.",
+                data={"error": str(exc)[:300]},
+            )
+        )
     run_metadata = _build_run_metadata(
         context,
         final_engine_thread_id=final_engine_thread_id,
         trace_events=trace_events,
         trace_path=trace_path,
     )
+    if memory_usage_refs:
+        run_metadata["memory_usage_refs"] = memory_usage_refs
+        run_metadata["learning_effectiveness"] = {
+            "recalled_asset_count": len(memory_usage_refs),
+            "usefulness_status": "unreviewed",
+            "usage_refs": memory_usage_refs,
+            "source": "memory_recall_usage",
+        }
+        run_metadata["learning_summary"] = _learning_summary_from_run(
+            context,
+            memory_usage_refs=memory_usage_refs,
+        )
     trace_events.append(
         ChatTraceEvent(
             event="run.metadata.recorded",
@@ -5101,6 +4785,7 @@ def _persist_chat_response(
 
     memory_candidate = None
     try:
+        ticket_report_refs = _latest_ticket_report_refs(trace_events)
         memory_candidate = propose_memory_from_chat_turn(
             run_id=context.run_id,
             thread_id=context.thread_id,
@@ -5110,16 +4795,35 @@ def _persist_chat_response(
             assistant_reply=reply,
             ticket_keys=context.ticket_keys,
             trace_path=str(trace_path.relative_to(_workspace_root())),
+            provider_refs=run_metadata.get("provider_refs") if isinstance(run_metadata.get("provider_refs"), list) else [],
+            graphiti_episode_refs=run_metadata.get("graphiti_episode_refs") if isinstance(run_metadata.get("graphiti_episode_refs"), list) else [],
+            source_report_id=ticket_report_refs["source_report_id"],
+            evidence_id=ticket_report_refs["evidence_id"],
+            recalled_memory_refs=context.memory_refs,
+            action_plan=_latest_chat_action_plan(trace_events),
         )
         if memory_candidate is not None:
+            run_metadata["memory_candidate_refs"] = [_memory_candidate_run_ref(memory_candidate)]
+            run_metadata["learning_summary"] = _learning_summary_from_run(
+                context,
+                memory_usage_refs=memory_usage_refs,
+                memory_candidate=memory_candidate,
+            )
+            for event in trace_events:
+                if event.event == "run.metadata.recorded":
+                    event.data = run_metadata
+                    break
             trace_events.append(
                 ChatTraceEvent(
                     event="memory.candidate.proposed",
-                    detail="Proposed a memory candidate from this chat turn.",
+                    detail="Proposed a ticket-aware memory candidate from this Chat run.",
                     data={
                         "candidate_id": memory_candidate.id,
                         "scope": f"{memory_candidate.scope_kind}:{memory_candidate.scope_ref}",
                         "confidence": memory_candidate.confidence,
+                        "source_kind": memory_candidate.source_kind,
+                        "source_ref": memory_candidate.source_ref,
+                        "provenance": memory_candidate.provenance,
                     },
                 )
             )
@@ -5129,6 +4833,15 @@ def _persist_chat_response(
                 event="memory.candidate.failed",
                 detail="Memory candidate extraction failed; chat response was still persisted.",
                 data={"error": str(exc)[:300]},
+            )
+        )
+
+    if run_metadata.get("learning_summary"):
+        trace_events.append(
+            ChatTraceEvent(
+                event="learning.summary.recorded",
+                detail="Recorded Clara learning summary for recalled assets and proposed candidates.",
+                data=run_metadata["learning_summary"],
             )
         )
 
@@ -5177,21 +4890,7 @@ def _stub_reply(context: ChatRunContext) -> str:
 
 
 def _kernel_command_from_plan(context: ChatRunContext, plan: ChatKernelCommandPlan) -> KernelCommand | None:
-    if plan.command == "none":
-        return None
-    spec = _KERNEL_COMMAND_SPECS.get(plan.command)
-    if spec is None:
-        return None
-    return KernelCommand(
-        id=plan.command,
-        capability=spec.capability,
-        operation=spec.operation,
-        arguments=dict(plan.arguments),
-        confidence=plan.confidence,
-        reason=plan.reason,
-        source=plan.source,
-        ticket_keys=context.ticket_keys,
-    )
+    return _kernel_command_from_plan_data(plan, ticket_keys=context.ticket_keys)
 
 
 def _persist_kernel_policy_blocked(
@@ -5200,33 +4899,18 @@ def _persist_kernel_policy_blocked(
     command: KernelCommand,
     policy: Any,
 ) -> ChatMessageResponse:
-    command_payload = command.model_dump()
-    policy_payload = policy.model_dump()
-    missing = ", ".join(policy.missing_permissions) if policy.missing_permissions else "unknown"
-    reply = (
-        "Kernel policy 阻止了这次 command。\n\n"
-        f"- Command: {command.id}\n"
-        f"- Missing permissions: {missing}\n\n"
-        "请先给当前 Employee 明确授权，或让 Clara 重新路由 Ticket。"
-    )
-    result = {
-        "status": "blocked",
-        "detail": "Kernel policy denied command execution.",
-        "reason": policy.reason,
-        "command": command_payload,
-        "kernel_policy": policy_payload,
-    }
+    result = _kernel_policy_blocked_result(command, policy)
     return _persist_chat_response(
         context,
-        reply=reply,
+        reply=_kernel_policy_blocked_reply(command, policy),
         extra_trace_events=[
             ChatTraceEvent(
                 event="command.called",
                 detail=f"Resolved {command.id} through Kernel command executor.",
                 data={
                     "requested_by": context.employee.id,
-                    "command": command_payload,
-                    "kernel_policy": policy_payload,
+                    "command": result["command"],
+                    "kernel_policy": result["kernel_policy"],
                 },
             ),
             ChatTraceEvent(
@@ -5286,101 +4970,6 @@ def _permissions_target_profile(
     return context.selected_profile
 
 
-def _command_access_rows(raw_permissions: list[str]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for command_id, spec in _KERNEL_COMMAND_SPECS.items():
-        command = KernelCommand(id=command_id, capability=spec.capability, operation=spec.operation)
-        decision = evaluate_kernel_policy(command, spec=spec, actor_permissions=raw_permissions)
-        rows.append(
-            {
-                "id": command_id,
-                "capability": spec.capability,
-                "operation": spec.operation,
-                "risk": spec.risk,
-                "description": spec.description,
-                "status": "allowed" if decision.status == "allowed" else "blocked",
-                "required_permissions": list(spec.permissions),
-                "missing_permissions": decision.missing_permissions,
-            }
-        )
-    return rows
-
-
-def _build_permissions_reply(
-    employee: ChatEmployeeSummary,
-    raw_permissions: list[str],
-    expanded: list[str],
-    commands: list[dict[str, Any]],
-    *,
-    user_message: str,
-) -> str:
-    allowed = [item for item in commands if item["status"] == "allowed"]
-    blocked = [item for item in commands if item["status"] == "blocked"]
-    high_risk = [item for item in allowed if item["risk"] in {"destructive", "execution"}]
-    if _message_prefers_chinese(user_message):
-        lines = [
-            f"这是 Kernel 根据 {employee.display_name} 当前 profile 生成的权限事实，不是模型猜测。",
-            "",
-            f"- 员工：{employee.display_name} ({employee.id})",
-            f"- 角色：{employee.role}",
-            f"- Profile 原始权限：{', '.join(raw_permissions) if raw_permissions else '无'}",
-            f"- Kernel 展开权限：{', '.join(expanded) if expanded else '无'}",
-            "",
-            "可执行 Kernel Commands：",
-        ]
-        if not allowed:
-            lines.append("- 无")
-        for item in allowed:
-            risk = f"；风险={item['risk']}" if item["risk"] != "low" else ""
-            lines.append(f"- {item['id']}{risk}")
-
-        if high_risk:
-            lines.extend([
-                "",
-                "高风险说明：",
-                "- destructive / execution command 表示 Kernel 已授权，但仍应绑定 Ticket、保留 trace/evidence，并在需要时取得人类确认。",
-            ])
-
-        lines.extend(["", "未授权 Kernel Commands："])
-        if not blocked:
-            lines.append("- 无")
-        for item in blocked:
-            missing = ", ".join(item["missing_permissions"]) if item["missing_permissions"] else "未知"
-            lines.append(f"- {item['id']}；缺失权限={missing}")
-        return "\n".join(lines)
-
-    lines = [
-        f"这是 Kernel 根据 {employee.display_name} 当前 profile 生成的权限事实，不是模型猜测。",
-        "",
-        f"- Employee: {employee.display_name} ({employee.id})",
-        f"- Role: {employee.role}",
-        f"- Raw permissions: {', '.join(raw_permissions) if raw_permissions else 'none'}",
-        f"- Expanded Kernel permissions: {', '.join(expanded) if expanded else 'none'}",
-        "",
-        "可执行 Kernel Commands：",
-    ]
-    if not allowed:
-        lines.append("- none")
-    for item in allowed:
-        risk = f"；risk={item['risk']}" if item["risk"] != "low" else ""
-        lines.append(f"- {item['id']}{risk}")
-
-    if high_risk:
-        lines.extend([
-            "",
-            "高风险说明：",
-            "- destructive / execution command 代表 Kernel 已授权，但仍应绑定 Ticket、保留 trace/evidence，并在需要时取得人类确认。",
-        ])
-
-    lines.extend(["", "未授权 Kernel Commands："])
-    if not blocked:
-        lines.append("- none")
-    for item in blocked:
-        missing = ", ".join(item["missing_permissions"]) if item["missing_permissions"] else "unknown"
-        lines.append(f"- {item['id']}；missing={missing}")
-    return "\n".join(lines)
-
-
 def _complete_inspect_permissions_command(
     context: ChatRunContext,
     plan: ChatKernelCommandPlan | None = None,
@@ -5403,11 +4992,13 @@ def _complete_inspect_permissions_command(
         context,
         handler_name="inspect_permissions",
         reply=_build_permissions_reply(
-            employee,
-            raw_permissions,
-            expanded_permissions,
-            command_rows,
-            user_message=context.request.message,
+            employee_display_name=employee.display_name,
+            employee_id=employee.id,
+            employee_role=employee.role,
+            raw_permissions=raw_permissions,
+            expanded_permissions=expanded_permissions,
+            commands=command_rows,
+            prefers_chinese=_message_prefers_chinese(context.request.message),
         ),
         result=result,
         completed=True,
@@ -5416,57 +5007,15 @@ def _complete_inspect_permissions_command(
 
 def _terminal_cwd_from_plan(context: ChatRunContext, plan: ChatKernelCommandPlan | None) -> tuple[Path | None, str | None]:
     raw_cwd = _tool_str_arg(plan, "cwd", "workdir")
-    workspace = _workspace_root().resolve()
-    cwd = workspace if not raw_cwd else (workspace / raw_cwd).resolve()
-    try:
-        cwd.relative_to(workspace)
-    except ValueError:
-        return None, "cwd must stay inside the AITeamOS workspace."
-    if not cwd.exists() or not cwd.is_dir():
-        return None, f"cwd is not a directory: {raw_cwd}"
-    return cwd, None
-
-
-def _terminal_argv_from_command(command_line: str) -> tuple[list[str] | None, str | None]:
-    try:
-        argv = shlex.split(command_line)
-    except ValueError as exc:
-        return None, f"Cannot parse terminal command: {exc}"
-    if not argv:
-        return None, "Terminal command is empty."
-    executable = argv[0]
-    if "/" in executable or executable not in _TERMINAL_ALLOWED_EXECUTABLES:
-        return None, f"Command executable is not allowed: {executable}"
-    if executable == "npm" and tuple(argv[:2]) not in _TERMINAL_ALLOWED_NPM_COMMANDS and tuple(argv[:3]) not in _TERMINAL_ALLOWED_NPM_COMMANDS:
-        return None, "Only `npm test` and `npm run build` are allowed."
-    if executable == "git" and tuple(argv[:2]) not in _TERMINAL_ALLOWED_GIT_COMMANDS:
-        return None, "Only `git status`, `git diff`, and `git show` are allowed."
-    if executable == "git" and any(arg == "-C" or arg.startswith("--git-dir") or arg.startswith("--work-tree") for arg in argv[2:]):
-        return None, "Git workspace override arguments are not allowed."
-    return argv, None
-
-
-def _validate_terminal_workspace_args(argv: list[str], cwd: Path) -> str | None:
-    workspace = _workspace_root().resolve()
-    for token in argv[1:]:
-        if token.startswith("-"):
-            continue
-        path_token = token.split("::", maxsplit=1)[0]
-        if "/" not in path_token and not path_token.startswith((".", "~")):
-            continue
-        if path_token.startswith("~"):
-            return "Terminal path arguments must stay inside the AITeamOS workspace."
-        candidate = Path(path_token)
-        resolved = candidate.resolve() if candidate.is_absolute() else (cwd / candidate).resolve()
-        try:
-            resolved.relative_to(workspace)
-        except ValueError:
-            return "Terminal path arguments must stay inside the AITeamOS workspace."
-    return None
+    return _terminal_cwd_from_raw(raw_cwd, _workspace_root())
 
 
 def _terminal_command_line_from_plan(context: ChatRunContext, plan: ChatKernelCommandPlan | None) -> str | None:
     return _tool_str_arg(plan, "command", "cmd", "command_line") or _extract_terminal_command_line(context.request.message)
+
+
+def _terminal_ticket_id_from_context(context: ChatRunContext, plan: ChatKernelCommandPlan | None) -> str | None:
+    return _extract_ticket_id(context.request.message, plan) or (context.request.ticket_key.strip() if context.request.ticket_key else None)
 
 
 def _terminal_blocked_response(
@@ -5485,7 +5034,7 @@ def _terminal_blocked_response(
     reply = _build_blocked_command_reply(
         "terminal.run",
         reason,
-        "Clara，请执行命令 `pytest tests/test_file_chat_routes.py -q`。",
+        "Clara，请为 rd-0001 执行命令 `pytest tests/test_file_chat_routes.py -q`。",
     )
     return _persist_kernel_command_response(
         context,
@@ -5496,40 +5045,42 @@ def _terminal_blocked_response(
     )
 
 
-async def _run_terminal_command_collect(
+def _record_terminal_evidence_report(
     *,
-    argv: list[str],
+    context: ChatRunContext,
+    ticket_id: str,
+    command_line: str,
     cwd: Path,
-    timeout_seconds: float = 120.0,
-) -> tuple[int | None, str, bool]:
-    process = await asyncio.create_subprocess_exec(
-        *argv,
-        cwd=str(cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
+    exit_code: int | None,
+    timed_out: bool,
+    output: str,
+) -> dict[str, Any]:
+    item = add_ticket_report(
+        ticket_id,
+        TicketReportRequest(
+            reporter_employee_id=context.employee.id,
+            reporter_role=context.employee.role,
+            content=_terminal_report_content(
+                command_line=command_line,
+                cwd=cwd,
+                workspace=_workspace_root(),
+                exit_code=exit_code,
+                timed_out=timed_out,
+                output=output,
+            ),
+            evidence=[_terminal_evidence_ref(context.run_id)],
+            report_type="terminal_evidence",
+            source_run_id=context.run_id,
+        ),
     )
-    try:
-        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
-        return process.returncode, stdout.decode("utf-8", errors="replace"), False
-    except TimeoutError:
-        process.kill()
-        await process.wait()
-        return None, "", True
-
-
-def _terminal_reply(command_line: str, cwd: Path, exit_code: int | None, output: str, timed_out: bool) -> str:
-    status = "timed out" if timed_out else ("completed" if exit_code == 0 else "failed")
-    preview = output[-4000:].strip() or "(no output)"
-    return (
-        f"terminal.run {status}。\n\n"
-        f"- Command: `{command_line}`\n"
-        f"- CWD: `{cwd.relative_to(_workspace_root()) or '.'}`\n"
-        f"- Exit code: {exit_code if exit_code is not None else '-'}\n\n"
-        "Output tail:\n"
-        "```text\n"
-        f"{preview}\n"
-        "```"
-    )
+    report = item.reports[-1] if item.reports else None
+    return {
+        "ticket_id": item.id,
+        "ticket_status": item.status,
+        "report_id": report.id if report is not None else "",
+        "evidence_ref": _terminal_evidence_ref(context.run_id),
+        "ticket": item.model_dump(mode="json"),
+    }
 
 
 async def _complete_terminal_run_command(
@@ -5539,34 +5090,84 @@ async def _complete_terminal_run_command(
     command_line = _terminal_command_line_from_plan(context, plan)
     if not command_line:
         return _terminal_blocked_response(context, plan, reason="Missing terminal command.", command_line=None)
+    ticket_id = _terminal_ticket_id_from_context(context, plan)
+    if not ticket_id:
+        return _terminal_blocked_response(
+            context,
+            plan,
+            reason="terminal.run requires a Ticket binding before execution.",
+            command_line=command_line,
+        )
+    try:
+        if get_ticket(ticket_id) is None:
+            return _terminal_blocked_response(context, plan, reason=f"Ticket not found: {ticket_id}", command_line=command_line)
+    except ValueError as exc:
+        return _terminal_blocked_response(context, plan, reason=str(exc), command_line=command_line)
     argv, argv_error = _terminal_argv_from_command(command_line)
     if argv_error or argv is None:
         return _terminal_blocked_response(context, plan, reason=argv_error or "Invalid terminal command.", command_line=command_line)
     cwd, cwd_error = _terminal_cwd_from_plan(context, plan)
     if cwd_error or cwd is None:
         return _terminal_blocked_response(context, plan, reason=cwd_error or "Invalid cwd.", command_line=command_line)
-    path_error = _validate_terminal_workspace_args(argv, cwd)
+    path_error = _validate_terminal_workspace_args(argv, cwd, _workspace_root())
     if path_error:
         return _terminal_blocked_response(context, plan, reason=path_error, command_line=command_line)
 
     exit_code, output, timed_out = await _run_terminal_command_collect(argv=argv, cwd=cwd)
+    report_ref: dict[str, Any] | None = None
+    report_error = ""
+    try:
+        report_ref = _record_terminal_evidence_report(
+            context=context,
+            ticket_id=ticket_id,
+            command_line=command_line,
+            cwd=cwd,
+            exit_code=exit_code,
+            timed_out=timed_out,
+            output=output,
+        )
+    except (KeyError, ValueError) as exc:
+        report_error = str(exc)
     result = {
-        "status": "blocked" if timed_out else ("completed" if exit_code == 0 else "failed"),
-        "detail": "Terminal command completed." if exit_code == 0 and not timed_out else "Terminal command did not complete successfully.",
+        "status": "blocked" if timed_out or report_error else ("completed" if exit_code == 0 else "failed"),
+        "detail": (
+            f"Terminal command ran but Ticket evidence write failed: {report_error}"
+            if report_error
+            else ("Terminal command completed." if exit_code == 0 and not timed_out else "Terminal command did not complete successfully.")
+        ),
         "command_line": command_line,
         "argv": argv,
         "cwd": str(cwd.relative_to(_workspace_root())),
+        "ticket_id": ticket_id,
+        "ticket_evidence": report_ref or {},
         "exit_code": exit_code,
         "timed_out": timed_out,
         "output_preview": output[-8000:],
         "plan": _plan_trace_data(plan),
     }
+    reply = _terminal_reply(
+        command_line=command_line,
+        cwd=cwd,
+        workspace=_workspace_root(),
+        exit_code=exit_code,
+        output=output,
+        timed_out=timed_out,
+    )
+    if report_ref:
+        reply += (
+            "\n\nTicket evidence:\n"
+            f"- Ticket: {report_ref['ticket_id']}\n"
+            f"- Report: {report_ref['report_id']}\n"
+            f"- Evidence: {report_ref['evidence_ref']}"
+        )
+    elif report_error:
+        reply += f"\n\nTicket evidence write failed: {report_error}"
     return _persist_kernel_command_response(
         context,
         handler_name="terminal_run",
-        reply=_terminal_reply(command_line, cwd, exit_code, output, timed_out),
+        reply=reply,
         result=result,
-        completed=exit_code == 0 and not timed_out,
+        completed=exit_code == 0 and not timed_out and not report_error,
     )
 
 
@@ -5585,7 +5186,10 @@ _KERNEL_COMMAND_HANDLERS: dict[str, KernelCommandHandler] = {
     "knowledge.search:search": _complete_search_knowledge_tool,
     "tickets.manage:create": _complete_create_ticket_tool,
     "tickets.manage:list": _complete_list_tickets_tool,
+    "tickets.manage:self_bootstrap_summary": _complete_self_bootstrap_summary_tool,
     "tickets.manage:report": _complete_record_ticket_report_tool,
+    "tickets.manage:request_validation": _complete_request_ticket_validation_tool,
+    "tickets.manage:request_human_review": _complete_request_human_review_tool,
     "repositories.list:list": _complete_list_code_repositories_tool,
     "repositories.inspect:inspect": _complete_inspect_code_repository_tool,
     "kernel.permissions:inspect": _complete_inspect_permissions_command,
@@ -5632,6 +5236,22 @@ async def _stream_terminal_run_command(
     if not command_line:
         yield "final", _terminal_blocked_response(context, plan, reason="Missing terminal command.", command_line=None)
         return
+    ticket_id = _terminal_ticket_id_from_context(context, plan)
+    if not ticket_id:
+        yield "final", _terminal_blocked_response(
+            context,
+            plan,
+            reason="terminal.run requires a Ticket binding before execution.",
+            command_line=command_line,
+        )
+        return
+    try:
+        if get_ticket(ticket_id) is None:
+            yield "final", _terminal_blocked_response(context, plan, reason=f"Ticket not found: {ticket_id}", command_line=command_line)
+            return
+    except ValueError as exc:
+        yield "final", _terminal_blocked_response(context, plan, reason=str(exc), command_line=command_line)
+        return
     argv, argv_error = _terminal_argv_from_command(command_line)
     if argv_error or argv is None:
         yield "final", _terminal_blocked_response(context, plan, reason=argv_error or "Invalid terminal command.", command_line=command_line)
@@ -5640,7 +5260,7 @@ async def _stream_terminal_run_command(
     if cwd_error or cwd is None:
         yield "final", _terminal_blocked_response(context, plan, reason=cwd_error or "Invalid cwd.", command_line=command_line)
         return
-    path_error = _validate_terminal_workspace_args(argv, cwd)
+    path_error = _validate_terminal_workspace_args(argv, cwd, _workspace_root())
     if path_error:
         yield "final", _terminal_blocked_response(context, plan, reason=path_error, command_line=command_line)
         return
@@ -5674,24 +5294,61 @@ async def _stream_terminal_run_command(
     output = "".join(output_parts)
     exit_code = None if timed_out else process.returncode
     yield "delta", f"\n[terminal.run exit_code={exit_code if exit_code is not None else '-'}]\n"
+    report_ref: dict[str, Any] | None = None
+    report_error = ""
+    try:
+        report_ref = _record_terminal_evidence_report(
+            context=context,
+            ticket_id=ticket_id,
+            command_line=command_line,
+            cwd=cwd,
+            exit_code=exit_code,
+            timed_out=timed_out,
+            output=output,
+        )
+    except (KeyError, ValueError) as exc:
+        report_error = str(exc)
     result = {
-        "status": "blocked" if timed_out else ("completed" if exit_code == 0 else "failed"),
-        "detail": "Terminal command completed." if exit_code == 0 and not timed_out else "Terminal command did not complete successfully.",
+        "status": "blocked" if timed_out or report_error else ("completed" if exit_code == 0 else "failed"),
+        "detail": (
+            f"Terminal command ran but Ticket evidence write failed: {report_error}"
+            if report_error
+            else ("Terminal command completed." if exit_code == 0 and not timed_out else "Terminal command did not complete successfully.")
+        ),
         "command_line": command_line,
         "argv": argv,
         "cwd": str(cwd.relative_to(_workspace_root())),
+        "ticket_id": ticket_id,
+        "ticket_evidence": report_ref or {},
         "exit_code": exit_code,
         "timed_out": timed_out,
         "output_preview": output[-8000:],
         "streamed": True,
         "plan": _plan_trace_data(plan),
     }
+    reply = _terminal_reply(
+        command_line=command_line,
+        cwd=cwd,
+        workspace=_workspace_root(),
+        exit_code=exit_code,
+        output=output,
+        timed_out=timed_out,
+    )
+    if report_ref:
+        reply += (
+            "\n\nTicket evidence:\n"
+            f"- Ticket: {report_ref['ticket_id']}\n"
+            f"- Report: {report_ref['report_id']}\n"
+            f"- Evidence: {report_ref['evidence_ref']}"
+        )
+    elif report_error:
+        reply += f"\n\nTicket evidence write failed: {report_error}"
     final_response = _persist_kernel_command_response(
         context,
         handler_name="terminal_run",
-        reply=_terminal_reply(command_line, cwd, exit_code, output, timed_out),
+        reply=reply,
         result=result,
-        completed=exit_code == 0 and not timed_out,
+        completed=exit_code == 0 and not timed_out and not report_error,
     )
     yield "final", final_response
 
@@ -5888,18 +5545,7 @@ async def delete_chat_thread(thread_id: str) -> dict[str, Any]:
     except OSError:
         pass
 
-    # Clean up AI Engine thread mapping
-    engine_thread_path = _workspace_dir() / "engine_threads.json"
-    if engine_thread_path.exists():
-        try:
-            mapping = json.loads(engine_thread_path.read_text(encoding="utf-8"))
-            keys_to_remove = [k for k, v in mapping.items() if k.endswith(f"-{thread_id[:8]}") or k == f"{employee_id}:{thread_id}"]
-            for key in keys_to_remove:
-                del mapping[key]
-            if keys_to_remove:
-                engine_thread_path.write_text(json.dumps(mapping, indent=2, sort_keys=True), encoding="utf-8")
-        except (OSError, json.JSONDecodeError):
-            pass
+    _delete_thread_engine_state_mappings(_workspace_dir(), employee_id, thread_id)
 
     return {
         "status": "deleted",
@@ -5916,29 +5562,6 @@ async def get_chat_thread(thread_id: str) -> ConversationResponse:
         messages=_load_conversation_messages(thread_id),
         thread=_thread_summary(thread_id),
     )
-
-
-def _message_content_to_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        chunks: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                chunks.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text") or item.get("content")
-                if isinstance(text, str):
-                    chunks.append(text)
-        return "".join(chunks).strip()
-    return str(content).strip() if content is not None else ""
-
-
-def _latest_human_message_text(messages: list[AnyMessage]) -> str:
-    for message in reversed(messages):
-        if isinstance(message, HumanMessage):
-            return _message_content_to_text(message.content)
-    return ""
 
 
 async def _run_aiteamos_chat_graph_node(
@@ -6083,6 +5706,7 @@ async def agui_chat_agent_health() -> dict[str, Any]:
 @router.post("/messages", response_model=ChatMessageResponse)
 async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
     context = _prepare_chat_run(request)
+    await _enrich_chat_context_with_graphiti_recall(context)
     if _chat_kernel_command_intercept_enabled(context):
         kernel_command_response = await _maybe_execute_kernel_command(context)
         if kernel_command_response is not None:
@@ -6097,6 +5721,13 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
         )
 
     ai_engine_id = context.selected_ai_engine
+    if ai_engine_id == "stub":
+        return _persist_chat_response(
+            context,
+            reply=_stub_reply(context),
+            extra_trace_events=[ChatTraceEvent(event="ai_engine.stub.completed", detail="Generated explicit file-backed response.")],
+        )
+
     try:
         if ai_engine_id == "deepseek":
             reply, engine_state, ai_engine_metadata = await _call_deepseek_agent(
@@ -6142,119 +5773,46 @@ async def send_chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
             extra_trace_events=[completed_event],
         )
     except RuntimeError as exc:
-        if _is_ai_engine_configuration_error(exc):
-            return _persist_chat_response(
-                context,
-                reply=_build_ai_engine_configuration_reply(context, ai_engine_id=ai_engine_id, error=exc),
-                extra_trace_events=[
-                    ChatTraceEvent(
-                        event="ai_engine.remote.configuration_blocked",
-                        detail="Remote AI Engine configuration blocked the chat turn; no file-backed answer was generated.",
-                        data={
-                            "ai_engine": f"{ai_engine_id}_configuration_blocked",
-                            "selected_ai_engine": ai_engine_id,
-                            "reason": _safe_ai_engine_error_summary(exc),
-                        },
-                    )
-                ],
-            )
         return _persist_chat_response(
             context,
-            reply=_stub_reply(context),
+            reply=_build_ai_engine_configuration_reply(
+                user_message=context.request.message,
+                ai_engine_id=ai_engine_id,
+                error=exc,
+            ),
             extra_trace_events=[
                 ChatTraceEvent(
-                    event="ai_engine.remote.unavailable",
-                    detail="Remote AI Engine was unavailable; fell back to file-backed response.",
+                    event="ai_engine.remote.configuration_blocked",
+                    detail="Remote AI Engine blocked the chat turn; no file-backed answer was generated.",
                     data={
+                        "ai_engine": f"{ai_engine_id}_configuration_blocked",
                         "selected_ai_engine": ai_engine_id,
-                        "reason": str(exc)[:500],
+                        "reason": _safe_ai_engine_error_summary(exc),
                     },
                 ),
-                ChatTraceEvent(event="ai_engine.stub.completed", detail="Generated P0 file-backed response.")
             ],
         )
     except HTTPException as exc:
-        if _is_ai_engine_configuration_error(exc):
-            return _persist_chat_response(
-                context,
-                reply=_build_ai_engine_configuration_reply(context, ai_engine_id=ai_engine_id, error=exc),
-                extra_trace_events=[
-                    ChatTraceEvent(
-                        event="ai_engine.remote.configuration_blocked",
-                        detail="Remote AI Engine configuration blocked the chat turn; no file-backed answer was generated.",
-                        data={
-                            "ai_engine": f"{ai_engine_id}_configuration_blocked",
-                            "selected_ai_engine": ai_engine_id,
-                            "status_code": exc.status_code,
-                            "reason": _safe_ai_engine_error_summary(exc),
-                        },
-                    )
-                ],
-            )
-        if not _ai_engine_fallback_on_error():
-            raise
         return _persist_chat_response(
             context,
-            reply=_stub_reply(context),
+            reply=_build_ai_engine_configuration_reply(
+                user_message=context.request.message,
+                ai_engine_id=ai_engine_id,
+                error=exc,
+            ),
             extra_trace_events=[
                 ChatTraceEvent(
-                    event="ai_engine.remote.failed",
-                    detail="Remote AI Engine failed; fell back to file-backed response.",
-                    data={"status_code": exc.status_code, "detail": str(exc.detail)[:500]},
+                    event="ai_engine.remote.configuration_blocked",
+                    detail="Remote AI Engine blocked the chat turn; no file-backed answer was generated.",
+                    data={
+                        "ai_engine": f"{ai_engine_id}_configuration_blocked",
+                        "selected_ai_engine": ai_engine_id,
+                        "status_code": exc.status_code,
+                        "reason": _safe_ai_engine_error_summary(exc),
+                    },
                 ),
-                ChatTraceEvent(event="ai_engine.stub.completed", detail="Generated P0 file-backed response."),
             ],
         )
-
-
-def _sse_payload(event: str, data: dict[str, Any]) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-def _reply_chunks(reply: str) -> list[str]:
-    chunks = re.split(r"(\s+)", reply)
-    merged: list[str] = []
-    current = ""
-    for chunk in chunks:
-        if not chunk:
-            continue
-        current += chunk
-        if len(current) >= 16 or "\n" in current:
-            merged.append(current)
-            current = ""
-    if current:
-        merged.append(current)
-    return merged or [reply]
-
-
-def _agui_message_payload(message: Any) -> dict[str, Any]:
-    if hasattr(message, "model_dump"):
-        data = message.model_dump(by_alias=True, exclude_none=True)
-        return data if isinstance(data, dict) else {}
-    if isinstance(message, dict):
-        return {key: value for key, value in message.items() if value is not None}
-    return {}
-
-
-def _latest_agui_user_message_payload(messages: list[Any]) -> dict[str, Any] | None:
-    for message in reversed(messages):
-        payload = _agui_message_payload(message)
-        if payload.get("role") == "user":
-            return payload
-    return None
-
-
-def _latest_agui_user_message_text(messages: list[Any]) -> str:
-    payload = _latest_agui_user_message_payload(messages)
-    if payload is None:
-        return ""
-    return _message_content_to_text(payload.get("content"))
-
-
-def _checkpoint_id_from_config(config: RunnableConfig | dict[str, Any]) -> str | None:
-    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
-    checkpoint_id = configurable.get("checkpoint_id") if isinstance(configurable, dict) else None
-    return str(checkpoint_id) if checkpoint_id else None
 
 
 async def _persist_agui_chat_checkpoint(
@@ -6319,6 +5877,7 @@ async def _stream_chat_turn(
     request: ChatMessageRequest,
 ) -> AsyncIterator[tuple[str, str | ChatMessageResponse | dict[str, Any]]]:
     context = _prepare_chat_run(request)
+    await _enrich_chat_context_with_graphiti_recall(context)
     command_intercept_enabled = _chat_kernel_command_intercept_enabled(context)
     if command_intercept_enabled and _COMMAND_PLANNING_SIGNAL_RE.search(request.message):
         plan = await _plan_kernel_command_intent(context)
@@ -6425,6 +5984,7 @@ async def stream_chat_message(request: ChatMessageRequest) -> StreamingResponse:
     async def generate() -> AsyncIterator[str]:
         try:
             context = _prepare_chat_run(request)
+            await _enrich_chat_context_with_graphiti_recall(context)
             command_intercept_enabled = _chat_kernel_command_intercept_enabled(context)
             if command_intercept_enabled and _COMMAND_PLANNING_SIGNAL_RE.search(request.message):
                 plan = await _plan_kernel_command_intent(context)

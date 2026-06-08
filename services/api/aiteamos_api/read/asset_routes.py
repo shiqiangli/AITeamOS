@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from .knowledge_service import AssetRecord, asset_items
+from .ticket_service import AssetGraphProjection, asset_graph_projection
 
 router = APIRouter(prefix="/api/v1/assets", tags=["assets"])
 
@@ -22,6 +23,17 @@ async def get_all_assets(q: str = Query("", alias="q")) -> list[AssetRecord]:
 @router.get("/search", response_model=list[AssetRecord])
 async def search_assets(q: str = Query("", alias="q")) -> list[AssetRecord]:
     return asset_items(query=q)
+
+
+@router.get("/{asset_id}/graph", response_model=AssetGraphProjection)
+async def get_asset_graph(asset_id: str) -> AssetGraphProjection:
+    try:
+        projection = asset_graph_projection(asset_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if projection is None:
+        raise HTTPException(status_code=404, detail=f"Asset graph not found: {asset_id}")
+    return projection
 
 
 @router.get("/knowledge", response_model=list[AssetRecord])

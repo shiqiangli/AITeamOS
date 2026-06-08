@@ -1,6 +1,7 @@
 import { type ComponentType, useEffect, useMemo, useState } from "react";
 import {
   Archive,
+  BarChart3,
   ClipboardList,
   Database,
   FileText,
@@ -16,13 +17,23 @@ import { Button } from "../../components/ui/button";
 import { ErrorState, LoadingState, Status, navigateTo } from "../../components/shared";
 import { ResizableDetailLayout } from "../../components/resizable-layout";
 import {
+  getSelfBootstrapSummary,
   getTicketBackendSettings,
   getTicketBackendStatus,
+  getTicketEvidenceRequirements,
+  getTicketGraph,
+  getTicketPerformance,
+  listTicketAssets,
   listTickets,
+  type SelfBootstrapLearningSummary,
   type Ticket,
+  type TicketAssetRecord,
   type TicketBackendSettings,
   type TicketBackendStatus,
   type TicketEvent,
+  type TicketEvidenceRequirements,
+  type TicketPerformance,
+  type TicketGraphProjection,
   type TicketReport,
 } from "../../api/tickets";
 import { cn } from "@/lib/utils";
@@ -44,10 +55,35 @@ const FILTERS: { key: TicketFilter; label: string }[] = [
   { key: "done", label: "Done" },
 ];
 
+const QUALITY_SIGNAL_LABELS: Record<string, string> = {
+  has_assignee: "Assignee",
+  has_report: "Report",
+  has_evidence: "Evidence",
+  validation_requested: "Validation Requested",
+  has_validation_report: "Validation Report",
+  has_blocker: "Blocker",
+  candidate_produced: "Candidate",
+  used_recalled_asset: "Recalled Asset",
+  graphiti_recall_recorded: "Graphiti Recall",
+  provider_ref_recorded: "Provider Ref",
+  missing_evidence: "Missing Evidence",
+  waiting_report: "Waiting Report",
+  waiting_validation: "Waiting Validation",
+  blocked_or_failed: "Blocked Or Failed",
+};
+
+const WARNING_SIGNAL_KEYS = new Set(["has_blocker", "missing_evidence", "waiting_report", "waiting_validation", "blocked_or_failed"]);
+
 function sectionFromRoute(value?: string | null): TicketSection {
   if (value === "tickets") return "overview";
   if (value === "trace") return "flow";
   return SECTIONS.some((section) => section.key === value) ? value as TicketSection : "overview";
+}
+
+function ticketIdFromRoute(value?: string | null): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed || trimmed === "tickets" || trimmed === "trace") return "";
+  return SECTIONS.some((section) => section.key === trimmed) ? "" : trimmed;
 }
 
 function formatTime(value?: string | null): string {
@@ -128,6 +164,24 @@ function eventDetail(event: TicketEvent): string {
   return event.type;
 }
 
+function qualitySignalLabel(key: string): string {
+  return QUALITY_SIGNAL_LABELS[key] ?? key.replace(/_/g, " ");
+}
+
+function qualitySignalValue(value: boolean | number | string): string {
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  return String(value);
+}
+
+function qualitySignalVariant(key: string, value: boolean | number | string): "success" | "warning" | "secondary" | "outline" {
+  if (typeof value === "boolean") {
+    if (!value) return "outline";
+    return WARNING_SIGNAL_KEYS.has(key) ? "warning" : "success";
+  }
+  if (typeof value === "number") return value > 0 ? "secondary" : "outline";
+  return value ? "secondary" : "outline";
+}
+
 function TicketRow({
   active,
   item,
@@ -159,6 +213,130 @@ function TicketRow({
         <span className="truncate sm:col-span-2">Next: {nextAction(item)}</span>
       </div>
     </button>
+  );
+}
+
+function TicketPerformanceCard({ item, performance }: { item: Ticket | null; performance: TicketPerformance | null }) {
+  const metrics = [
+    { label: "Reports", value: performance?.source_counts.reports ?? 0 },
+    { label: "Evidence", value: performance?.source_counts.evidence ?? 0 },
+    { label: "Candidates", value: performance?.source_counts.memory_candidates ?? 0 },
+    { label: "Recalled Assets", value: performance?.source_counts.recalled_assets ?? 0 },
+  ];
+  const signals = Object.entries(performance?.quality_signals ?? {});
+  return (
+    <section className="rounded-md border bg-background p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <BarChart3 className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Performance</h3>
+      </div>
+      {!item ? (
+        <p className="text-sm text-muted-foreground">Select a Ticket to inspect contribution and quality signals.</p>
+      ) : !performance ? (
+        <p className="text-sm text-muted-foreground">Performance projection is unavailable for this Ticket.</p>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            {metrics.map((metric) => (
+              <div key={metric.label} className="min-w-0">
+                <div className="truncate text-xs text-muted-foreground">{metric.label}</div>
+                <div className="text-xl font-semibold">{metric.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <section>
+            <h4 className="mb-2 text-sm font-semibold">Quality Signals</h4>
+            <div className="flex flex-wrap gap-2">
+              {signals.map(([key, value]) => (
+                <Badge key={key} variant={qualitySignalVariant(key, value)}>
+                  {qualitySignalLabel(key)}: {qualitySignalValue(value)}
+                </Badge>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h4 className="mb-2 text-sm font-semibold">Contributors</h4>
+            {performance.contribution.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No Employee contribution facts yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {performance.contribution.slice(0, 5).map((entry) => (
+                  <div key={entry.employee_id} className="rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium" title={entry.employee_id}>{entry.employee_id}</span>
+                      <Badge variant={entry.validator ? "success" : entry.assigned ? "secondary" : "outline"}>
+                        {entry.validator ? "validator" : entry.assigned ? "owner" : "contributor"}
+                      </Badge>
+                    </div>
+                    {entry.role && <div className="mt-1 truncate text-xs text-muted-foreground" title={entry.role}>{entry.role}</div>}
+                    <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>Reports: {entry.report_count}</span>
+                      <span>Evidence: {entry.evidence_count}</span>
+                      <span>Candidates: {entry.candidate_count}</span>
+                      <span>Recall: {entry.recalled_asset_count}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TicketEvidenceRequirementsCard({
+  item,
+  requirements,
+}: {
+  item: Ticket | null;
+  requirements: TicketEvidenceRequirements | null;
+}) {
+  return (
+    <section className="rounded-md border bg-background p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Evidence Requirements</h3>
+      </div>
+      {!item ? (
+        <p className="text-sm text-muted-foreground">Select a Ticket to inspect validation evidence requirements.</p>
+      ) : !requirements ? (
+        <p className="text-sm text-muted-foreground">Evidence requirements are unavailable for this Ticket.</p>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">{requirements.profile}</Badge>
+            <Badge variant={requirements.satisfied ? "success" : "warning"}>
+              {requirements.satisfied ? "satisfied" : "missing evidence"}
+            </Badge>
+            {requirements.evidence_refs.length > 0 && (
+              <Badge variant="secondary">{requirements.evidence_refs.length} evidence refs</Badge>
+            )}
+          </div>
+          {requirements.requirements.map((requirement) => (
+            <div key={requirement.id} className="rounded-md border bg-muted/30 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-sm font-medium" title={requirement.label}>{requirement.label}</span>
+                <Badge variant={requirement.satisfied ? "success" : requirement.required ? "warning" : "outline"}>
+                  {requirement.required ? "required" : "optional"}
+                </Badge>
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">{requirement.satisfied ? "satisfied" : "not satisfied"}</div>
+              {requirement.recommended_commands.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {requirement.recommended_commands.map((command) => (
+                    <Badge key={command} variant="outline">{command}</Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -320,6 +498,11 @@ function BackendCard({
   backend: TicketBackendStatus | null;
   settings: TicketBackendSettings | null;
 }) {
+  const projectionPath =
+    backend?.saved_paths?.plane_projection
+    ?? settings?.saved_paths?.plane_projection
+    ?? backend?.local_file_path
+    ?? settings?.local_file_path;
   return (
     <section className="rounded-md border bg-background p-4">
       <div className="mb-3 flex items-center gap-2">
@@ -336,9 +519,9 @@ function BackendCard({
         </p>
         <Status label="Tickets" value={backend?.ticket_count ?? 0} />
         <div className="min-w-0">
-          <div className="text-xs uppercase text-muted-foreground">Local file</div>
-          <div className="truncate text-sm font-medium" title={backend?.local_file_path ?? settings?.local_file_path}>
-            {backend?.local_file_path ?? settings?.local_file_path ?? "-"}
+          <div className="text-xs uppercase text-muted-foreground">Projection mirror</div>
+          <div className="truncate text-sm font-medium" title={projectionPath}>
+            {projectionPath ?? "-"}
           </div>
         </div>
         <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => navigateTo("settings", "integrations")}>
@@ -349,7 +532,65 @@ function BackendCard({
   );
 }
 
-function AssetGraphCard({ item }: { item: Ticket | null }) {
+function SelfBootstrapSummaryCard({ summary }: { summary: SelfBootstrapLearningSummary | null }) {
+  const topTicket = summary?.tickets.find((ticket) => ticket.missing_required_evidence > 0 || ticket.blocked_or_failed)
+    ?? summary?.tickets[0]
+    ?? null;
+  return (
+    <section className="rounded-md border bg-background p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <GitBranch className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold">Self-Bootstrap</h3>
+      </div>
+      {!summary ? (
+        <p className="text-sm text-muted-foreground">Self-bootstrap summary is unavailable.</p>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm leading-6 text-muted-foreground">{summary.summary}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Status label="Tickets" value={summary.ticket_count} />
+            <Status label="Validated" value={summary.validated_ticket_count} />
+            <Status label="Candidates" value={summary.memory_candidates_produced} />
+            <Status label="Recalled" value={summary.approved_memories_recalled} />
+            <Status label="Useful recall" value={summary.useful_memory_recalls} />
+            <Status label="Needs evidence" value={summary.tickets_missing_required_evidence} />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={summary.graphiti_memories_recalled > 0 ? "success" : "outline"}>
+              Graphiti recall: {summary.graphiti_memories_recalled}
+            </Badge>
+            <Badge variant={summary.blocked_ticket_count > 0 ? "warning" : "outline"}>
+              Blocked: {summary.blocked_ticket_count}
+            </Badge>
+            <Badge variant={summary.stale_or_superseded_assets > 0 ? "warning" : "outline"}>
+              Stale: {summary.stale_or_superseded_assets}
+            </Badge>
+          </div>
+          {topTicket && (
+            <div className="rounded-md border bg-muted/30 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-sm font-medium" title={topTicket.title}>{topTicket.ticket_id}</span>
+                <Badge variant={statusVariant(topTicket.status)}>{topTicket.status}</Badge>
+              </div>
+              <p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">{topTicket.next_learning_action}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function metadataString(metadata: Record<string, unknown>, key: string): string {
+  const value = metadata[key];
+  return typeof value === "string" ? value : "";
+}
+
+function AssetGraphCard({ item, assets, graph }: { item: Ticket | null; assets: TicketAssetRecord[]; graph: TicketGraphProjection | null }) {
+  const linkedAssets = item ? assets.filter((asset) => asset.source_ticket_id === item.id) : [];
+  const memoryCandidateAssets = linkedAssets.filter((asset) => asset.kind === "memory_candidate");
+  const recalledMemoryAssets = linkedAssets.filter((asset) => asset.kind === "memory" && asset.status === "approved");
+  const groupedEdges = graph ? Object.entries(graph.grouped_edges).filter(([, edges]) => edges.length > 0) : [];
   return (
     <section className="rounded-md border bg-background p-4">
       <div className="mb-3 flex items-center gap-2">
@@ -366,8 +607,67 @@ function AssetGraphCard({ item }: { item: Ticket | null }) {
           <Status label="Repositories" value={item.code_repository_ids.length} />
           <Status label="Trace links" value={[item.source_thread_id, item.source_run_id].filter(Boolean).length} />
           <Status label="Events" value={ticketEvents(item).length} />
+          <Status label="Graph edges" value={graph?.edges.length ?? 0} />
+          <Status label="Memory candidates" value={memoryCandidateAssets.length} />
+          {memoryCandidateAssets.length > 0 && (
+            <div className="space-y-2">
+              {memoryCandidateAssets.slice(0, 3).map((asset) => (
+                <div key={asset.id} className="rounded-md border bg-muted/30 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium" title={asset.title}>{asset.title}</span>
+                    <Badge variant={statusVariant(asset.status)}>{asset.status}</Badge>
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground" title={metadataString(asset.metadata, "source_trace_path") || asset.id}>
+                    Trace: {metadataString(asset.metadata, "source_trace_path") || "-"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <Status label="Approved memories used" value={recalledMemoryAssets.length} />
+          {recalledMemoryAssets.length > 0 && (
+            <div className="space-y-2">
+              {recalledMemoryAssets.slice(0, 3).map((asset) => {
+                const derivedFrom = metadataString(asset.metadata, "derived_from_ticket_id");
+                const usefulness = metadataString(asset.metadata, "usefulness_status") || "unreviewed";
+                return (
+                  <div key={asset.id} className="rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium" title={asset.title}>{asset.title}</span>
+                      <Badge variant={usefulness === "useful" ? "success" : "outline"}>{usefulness}</Badge>
+                    </div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground" title={derivedFrom || asset.id}>
+                      Source: {derivedFrom || asset.id}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {groupedEdges.length > 0 && (
+            <div>
+              <h4 className="mb-2 text-sm font-semibold">Grouped Edges</h4>
+              <div className="space-y-2">
+                {groupedEdges.slice(0, 6).map(([edgeType, edges]) => (
+                  <div key={edgeType} className="rounded-md border bg-muted/30 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-medium text-foreground" title={edgeType}>{edgeType}</span>
+                      <Badge variant="outline">{edges.length}</Badge>
+                    </div>
+                    <div className="space-y-1">
+                      {edges.slice(0, 3).map((edge) => (
+                        <div key={edge.id} className="truncate text-xs text-muted-foreground" title={`${edge.source_id} -> ${edge.target_id}`}>
+                          {edge.source_id} -&gt; {edge.target_id}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="rounded-md border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
-            Local graph facts are projected from Ticket events, reports, evidence, repositories, and Knowledge refs.
+            Local graph facts are projected from Ticket events, reports, evidence, approved Memory usage, repositories, and Knowledge refs.
             Graphiti remains the long-term memory graph.
           </div>
         </div>
@@ -379,15 +679,22 @@ function AssetGraphCard({ item }: { item: Ticket | null }) {
 export function TicketsPage({ selectedSection }: { selectedSection?: string | null }) {
   const [section, setSection] = useState<TicketSection>(() => sectionFromRoute(selectedSection));
   const [items, setItems] = useState<Ticket[]>([]);
+  const [ticketAssets, setTicketAssets] = useState<TicketAssetRecord[]>([]);
+  const [ticketGraph, setTicketGraph] = useState<TicketGraphProjection | null>(null);
+  const [ticketPerformance, setTicketPerformance] = useState<TicketPerformance | null>(null);
+  const [ticketEvidenceRequirements, setTicketEvidenceRequirements] = useState<TicketEvidenceRequirements | null>(null);
+  const [selfBootstrapSummary, setSelfBootstrapSummary] = useState<SelfBootstrapLearningSummary | null>(null);
   const [backend, setBackend] = useState<TicketBackendStatus | null>(null);
   const [backendSettings, setBackendSettings] = useState<TicketBackendSettings | null>(null);
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedId] = useState(() => ticketIdFromRoute(selectedSection));
   const [filter, setFilter] = useState<TicketFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setSection(sectionFromRoute(selectedSection));
+    const routeTicketId = ticketIdFromRoute(selectedSection);
+    if (routeTicketId) setSelectedId(routeTicketId);
   }, [selectedSection]);
 
   const selected = items.find((item) => item.id === selectedId) ?? items[0] ?? null;
@@ -408,15 +715,23 @@ export function TicketsPage({ selectedSection }: { selectedSection?: string | nu
     setLoading(true);
     setError(null);
     try {
-      const [loadedItems, loadedSettings, loadedBackend] = await Promise.all([
+      const [loadedItems, loadedAssets, loadedSettings, loadedBackend, loadedSelfBootstrapSummary] = await Promise.all([
         listTickets(),
+        listTicketAssets(),
         getTicketBackendSettings(),
         getTicketBackendStatus(),
+        getSelfBootstrapSummary(),
       ]);
       setItems(loadedItems);
+      setTicketAssets(loadedAssets);
       setBackendSettings(loadedSettings);
       setBackend(loadedBackend);
-      setSelectedId((current) => loadedItems.some((item) => item.id === current) ? current : loadedItems[0]?.id ?? "");
+      setSelfBootstrapSummary(loadedSelfBootstrapSummary);
+      setSelectedId((current) => {
+        const routeTicketId = ticketIdFromRoute(selectedSection);
+        if (routeTicketId && loadedItems.some((item) => item.id === routeTicketId)) return routeTicketId;
+        return loadedItems.some((item) => item.id === current) ? current : loadedItems[0]?.id ?? "";
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tickets");
     } finally {
@@ -427,6 +742,36 @@ export function TicketsPage({ selectedSection }: { selectedSection?: string | nu
   useEffect(() => {
     void loadTickets();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selected?.id) {
+      setTicketGraph(null);
+      setTicketPerformance(null);
+      setTicketEvidenceRequirements(null);
+      return () => { cancelled = true; };
+    }
+    Promise.all([
+      getTicketGraph(selected.id),
+      getTicketPerformance(selected.id),
+      getTicketEvidenceRequirements(selected.id),
+    ])
+      .then(([projection, performance, evidenceRequirements]) => {
+        if (!cancelled) {
+          setTicketGraph(projection);
+          setTicketPerformance(performance);
+          setTicketEvidenceRequirements(evidenceRequirements);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTicketGraph(null);
+          setTicketPerformance(null);
+          setTicketEvidenceRequirements(null);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [selected?.id]);
 
   if (loading) return <LoadingState />;
 
@@ -545,6 +890,8 @@ export function TicketsPage({ selectedSection }: { selectedSection?: string | nu
         <aside className="space-y-4">
           <BackendCard backend={backend} settings={backendSettings} />
 
+          <SelfBootstrapSummaryCard summary={selfBootstrapSummary} />
+
           <section className="rounded-md border bg-background p-4">
             <div className="mb-3 flex items-center gap-2">
               <UserCheck className="h-4 w-4 text-muted-foreground" />
@@ -566,7 +913,11 @@ export function TicketsPage({ selectedSection }: { selectedSection?: string | nu
             </div>
           </section>
 
-          <AssetGraphCard item={selected} />
+          <TicketEvidenceRequirementsCard item={selected} requirements={ticketEvidenceRequirements} />
+
+          <TicketPerformanceCard item={selected} performance={ticketPerformance} />
+
+          <AssetGraphCard item={selected} assets={ticketAssets} graph={ticketGraph} />
         </aside>
       )}
     />

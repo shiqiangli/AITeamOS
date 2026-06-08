@@ -161,6 +161,43 @@ function SystemStatusSecretsPanel({ systemStatus }: { systemStatus: SystemStatus
   );
 }
 
+function SystemStatusBlockersPanel({ systemStatus }: { systemStatus: SystemStatusResponse | null }) {
+  const blockers = systemStatus?.blockers ?? [];
+  return (
+    <section className="rounded-md border bg-background">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Operating Blockers</h3>
+        </div>
+        <Badge variant={blockers.length ? "warning" : "success"}>{blockers.length}</Badge>
+      </div>
+      <div className="grid gap-3 p-4">
+        {blockers.length === 0 ? (
+          <EmptyDetail>No backend setup blockers are currently reported.</EmptyDetail>
+        ) : blockers.map((blocker) => (
+          <div key={blocker.id} className="rounded-md border bg-card px-4 py-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold">{blocker.scope}</div>
+                <p className="mt-1 text-sm text-muted-foreground">{blocker.detail}</p>
+              </div>
+              <Badge variant="warning">{compactStatus(blocker.status)}</Badge>
+            </div>
+            {blocker.setup_required.length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {blocker.setup_required.map((item) => (
+                  <Badge key={item} variant="outline">{item}</Badge>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function SystemStatusPage() {
   const [aiEngines, setAiEngines] = useState<ChatAiEngineSettings | null>(null);
   const [capabilityRegistry, setCapabilityRegistry] = useState<CapabilityRegistryResponse | null>(null);
@@ -256,6 +293,7 @@ export function SystemStatusPage() {
         ticketBackendStatus={ticketBackendStatus}
         toolConnectorStatus={toolConnectorStatus}
       />
+      <SystemStatusBlockersPanel systemStatus={systemStatus} />
       <SystemStatusSecretsPanel systemStatus={systemStatus} />
     </section>
   );

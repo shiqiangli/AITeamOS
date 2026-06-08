@@ -113,13 +113,18 @@ const codeRepositoryStatus = {
 };
 
 const ticketBackendStatus = {
-  mode: "local_file",
-  status: "ready",
-  ticket_count: 4,
-  local_file_path: ".aiteamos/tickets/index.json",
-  detail: "Local file backend is ready.",
-  supported_modes: ["local_file"],
-  saved_paths: {},
+  mode: "plane",
+  status: "setup_blocked",
+  ticket_count: 0,
+  local_file_path: "",
+  provider: "plane",
+  provider_ref_count: 0,
+  setup_required: ["plane_workspace_slug", "plane_project_id", "PLANE_API_KEY"],
+  capabilities: ["setup_blocker"],
+  mapping: { Ticket: "provider record" },
+  detail: "Plane Ticket Backend is selected but setup is incomplete.",
+  supported_modes: [],
+  saved_paths: { plane_projection: ".aiteamos/tickets/plane" },
 };
 
 const toolConnectorStatus = {
@@ -149,6 +154,22 @@ const systemStatus = {
       required_for: "OpenAI AI Engine execution.",
       configured: true,
       how_to_configure: "Set OPENAI_API_KEY in the server environment before starting AITeamOS.",
+    },
+  ],
+  blockers: [
+    {
+      id: "ticket_backend",
+      scope: "Ticket Backend",
+      status: "setup_blocked",
+      detail: "Plane Ticket Backend is selected but setup is incomplete.",
+      setup_required: ["plane_workspace_slug", "plane_project_id", "PLANE_API_KEY"],
+    },
+    {
+      id: "memory_asset_graph_backend",
+      scope: "Memory / Asset Graph Backend",
+      status: "disabled",
+      detail: "Graphiti is not enabled.",
+      setup_required: ["Graphiti URI/user", "AITEAMOS_GRAPHITI_PASSWORD or NEO4J_PASSWORD"],
     },
   ],
 };
@@ -201,6 +222,9 @@ describe("SystemStatusPage", () => {
 
     expect(await screen.findByText("System Status")).toBeTruthy();
     expect(screen.getByText("System Summary")).toBeTruthy();
+    expect(screen.getByText("Operating Blockers")).toBeTruthy();
+    expect(screen.getByText("Memory / Asset Graph Backend")).toBeTruthy();
+    expect(screen.getByText("AITEAMOS_GRAPHITI_PASSWORD or NEO4J_PASSWORD")).toBeTruthy();
     expect(screen.getByText("Secrets Health")).toBeTruthy();
     expect(screen.getByText("ChatGPT / OpenAI API")).toBeTruthy();
     expect(screen.getByText("DEEPSEEK_API_KEY")).toBeTruthy();

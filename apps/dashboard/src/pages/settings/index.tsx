@@ -97,6 +97,15 @@ type GraphitiForm = {
 type TicketBackendForm = {
   mode: string;
   localFilePath: string;
+  planeApiBaseUrl: string;
+  planeWebBaseUrl: string;
+  planeWorkspaceSlug: string;
+  planeProjectId: string;
+  planeApiKeyEnv: string;
+  planeNamespaceStrategy: string;
+  planeNamespaceLabelIds: string;
+  planeStateIds: string;
+  planeEmployeeAssigneeIds: string;
 };
 
 type RepositoryForm = {
@@ -202,7 +211,33 @@ function ticketBackendToForm(settings: TicketBackendSettings): TicketBackendForm
   return {
     mode: settings.mode,
     localFilePath: settings.local_file_path,
+    planeApiBaseUrl: settings.plane_api_base_url || "https://api.plane.so",
+    planeWebBaseUrl: settings.plane_web_base_url || "https://app.plane.so",
+    planeWorkspaceSlug: settings.plane_workspace_slug || "",
+    planeProjectId: settings.plane_project_id || "",
+    planeApiKeyEnv: settings.plane_api_key_env || "PLANE_API_KEY",
+    planeNamespaceStrategy: settings.plane_namespace_strategy || "label",
+    planeNamespaceLabelIds: JSON.stringify(settings.plane_namespace_label_ids ?? {}, null, 2),
+    planeStateIds: JSON.stringify(settings.plane_state_ids ?? {}, null, 2),
+    planeEmployeeAssigneeIds: JSON.stringify(settings.plane_employee_assignee_ids ?? {}, null, 2),
   };
+}
+
+function parseRecordDraft(value: string, label: string): Record<string, string> {
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error(`${label} must be valid JSON.`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+  return Object.fromEntries(
+    Object.entries(parsed).map(([key, entry]) => [key, String(entry)]).filter(([key, entry]) => key && entry),
+  );
 }
 
 function emptyRepositoryForm(): RepositoryForm {
@@ -722,10 +757,10 @@ function TicketBackendSection({
 }) {
   const supportedModes = settings?.supported_modes ?? status?.supported_modes ?? [
     {
-      id: "local_file",
-      label: "Local file",
+      id: "plane",
+      label: "Plane",
       status: "ready",
-      description: "File-backed Tickets for fast local dogfooding.",
+      description: "Plane-backed Ticket fact source.",
     },
   ];
 
@@ -755,13 +790,104 @@ function TicketBackendSection({
               </Select>
             </label>
             <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Local Ticket file</span>
+              <span className="text-xs uppercase text-muted-foreground">Legacy projection file</span>
               <input
-                aria-label="Local Ticket file"
+                aria-label="Legacy projection file"
                 value={form.localFilePath}
                 onChange={(event) => setForm((current) => ({ ...current, localFilePath: event.target.value }))}
                 placeholder=".aiteamos/tickets/index.json"
                 className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane API base URL</span>
+              <input
+                aria-label="Plane API base URL"
+                value={form.planeApiBaseUrl}
+                onChange={(event) => setForm((current) => ({ ...current, planeApiBaseUrl: event.target.value }))}
+                placeholder="https://api.plane.so"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane web base URL</span>
+              <input
+                aria-label="Plane web base URL"
+                value={form.planeWebBaseUrl}
+                onChange={(event) => setForm((current) => ({ ...current, planeWebBaseUrl: event.target.value }))}
+                placeholder="https://app.plane.so"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane workspace slug</span>
+              <input
+                aria-label="Plane workspace slug"
+                value={form.planeWorkspaceSlug}
+                onChange={(event) => setForm((current) => ({ ...current, planeWorkspaceSlug: event.target.value }))}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane project id</span>
+              <input
+                aria-label="Plane project id"
+                value={form.planeProjectId}
+                onChange={(event) => setForm((current) => ({ ...current, planeProjectId: event.target.value }))}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane API key env</span>
+              <input
+                aria-label="Plane API key env"
+                value={form.planeApiKeyEnv}
+                onChange={(event) => setForm((current) => ({ ...current, planeApiKeyEnv: event.target.value }))}
+                placeholder="PLANE_API_KEY"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane namespace strategy</span>
+              <Select
+                aria-label="Plane namespace strategy"
+                value={form.planeNamespaceStrategy}
+                onChange={(event) => setForm((current) => ({ ...current, planeNamespaceStrategy: event.target.value }))}
+              >
+                <option value="label">Label</option>
+              </Select>
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Namespace labels</span>
+              <textarea
+                aria-label="Plane namespace label mapping"
+                value={form.planeNamespaceLabelIds}
+                onChange={(event) => setForm((current) => ({ ...current, planeNamespaceLabelIds: event.target.value }))}
+                className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">State mapping</span>
+              <textarea
+                aria-label="Plane state mapping"
+                value={form.planeStateIds}
+                onChange={(event) => setForm((current) => ({ ...current, planeStateIds: event.target.value }))}
+                className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Employee assignees</span>
+              <textarea
+                aria-label="Plane Employee assignee mapping"
+                value={form.planeEmployeeAssigneeIds}
+                onChange={(event) => setForm((current) => ({ ...current, planeEmployeeAssigneeIds: event.target.value }))}
+                className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </label>
           </div>
@@ -1202,8 +1328,17 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     llmAiEngine: "openai",
   });
   const [ticketBackendForm, setTicketBackendForm] = useState<TicketBackendForm>({
-    mode: "local_file",
+    mode: "plane",
     localFilePath: ".aiteamos/tickets/index.json",
+    planeApiBaseUrl: "https://api.plane.so",
+    planeWebBaseUrl: "https://app.plane.so",
+    planeWorkspaceSlug: "",
+    planeProjectId: "",
+    planeApiKeyEnv: "PLANE_API_KEY",
+    planeNamespaceStrategy: "label",
+    planeNamespaceLabelIds: "{}",
+    planeStateIds: "{}",
+    planeEmployeeAssigneeIds: "{}",
   });
   const [repositoryForm, setRepositoryForm] = useState<RepositoryForm>(emptyRepositoryForm);
   const [repositories, setRepositories] = useState<CodeRepository[]>([]);
@@ -1377,6 +1512,15 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       const updated = await updateTicketBackendSettings({
         mode: ticketBackendForm.mode,
         local_file_path: ticketBackendForm.localFilePath,
+        plane_api_base_url: ticketBackendForm.planeApiBaseUrl,
+        plane_web_base_url: ticketBackendForm.planeWebBaseUrl,
+        plane_workspace_slug: ticketBackendForm.planeWorkspaceSlug,
+        plane_project_id: ticketBackendForm.planeProjectId,
+        plane_api_key_env: ticketBackendForm.planeApiKeyEnv,
+        plane_namespace_strategy: ticketBackendForm.planeNamespaceStrategy,
+        plane_namespace_label_ids: parseRecordDraft(ticketBackendForm.planeNamespaceLabelIds, "Plane namespace labels"),
+        plane_state_ids: parseRecordDraft(ticketBackendForm.planeStateIds, "Plane state mapping"),
+        plane_employee_assignee_ids: parseRecordDraft(ticketBackendForm.planeEmployeeAssigneeIds, "Plane Employee assignee mapping"),
       });
       const updatedStatus = await getTicketBackendStatus();
       setTicketBackend(updated);
@@ -1612,6 +1756,11 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     }
 
     if (section === "ticket-backend") {
+      const projectionPath =
+        ticketBackendStatus?.saved_paths?.plane_projection
+        ?? ticketBackend?.saved_paths?.plane_projection
+        ?? ticketBackendStatus?.local_file_path
+        ?? ticketBackend?.local_file_path;
       return (
         <aside className="space-y-4">
           <DetailPanel title="Ticket Backend Status" icon={ClipboardList}>
@@ -1619,14 +1768,34 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
               <Status label="Mode" value={ticketBackendStatus?.mode ?? ticketBackend?.mode ?? "-"} />
               <Status label="Status" value={compactStatus(ticketBackendStatus?.status)} tone={ticketBackendStatus?.status === "ready" ? "ok" : "warn"} />
               <Status label="Tickets" value={ticketBackendStatus?.ticket_count ?? 0} />
+              <Status label="Provider" value={ticketBackendStatus?.provider || "-"} />
+              <Status label="Provider refs" value={ticketBackendStatus?.provider_ref_count ?? 0} />
               <div className="min-w-0">
-                <div className="text-xs uppercase text-muted-foreground">Local file</div>
-                <div className="truncate text-sm font-medium" title={ticketBackendStatus?.local_file_path ?? ticketBackend?.local_file_path}>
-                  {ticketBackendStatus?.local_file_path ?? ticketBackend?.local_file_path ?? "-"}
+                <div className="text-xs uppercase text-muted-foreground">Projection mirror</div>
+                <div className="truncate text-sm font-medium" title={projectionPath}>
+                  {projectionPath ?? "-"}
                 </div>
               </div>
+              {ticketBackendStatus?.setup_required?.length ? (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                  Missing setup: {ticketBackendStatus.setup_required.join(", ")}
+                </div>
+              ) : null}
+              {ticketBackendStatus?.mapping && Object.keys(ticketBackendStatus.mapping).length ? (
+                <div className="space-y-1">
+                  <div className="text-xs uppercase text-muted-foreground">Plane mapping</div>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    {Object.entries(ticketBackendStatus.mapping).map(([key, value]) => (
+                      <div key={key} className="flex min-w-0 justify-between gap-3 rounded-md bg-muted px-2 py-1">
+                        <span className="font-medium text-foreground">{key}</span>
+                        <span className="truncate" title={value}>{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
-                {ticketBackendStatus?.detail ?? "Local file is the active P0 backend. Plane/Jira are adapter targets, not separate product models."}
+                {ticketBackendStatus?.detail ?? "Plane is the target Ticket Backend. AITeamOS keeps only configuration, trace, and audit projection locally."}
               </div>
             </div>
           </DetailPanel>

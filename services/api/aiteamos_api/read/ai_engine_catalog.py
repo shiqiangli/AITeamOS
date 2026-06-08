@@ -29,7 +29,7 @@ AI_ENGINE_CATALOG: dict[str, dict[str, Any]] = {
         "default_api_key_env": "DEEPSEEK_API_KEY",
         "model_options": ["deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner"],
         "thinking_options": ["disabled", "enabled"],
-        "capabilities": ["chat", "streaming", "tool_planning", "reasoning", "openai_compatible"],
+        "capabilities": ["chat", "streaming", "tool_planning", "reasoning", "graphiti_llm", "openai_compatible"],
         "config_fields": [
             {"id": "model", "label": "Default model", "kind": "text", "required": True},
             {"id": "thinking", "label": "Thinking", "kind": "select", "options": ["disabled", "enabled"]},
