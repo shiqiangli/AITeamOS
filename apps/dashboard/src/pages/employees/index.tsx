@@ -38,9 +38,24 @@ import {
   type ChatThreadListResponse,
 } from "../../api/chat";
 import { getCapabilities, type CapabilityRecord, type CapabilityRegistryResponse } from "../../api/capabilities";
-import { getEmployeeAnalytics, getEmployeeGraph, type EmployeeAnalytics, type EmployeeGraphProjection } from "../../api/employees";
+import {
+  applyEmployeeImprovementAsset,
+  getEmployeeAnalytics,
+  getEmployeeGraph,
+  getEmployeeGrowthEval,
+  proposeEmployeeImprovementCandidate,
+  type EmployeeAnalytics,
+  type EmployeeGraphProjection,
+  type EmployeeGrowthEvalCheck,
+  type EmployeeGrowthEvalResponse,
+  type EmployeeImprovementApplyResponse,
+  type EmployeeImprovementCandidateResponse,
+} from "../../api/employees";
 import {
   getEmployeeWorkLedger,
+  type EmployeeAssetWorkRecord,
+  type EmployeeQualityFeedbackRecord,
+  type EmployeeRuntimeRunRecord,
   type EmployeeTicketReportRecord,
   type EmployeeWorkLedger,
   type TicketWorkItem,
@@ -57,6 +72,10 @@ const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
   { key: "governance", label: "Governance" },
   { key: "ai_engine", label: "AI Engine" },
 ];
+
+function normalizedDetailTab(value: string | null | undefined): DetailTab {
+  return DETAIL_TABS.some((item) => item.key === value) ? value as DetailTab : "overview";
+}
 
 function capabilitiesForEmployee(employee: ChatEmployeeSummary | null, registry: CapabilityRegistryResponse | null): CapabilityRecord[] {
   if (!employee) return [];
@@ -103,6 +122,25 @@ function totalMessages(threads?: ChatThreadListResponse | null): number {
   return threads?.threads?.reduce((sum, thread) => sum + (thread.message_count ?? 0), 0) ?? 0;
 }
 
+function loadNumber(employee: ChatEmployeeSummary, key: string): number {
+  const value = employee.current_load?.[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function loadString(employee: ChatEmployeeSummary, key: string): string {
+  const value = employee.current_load?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function loadList(employee: ChatEmployeeSummary, key: string): string[] {
+  const value = employee.current_load?.[key];
+  return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
+}
+
+function unknownStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
+}
+
 function employeeInitial(employee: ChatEmployeeSummary): string {
   return (employee.display_name || employee.id || "?").trim().charAt(0).toUpperCase() || "?";
 }
@@ -111,6 +149,10 @@ function employeeState(employee: ChatEmployeeSummary, threads?: ChatThreadListRe
   label: string;
   variant: "success" | "warning" | "secondary" | "outline";
 } {
+  const loadStatus = loadString(employee, "status");
+  if (loadStatus === "needs_attention") return { label: "attention", variant: "warning" };
+  if (loadNumber(employee, "active_run_count") > 0 || loadStatus === "running") return { label: "running", variant: "success" };
+  if (loadNumber(employee, "active_ticket_count") > 0 || ["active", "busy"].includes(loadStatus)) return { label: loadStatus || "active", variant: "secondary" };
   if (employee.id === "clara") return { label: "operating", variant: "success" };
   if (totalMessages(threads) > 0) return { label: "active", variant: "success" };
   return { label: "ready", variant: "outline" };
@@ -157,6 +199,17 @@ function formatRate(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
+function formatCost(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "$0.00";
+  return `$${value.toFixed(value < 1 ? 4 : 2)}`;
+}
+
+function formatLatency(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0 ms";
+  if (value >= 1000) return `${(value / 1000).toFixed(1)} s`;
+  return `${Math.round(value)} ms`;
+}
+
 function sourceCount(analytics: EmployeeAnalytics | null, key: string): number {
   const value = analytics?.source_counts?.[key];
   return typeof value === "number" ? value : 0;
@@ -165,6 +218,31 @@ function sourceCount(analytics: EmployeeAnalytics | null, key: string): number {
 function graphSourceCount(graph: EmployeeGraphProjection | null, key: string): number {
   const value = graph?.source_counts?.[key];
   return typeof value === "number" ? value : 0;
+}
+
+function providerProjectionValue(graph: EmployeeGraphProjection | null, key: string): string {
+  const profile = graph?.provider_projection?.employee_profile;
+  const value = profile?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function statusVariant(status: string): "success" | "warning" | "danger" | "secondary" | "outline" {
+  if (["passed", "ready", "applied", "already_applied"].includes(status)) return "success";
+  if (["warning", "blocked", "needs_attention"].includes(status)) return "warning";
+  if (["failed", "error"].includes(status)) return "danger";
+  return status ? "secondary" : "outline";
+}
+
+function assetStatusLabel(item: EmployeeAssetWorkRecord): string {
+  return [item.asset_type, item.status || item.review_state].filter(Boolean).join(" · ") || "asset";
+}
+
+function isEmployeeImprovementAsset(item: EmployeeAssetWorkRecord): boolean {
+  return item.asset_type === "employee_improvement";
+}
+
+function isImprovementApplied(item: EmployeeAssetWorkRecord, localStatus = ""): boolean {
+  return ["applied", "already_applied"].includes((localStatus || item.application_status || "").trim().toLowerCase());
 }
 
 function sourceKindLabel(sourceKind: string): string {
@@ -207,6 +285,43 @@ function handoffEventValue(handoff: Record<string, unknown>, key: string): strin
   return typeof value === "string" ? value : "";
 }
 
+function handoffEventData(handoff: Record<string, unknown>): Record<string, unknown> {
+  const event = handoff.event;
+  if (!event || typeof event !== "object") return {};
+  const data = (event as Record<string, unknown>).data;
+  return data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : {};
+}
+
+function handoffDataValue(handoff: Record<string, unknown>, key: string): string {
+  const value = handoffEventData(handoff)[key];
+  return typeof value === "string" ? value : "";
+}
+
+function employeePolicy(employee: ChatEmployeeSummary): Record<string, unknown> {
+  return employee.handoff_policy && typeof employee.handoff_policy === "object" && !Array.isArray(employee.handoff_policy)
+    ? employee.handoff_policy
+    : {};
+}
+
+function policyText(policy: Record<string, unknown>, key: string): string {
+  const value = policy[key];
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function policyList(policy: Record<string, unknown>, key: string): string[] {
+  return unknownStringArray(policy[key]);
+}
+
+function policyEnabled(policy: Record<string, unknown>, key: string): boolean {
+  return policy[key] === true;
+}
+
+function riskBoundaryLabel(policy: Record<string, unknown>): string {
+  return policyText(policy, "max_risk_level") || policyText(policy, "risk_boundary") || policyText(policy, "max_risk") || "-";
+}
+
 function StatCard({
   icon: Icon,
   label,
@@ -240,8 +355,9 @@ function WorkItemButton({ item }: { item: TicketWorkItem }) {
   return (
     <button
       type="button"
+      aria-label={`Open Ticket ${item.ticket_id}`}
       className="flex w-full items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
-      onClick={() => navigateTo("chat", item.ticket_id)}
+      onClick={() => navigateTo("tickets", item.ticket_id)}
     >
       <div className="min-w-0">
         <div className="truncate text-sm font-medium">{item.title}</div>
@@ -280,8 +396,9 @@ function WorkReportSection({
             <button
               key={`${record.ticket_id}-${record.report_id}`}
               type="button"
+              aria-label={`Open Ticket ${record.ticket_id} report ${record.report_id}`}
               className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
-              onClick={() => navigateTo("chat", record.ticket_id)}
+              onClick={() => navigateTo("tickets", record.ticket_id)}
             >
               <div className="flex min-w-0 items-center justify-between gap-2">
                 <span className="truncate text-sm font-medium">{record.ticket_title}</span>
@@ -358,22 +475,36 @@ function HandoffSection({ handoffs }: { handoffs: Record<string, unknown>[] }) {
           {handoffs.slice(0, 6).map((handoff, index) => {
             const ticketId = handoffValue(handoff, "ticket_id");
             const title = handoffValue(handoff, "title") || ticketId || "Ticket handoff";
+            const relation = handoffValue(handoff, "relation");
             const type = handoffEventValue(handoff, "type") || "handoff";
             const at = handoffEventValue(handoff, "at");
+            const fromEmployeeId = handoffDataValue(handoff, "from_employee_id");
+            const toEmployeeId = handoffDataValue(handoff, "to_employee_id");
+            const sourceRunId = handoffDataValue(handoff, "source_run_id");
+            const content = handoffDataValue(handoff, "content");
             return (
               <button
                 key={`${ticketId || "handoff"}-${index}`}
                 type="button"
+                aria-label={ticketId ? `Open Ticket ${ticketId} handoff` : "Open handoff"}
                 className="flex w-full items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
-                onClick={() => ticketId && navigateTo("chat", ticketId)}
+                onClick={() => ticketId && navigateTo("tickets", ticketId)}
               >
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium">{title}</div>
                   <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-muted-foreground">
                     {ticketId && <span>{ticketId}</span>}
                     <span>{type}</span>
+                    {relation && <span>{relation}</span>}
+                    {(fromEmployeeId || toEmployeeId) && <span>{`${fromEmployeeId || "-"} -> ${toEmployeeId || "-"}`}</span>}
                     {at && <span>{formatThreadTime(at)}</span>}
                   </div>
+                  {sourceRunId && (
+                    <div className="mt-1 truncate text-xs text-muted-foreground" title={sourceRunId}>Run: {sourceRunId}</div>
+                  )}
+                  {content && (
+                    <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{content}</div>
+                  )}
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
               </button>
@@ -382,6 +513,363 @@ function HandoffSection({ handoffs }: { handoffs: Record<string, unknown>[] }) {
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">No handoff records yet.</p>
+      )}
+    </section>
+  );
+}
+
+function HandoffBoundarySection({ employee }: { employee: ChatEmployeeSummary }) {
+  const policy = employeePolicy(employee);
+  const acceptsLanes = policyList(policy, "accepts_lanes");
+  const preferredLanes = policyList(policy, "preferred_lanes");
+  const memoryScopes = employee.memory_scopes.length ? employee.memory_scopes : policyList(policy, "memory_scopes");
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-muted-foreground" />
+          <h4 className="text-sm font-semibold">Memory & Handoff Boundary</h4>
+        </div>
+        <Badge variant={policyEnabled(policy, "can_receive_handoffs") ? "success" : "warning"}>
+          {policyEnabled(policy, "can_receive_handoffs") ? "handoff ready" : "handoff gated"}
+        </Badge>
+      </div>
+      <div className="space-y-3">
+        <div>
+          <div className="mb-1 text-xs font-medium uppercase text-muted-foreground">Memory Scopes</div>
+          <div className="flex flex-wrap gap-1.5">
+            {memoryScopes.length ? memoryScopes.map((scope) => <Badge key={scope} variant="secondary">{scope}</Badge>) : <Badge variant="outline">none</Badge>}
+          </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <InfoRow label="Risk boundary" value={riskBoundaryLabel(policy)} />
+          <InfoRow label="Escalates to" value={policyText(policy, "escalate_to") || "-"} />
+          <InfoRow label="Max active tickets" value={policyText(policy, "max_active_tickets") || "-"} />
+          <InfoRow label="Preferred runtime" value={employee.preferred_runtime || "-"} />
+        </div>
+        {(acceptsLanes.length || preferredLanes.length) ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div>
+              <div className="mb-1 text-xs font-medium uppercase text-muted-foreground">Accepts Lanes</div>
+              <div className="flex flex-wrap gap-1.5">
+                {acceptsLanes.length ? acceptsLanes.map((lane) => <Badge key={lane} variant="outline">{lane}</Badge>) : <Badge variant="outline">none</Badge>}
+              </div>
+            </div>
+            <div>
+              <div className="mb-1 text-xs font-medium uppercase text-muted-foreground">Preferred Lanes</div>
+              <div className="flex flex-wrap gap-1.5">
+                {preferredLanes.length ? preferredLanes.map((lane) => <Badge key={lane} variant="outline">{lane}</Badge>) : <Badge variant="outline">none</Badge>}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function assetContributionTarget(item: EmployeeAssetWorkRecord): { id: string; detail: string } {
+  if (item.status === "approved" && item.asset_id) {
+    return { id: "asset", detail: item.asset_id };
+  }
+  return { id: "review", detail: item.candidate_id ? `candidate:${item.candidate_id}` : item.asset_id };
+}
+
+function AssetContributionSection({ work }: { work: EmployeeWorkLedger | null }) {
+  const candidates = work?.asset_candidates ?? [];
+  const approved = work?.approved_assets ?? [];
+  const visible = [...candidates, ...approved].slice(0, 8);
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">Asset Contributions</h4>
+        <Badge variant="outline">{candidates.length} proposed / {approved.length} approved</Badge>
+      </div>
+      {visible.length ? (
+        <div className="space-y-2">
+          {visible.map((item) => {
+            const target = assetContributionTarget(item);
+            return (
+              <button
+                key={`${item.asset_id || item.candidate_id}-${item.status}`}
+                type="button"
+                aria-label={`Open Asset ${target.detail.replace(/^candidate:/, "")}`}
+                className="flex w-full items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
+                onClick={() => navigateTo("assets", target.id, target.detail)}
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{item.title || item.asset_id || item.candidate_id}</div>
+                  <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span>{assetStatusLabel(item)}</span>
+                    {item.source_ticket_id && <span>{item.source_ticket_id}</span>}
+                    {item.source_run_id && <span>{item.source_run_id}</span>}
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">No Asset candidates or approved Assets yet.</p>
+      )}
+    </section>
+  );
+}
+
+function runtimeSessionKey(run: EmployeeRuntimeRunRecord, employeeId: string): string {
+  return run.session_key || `${employeeId}::${run.run_id || run.request_id || "runtime"}::${run.ticket_id || "none"}`;
+}
+
+function RuntimeRunSection({ employeeId, runs }: { employeeId: string; runs: EmployeeRuntimeRunRecord[] }) {
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">Runtime Run Ledger</h4>
+        <Badge variant="outline">{runs.length}</Badge>
+      </div>
+      {runs.length ? (
+        <div className="space-y-2">
+          {runs.slice(0, 8).map((run) => (
+            <button
+              key={run.request_id}
+              type="button"
+              aria-label={`Open Runtime Replay ${runtimeSessionKey(run, employeeId)}`}
+              className="w-full rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
+              onClick={() => navigateTo("runtime", runtimeSessionKey(run, employeeId))}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{run.request_id}</div>
+                  <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span>{run.status}</span>
+                    {run.action && <span>{run.action}</span>}
+                    {run.executor_id && <span>{run.executor_id}</span>}
+                  </div>
+                </div>
+                <Badge variant="outline" className="shrink-0">{run.tool_event_count} tools</Badge>
+              </div>
+              <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                <span>{run.evidence_count} evidence</span>
+                <span>{formatLatency(run.latency_ms)}</span>
+                <span>{formatCost(run.total_cost)}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">No runtime execution records yet.</p>
+      )}
+    </section>
+  );
+}
+
+function QualityFeedbackSection({
+  employeeId,
+  feedback,
+  onProposeImprovement,
+}: {
+  employeeId: string;
+  feedback: EmployeeQualityFeedbackRecord[];
+  onProposeImprovement: (employeeId: string, feedback: EmployeeQualityFeedbackRecord) => Promise<EmployeeImprovementCandidateResponse>;
+}) {
+  const [proposingId, setProposingId] = useState("");
+  const [proposal, setProposal] = useState<{ feedbackId: string; candidateId: string } | null>(null);
+  const [proposalError, setProposalError] = useState("");
+
+  async function handleProposeImprovement(item: EmployeeQualityFeedbackRecord) {
+    if (proposingId) return;
+    setProposingId(item.id);
+    setProposalError("");
+    try {
+      const response = await onProposeImprovement(employeeId, item);
+      const candidateId = typeof response.candidate.id === "string" ? response.candidate.id : "";
+      setProposal(candidateId ? { feedbackId: item.id, candidateId } : null);
+    } catch (err) {
+      setProposalError(err instanceof Error ? err.message : "Failed to propose improvement");
+    } finally {
+      setProposingId("");
+    }
+  }
+
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">Quality Feedback</h4>
+        <Badge variant="outline">{feedback.length}</Badge>
+      </div>
+      {proposalError ? (
+        <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {proposalError}
+        </div>
+      ) : null}
+      {feedback.length ? (
+        <div className="space-y-2">
+          {feedback.slice(0, 8).map((item) => (
+            <div key={item.id} className="rounded-md border bg-muted/30 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-sm font-medium">{item.summary || item.id}</span>
+                <Badge variant="outline" className="shrink-0">{item.status}</Badge>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span>{item.kind || "feedback"}</span>
+                {item.source_ref && <span>{item.source_ref}</span>}
+                {item.reviewer_employee_id && <span>{item.reviewer_employee_id}</span>}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={Boolean(proposingId)}
+                  onClick={() => void handleProposeImprovement(item)}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {proposingId === item.id ? "Proposing" : "Propose Improvement"}
+                </Button>
+                {proposal?.feedbackId === item.id ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigateTo("assets", "review", `candidate:${proposal.candidateId}`)}
+                  >
+                    <Database className="h-3.5 w-3.5" />
+                    {proposal.candidateId}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">No quality feedback records yet.</p>
+      )}
+    </section>
+  );
+}
+
+function EmployeeImprovementPathSection({
+  employeeId,
+  onApplyImprovement,
+  work,
+}: {
+  employeeId: string;
+  onApplyImprovement: (employeeId: string, assetId: string) => Promise<EmployeeImprovementApplyResponse>;
+  work: EmployeeWorkLedger | null;
+}) {
+  const candidates = (work?.asset_candidates ?? []).filter(isEmployeeImprovementAsset);
+  const approvedAssets = (work?.approved_assets ?? []).filter(isEmployeeImprovementAsset);
+  const [applyingAssetId, setApplyingAssetId] = useState("");
+  const [localStatusByAssetId, setLocalStatusByAssetId] = useState<Record<string, string>>({});
+  const [applyError, setApplyError] = useState("");
+  const appliedCount = approvedAssets.filter((item) => isImprovementApplied(item, localStatusByAssetId[item.asset_id])).length;
+
+  async function handleApplyImprovement(item: EmployeeAssetWorkRecord) {
+    if (applyingAssetId || !item.asset_id) return;
+    setApplyingAssetId(item.asset_id);
+    setApplyError("");
+    try {
+      const response = await onApplyImprovement(employeeId, item.asset_id);
+      setLocalStatusByAssetId((current) => ({ ...current, [item.asset_id]: response.status }));
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : "Failed to apply improvement");
+    } finally {
+      setApplyingAssetId("");
+    }
+  }
+
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">Improvement Path</h4>
+        <Badge variant="outline">{appliedCount}/{approvedAssets.length} applied</Badge>
+      </div>
+      <div className="mb-3 grid gap-3 sm:grid-cols-3">
+        <StatCard icon={AlertTriangle} label="Feedback" value={work?.quality_feedback.length ?? 0} />
+        <StatCard icon={Sparkles} label="Candidates" value={candidates.length} />
+        <StatCard icon={ShieldCheck} label="Approved" value={approvedAssets.length} />
+      </div>
+      {applyError ? (
+        <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {applyError}
+        </div>
+      ) : null}
+      {candidates.length ? (
+        <div className="mb-3 space-y-2">
+          <h5 className="text-xs font-semibold uppercase text-muted-foreground">Candidate Review</h5>
+          {candidates.slice(0, 4).map((item) => (
+            <div key={item.candidate_id || item.asset_id} className="rounded-md border bg-muted/30 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-sm font-medium">{item.title || item.candidate_id}</span>
+                <Badge variant="outline" className="shrink-0">{item.review_state || item.status}</Badge>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                {item.source_ticket_id && <span>{item.source_ticket_id}</span>}
+                {item.source_ref && <span>{item.source_ref}</span>}
+              </div>
+              {item.candidate_id && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  onClick={() => navigateTo("assets", "review", `candidate:${item.candidate_id}`)}
+                >
+                  <Database className="h-3.5 w-3.5" />
+                  Open Candidate
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {approvedAssets.length ? (
+        <div className="space-y-2">
+          <h5 className="text-xs font-semibold uppercase text-muted-foreground">Approved Assets</h5>
+          {approvedAssets.slice(0, 4).map((item) => {
+            const localStatus = localStatusByAssetId[item.asset_id];
+            const applied = isImprovementApplied(item, localStatus);
+            const status = localStatus || item.application_status || "not applied";
+            return (
+              <div key={item.asset_id || item.candidate_id} className="rounded-md border bg-muted/30 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-medium">{item.title || item.asset_id}</span>
+                  <Badge variant={applied ? "success" : "outline"} className="shrink-0">{status}</Badge>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  {item.source_ticket_id && <span>{item.source_ticket_id}</span>}
+                  {item.application_report_id && <span>{item.application_report_id}</span>}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {item.asset_id && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigateTo("assets", "asset", item.asset_id)}
+                    >
+                      <Database className="h-3.5 w-3.5" />
+                      Open Asset
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={applied || Boolean(applyingAssetId)}
+                    onClick={() => void handleApplyImprovement(item)}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {applyingAssetId === item.asset_id ? "Applying" : "Apply Improvement"}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : candidates.length ? null : (
+        <p className="text-sm text-muted-foreground">No governed improvement assets yet.</p>
       )}
     </section>
   );
@@ -420,6 +908,191 @@ function ActivityThreadSection({ employee, threads }: { employee: ChatEmployeeSu
   );
 }
 
+function LoadSnapshotSection({ employee }: { employee: ChatEmployeeSummary }) {
+  const activeTicketIds = loadList(employee, "active_ticket_ids");
+  const activeRunIds = loadList(employee, "active_run_ids");
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">Load Snapshot</h4>
+        <Badge variant="outline">{loadString(employee, "status") || "available"}</Badge>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <StatCard icon={GitBranch} label="Active Tickets" value={loadNumber(employee, "active_ticket_count")} />
+        <StatCard icon={Activity} label="Runtime Runs" value={loadNumber(employee, "active_run_count")} />
+        <StatCard icon={ShieldCheck} label="Waiting Approval" value={loadNumber(employee, "needs_approval_run_count")} />
+      </div>
+      <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+        <div className="truncate" title={activeTicketIds.join(", ") || "none"}>
+          Tickets: {activeTicketIds.join(", ") || "none"}
+        </div>
+        <div className="truncate" title={activeRunIds.join(", ") || "none"}>
+          Runs: {activeRunIds.join(", ") || "none"}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProviderProjectionSection({ graph }: { graph: EmployeeGraphProjection | null }) {
+  const status = providerProjectionValue(graph, "status") || "not_projected";
+  const assetId = providerProjectionValue(graph, "asset_id");
+  const backendStatus = providerProjectionValue(graph, "backend_status");
+  const episodeId = providerProjectionValue(graph, "episode_id");
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">Provider Projection</h4>
+        <Badge variant="outline">{status}</Badge>
+      </div>
+      <InfoRow label="Provider" value="Graphiti" />
+      <InfoRow label="Profile asset" value={assetId || "-"} />
+      <InfoRow label="Backend" value={backendStatus || "-"} />
+      <InfoRow label="Episode" value={episodeId || "-"} />
+    </section>
+  );
+}
+
+function formatGrowthEvidenceValue(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.length ? value.map((item) => formatGrowthEvidenceValue(item)).join(", ") : "none";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return "";
+}
+
+function EmployeeGrowthCheckItem({ check }: { check: EmployeeGrowthEvalCheck }) {
+  const evidenceEntries = Object.entries(check.evidence ?? {});
+  return (
+    <div className="rounded-md border bg-muted/30 px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-sm font-medium" title={check.id}>{check.id}</span>
+        <Badge variant={statusVariant(check.status)} className="shrink-0">{check.status}</Badge>
+      </div>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{check.detail}</p>
+      {evidenceEntries.length ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {evidenceEntries.map(([key, value]) => {
+            const formatted = formatGrowthEvidenceValue(value);
+            return (
+              <Badge key={key} variant="outline" className="max-w-full truncate" title={`${key}: ${formatted}`}>
+                {key}: {formatted}
+              </Badge>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function EmployeeGrowthEvidenceSection({
+  growthEval,
+  loading,
+}: {
+  growthEval: EmployeeGrowthEvalResponse | null;
+  loading: boolean;
+}) {
+  const summary = growthEval?.summary;
+  const warningCount = growthEval?.warnings.length ?? 0;
+  const blockerCount = growthEval?.blockers.length ?? 0;
+  const checks = growthEval?.checks ?? [];
+  const warnings = growthEval?.warnings ?? [];
+  const blockers = growthEval?.blockers ?? [];
+  const commands = growthEval?.commands ?? [];
+  return (
+    <section className="rounded-md border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-muted-foreground" />
+          <h4 className="text-sm font-semibold">Growth Evidence</h4>
+        </div>
+        <Badge variant={statusVariant(growthEval?.status ?? "")}>
+          {loading && !growthEval ? "loading" : growthEval?.status ?? "pending"}
+        </Badge>
+      </div>
+      {!growthEval ? (
+        <p className="text-sm text-muted-foreground">
+          {loading ? "Loading Employee growth evidence." : "Employee growth evidence is not available yet."}
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm leading-6 text-muted-foreground">{growthEval.detail}</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <StatCard icon={AlertTriangle} label="Feedback" value={summary?.quality_feedback_count ?? 0} />
+            <StatCard icon={Activity} label="Runtime Runs" value={summary?.runtime_run_count ?? 0} />
+            <StatCard icon={ShieldCheck} label="Handoff Score" value={summary?.handoff_work_history_score ?? 0} />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={statusVariant(summary?.current_load_status ?? "")}>
+              load {summary?.current_load_status?.replace(/_/g, " ") || "-"}
+            </Badge>
+            <Badge variant={statusVariant(summary?.improvement_loop_proof_status ?? "")}>
+              proof {summary?.improvement_loop_proof_status?.replace(/_/g, " ") || "-"}
+            </Badge>
+            <Badge variant={statusVariant(summary?.improvement_loop_application_status ?? "")}>
+              application {summary?.improvement_loop_application_status?.replace(/_/g, " ") || "-"}
+            </Badge>
+            <Badge variant="outline">{summary?.improvement_loop_applied_change_count ?? 0} proof changes</Badge>
+            {summary?.improvement_loop_ticket_report_id ? (
+              <Badge variant="outline">{summary.improvement_loop_ticket_report_id}</Badge>
+            ) : null}
+            {warningCount ? <Badge variant="warning">{warningCount} warnings</Badge> : null}
+            {blockerCount ? <Badge variant="danger">{blockerCount} blockers</Badge> : null}
+          </div>
+          {checks.length ? (
+            <div className="space-y-2">
+              <h5 className="text-xs font-semibold uppercase text-muted-foreground">Growth Checks</h5>
+              <div className="grid gap-2 md:grid-cols-2">
+                {checks.map((check) => <EmployeeGrowthCheckItem key={check.id} check={check} />)}
+              </div>
+            </div>
+          ) : null}
+          {warnings.length || blockers.length ? (
+            <div className="space-y-2">
+              <h5 className="text-xs font-semibold uppercase text-muted-foreground">Signals</h5>
+              <div className="flex flex-wrap gap-2">
+                {warnings.map((warning) => (
+                  <Badge key={`warning-${warning}`} variant="warning" className="max-w-full truncate" title={warning}>
+                    warning {warning}
+                  </Badge>
+                ))}
+                {blockers.map((blocker) => (
+                  <Badge key={`blocker-${blocker}`} variant="danger" className="max-w-full truncate" title={blocker}>
+                    blocker {blocker}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {commands.length ? (
+            <div className="space-y-2">
+              <h5 className="text-xs font-semibold uppercase text-muted-foreground">Evidence Commands</h5>
+              <div className="space-y-2">
+                {commands.map((command) => (
+                  <code
+                    key={command}
+                    className="block min-w-0 truncate rounded-md border bg-background px-3 py-2 font-mono text-[11px] text-muted-foreground"
+                    title={command}
+                  >
+                    {command}
+                  </code>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function EmployeeAvatar({ employee, size = "md" }: { employee: ChatEmployeeSummary; size?: "sm" | "md" | "lg" }) {
   return (
     <div className={cn(
@@ -439,7 +1112,12 @@ function EmployeeDrawer({
   capabilities,
   employee,
   graph,
+  growthEval,
+  growthEvalLoading,
+  initialTab,
+  onApplyImprovement,
   onDefaultEngineChange,
+  onProposeImprovement,
   threads,
   work,
 }: {
@@ -448,11 +1126,16 @@ function EmployeeDrawer({
   capabilities: CapabilityRecord[];
   employee: ChatEmployeeSummary;
   graph: EmployeeGraphProjection | null;
+  growthEval: EmployeeGrowthEvalResponse | null;
+  growthEvalLoading: boolean;
+  initialTab: DetailTab;
+  onApplyImprovement: (employeeId: string, assetId: string) => Promise<EmployeeImprovementApplyResponse>;
   onDefaultEngineChange: (employeeId: string, defaultAiEngine: string) => Promise<ChatEmployeeSummary>;
+  onProposeImprovement: (employeeId: string, feedback: EmployeeQualityFeedbackRecord) => Promise<EmployeeImprovementCandidateResponse>;
   threads: ChatThreadListResponse | null;
   work: EmployeeWorkLedger | null;
 }) {
-  const [tab, setTab] = useState<DetailTab>("overview");
+  const [tab, setTab] = useState<DetailTab>(initialTab);
   const [defaultEngineInput, setDefaultEngineInput] = useState(employee.default_ai_engine || "system");
   const [savingDefaultEngine, setSavingDefaultEngine] = useState(false);
   const [defaultEngineError, setDefaultEngineError] = useState<string | null>(null);
@@ -476,6 +1159,10 @@ function EmployeeDrawer({
     setDefaultEngineInput(employee.default_ai_engine || "system");
     setDefaultEngineError(null);
   }, [employee.default_ai_engine, employee.id]);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [employee.id, initialTab]);
 
   async function handleDefaultEngineSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -533,7 +1220,10 @@ function EmployeeDrawer({
             <button
               key={item.key}
               type="button"
-              onClick={() => setTab(item.key)}
+              onClick={() => {
+                setTab(item.key);
+                navigateTo("employees", employee.id, item.key);
+              }}
               className={cn(
                 "min-w-0 border-b-2 px-2 py-2 text-xs font-medium transition-colors",
                 tab === item.key
@@ -566,6 +1256,10 @@ function EmployeeDrawer({
               <StatCard icon={ShieldCheck} label="Validations" value={contributionValue(work, "validation_count")} />
             </section>
 
+            <LoadSnapshotSection employee={employee} />
+
+            <EmployeeGrowthEvidenceSection growthEval={growthEval} loading={growthEvalLoading} />
+
             <section className="rounded-md border p-4">
               <div className="mb-3 flex items-center gap-2">
                 <GitBranch className="h-4 w-4 text-muted-foreground" />
@@ -587,6 +1281,10 @@ function EmployeeDrawer({
               <InfoRow label="Engine thread" value={employee.preserve_engine_thread ? "preserved" : "per run"} />
             </section>
 
+            <HandoffBoundarySection employee={employee} />
+
+            <ProviderProjectionSection graph={graph} />
+
             <ActivityThreadSection employee={employee} threads={threads} />
 
             <section className="grid gap-3 sm:grid-cols-3">
@@ -604,6 +1302,8 @@ function EmployeeDrawer({
               <StatCard icon={Clock3} label="Historical Tickets" value={contributionValue(work, "ticket_count")} />
               <StatCard icon={ClipboardCheck} label="Reports" value={contributionValue(work, "report_count")} />
               <StatCard icon={AlertTriangle} label="Blocked" value={contributionValue(work, "blocked_count")} />
+              <StatCard icon={Sparkles} label="Assets Proposed" value={contributionValue(work, "asset_candidate_count")} />
+              <StatCard icon={Activity} label="Runtime Runs" value={contributionValue(work, "runtime_run_count")} />
             </section>
 
             <section className="rounded-md border p-4">
@@ -653,6 +1353,22 @@ function EmployeeDrawer({
             />
 
             <HandoffSection handoffs={work?.handoffs ?? []} />
+
+            <AssetContributionSection work={work} />
+
+            <RuntimeRunSection employeeId={employee.id} runs={work?.runtime_runs ?? []} />
+
+            <QualityFeedbackSection
+              employeeId={employee.id}
+              feedback={work?.quality_feedback ?? []}
+              onProposeImprovement={onProposeImprovement}
+            />
+
+            <EmployeeImprovementPathSection
+              employeeId={employee.id}
+              work={work}
+              onApplyImprovement={onApplyImprovement}
+            />
           </div>
         )}
 
@@ -673,11 +1389,28 @@ function EmployeeDrawer({
             </section>
 
             <section className="rounded-md border p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold">Phase 4b Quality Signals</h4>
+                <Badge variant="outline">Runtime facts</Badge>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <StatCard icon={AlertTriangle} label="Blockers" value={analyticsValue(analytics, "blocker_count")} />
+                <StatCard icon={ShieldCheck} label="Validation Failures" value={analyticsValue(analytics, "validation_failure_count")} />
+                <StatCard icon={Database} label="Stale Assets" value={analyticsValue(analytics, "stale_asset_count")} />
+                <StatCard icon={Brain} label="Useful Recalls" value={analyticsValue(analytics, "useful_recall_count")} />
+                <StatCard icon={Activity} label="Execution Runs" value={analyticsValue(analytics, "execution_run_count")} />
+                <StatCard icon={Clock3} label="Avg Latency" value={formatLatency(analyticsValue(analytics, "average_latency_ms"))} />
+                <StatCard icon={Sparkles} label="Total Cost" value={formatCost(analyticsValue(analytics, "total_cost"))} />
+              </div>
+            </section>
+
+            <section className="rounded-md border p-4">
               <h4 className="mb-3 text-sm font-semibold">Evidence Sources</h4>
               <InfoRow label="Tickets" value={sourceCount(analytics, "tickets")} />
               <InfoRow label="Reports" value={sourceCount(analytics, "reports")} />
               <InfoRow label="Events" value={sourceCount(analytics, "events")} />
               <InfoRow label="Assets" value={sourceCount(analytics, "assets")} />
+              <InfoRow label="Execution Runs" value={sourceCount(analytics, "execution_runs")} />
             </section>
 
             <section className="rounded-md border p-4">
@@ -728,6 +1461,8 @@ function EmployeeDrawer({
               )}
             </section>
 
+            <ProviderProjectionSection graph={graph} />
+
             {!analytics && (
               <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900">
                 Analytics facts are not available for this Employee yet.
@@ -775,26 +1510,7 @@ function EmployeeDrawer({
 
         {tab === "governance" && (
           <div className="space-y-4">
-            <section className="rounded-md border p-4">
-              <div className="mb-3 flex items-center gap-2">
-                <Brain className="h-4 w-4 text-muted-foreground" />
-                <h4 className="text-sm font-semibold">Knowledge Scope</h4>
-              </div>
-              <p className="text-sm leading-6 text-muted-foreground">
-                Employee-level knowledge scope is tracked through assigned skills and tool permissions. Dedicated
-                per-employee memory scopes can be added after the Memory Backend becomes part of the operating loop.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "knowledge", "docs")}>
-                  <Database className="h-4 w-4" />
-                  Docs
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => navigateTo("assets", "knowledge", "memories")}>
-                  <Brain className="h-4 w-4" />
-                  Memories
-                </Button>
-              </div>
-            </section>
+            <HandoffBoundarySection employee={employee} />
 
             <section className="rounded-md border p-4">
               <div className="mb-3 flex items-center gap-2">
@@ -888,7 +1604,7 @@ function EmployeeDrawer({
   );
 }
 
-export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
+export function EmployeesPage({ selectedDetail, selectedId }: { selectedDetail?: string | null; selectedId: string | null }) {
   const [employees, setEmployees] = useState<ChatEmployeeSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -896,6 +1612,8 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
   const [workMap, setWorkMap] = useState<Record<string, EmployeeWorkLedger>>({});
   const [analyticsMap, setAnalyticsMap] = useState<Record<string, EmployeeAnalytics>>({});
   const [graphMap, setGraphMap] = useState<Record<string, EmployeeGraphProjection>>({});
+  const [growthEvalMap, setGrowthEvalMap] = useState<Record<string, EmployeeGrowthEvalResponse>>({});
+  const [growthEvalLoadingId, setGrowthEvalLoadingId] = useState("");
   const [capabilityRegistry, setCapabilityRegistry] = useState<CapabilityRegistryResponse | null>(null);
   const [aiEngines, setAiEngines] = useState<ChatAiEngineSettings | null>(null);
   const [query, setQuery] = useState("");
@@ -990,10 +1708,12 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
   const selectedWork = selectedEmployee ? workMap[selectedEmployee.id] ?? null : null;
   const selectedAnalytics = selectedEmployee ? analyticsMap[selectedEmployee.id] ?? null : null;
   const selectedGraph = selectedEmployee ? graphMap[selectedEmployee.id] ?? null : null;
+  const selectedGrowthEval = selectedEmployee ? growthEvalMap[selectedEmployee.id] ?? null : null;
   const selectedCapabilities = useMemo(
     () => capabilitiesForEmployee(selectedEmployee, capabilityRegistry),
     [capabilityRegistry, selectedEmployee],
   );
+  const selectedTab = normalizedDetailTab(selectedDetail);
 
   const aggregateThreadCount = useMemo(
     () => employees.reduce((sum, employee) => sum + threadCount(threadsMap[employee.id]), 0),
@@ -1004,10 +1724,68 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
     [employees, threadsMap],
   );
 
+  useEffect(() => {
+    if (!selectedEmployee) return;
+    if (growthEvalMap[selectedEmployee.id]) return;
+    let active = true;
+    setGrowthEvalLoadingId(selectedEmployee.id);
+    getEmployeeGrowthEval(selectedEmployee.id)
+      .then((growthEval) => {
+        if (!active) return;
+        setGrowthEvalMap((current) => ({ ...current, [selectedEmployee.id]: growthEval }));
+      })
+      .catch(() => {
+        if (!active) return;
+      })
+      .finally(() => {
+        if (active) setGrowthEvalLoadingId("");
+      });
+    return () => {
+      active = false;
+    };
+  }, [growthEvalMap, selectedEmployee]);
+
   async function handleDefaultEngineChange(employeeId: string, defaultAiEngine: string): Promise<ChatEmployeeSummary> {
     const updated = await updateChatEmployeeAiEngine(employeeId, { default_ai_engine: defaultAiEngine });
     setEmployees((current) => current.map((employee) => (employee.id === updated.id ? updated : employee)));
     return updated;
+  }
+
+  async function handleProposeImprovement(
+    employeeId: string,
+    feedback: EmployeeQualityFeedbackRecord,
+  ): Promise<EmployeeImprovementCandidateResponse> {
+    const response = await proposeEmployeeImprovementCandidate(employeeId, feedback.id, {
+      actor_employee_id: "clara",
+      reason: `Proposed from Employee work ledger feedback ${feedback.id}.`,
+    });
+    const [updatedWork, updatedGrowthEval] = await Promise.all([
+      getEmployeeWorkLedger(employeeId),
+      getEmployeeGrowthEval(employeeId).catch(() => null),
+    ]);
+    setWorkMap((current) => ({ ...current, [employeeId]: updatedWork }));
+    if (updatedGrowthEval) {
+      setGrowthEvalMap((current) => ({ ...current, [employeeId]: updatedGrowthEval }));
+    }
+    return response;
+  }
+
+  async function handleApplyImprovement(employeeId: string, assetId: string): Promise<EmployeeImprovementApplyResponse> {
+    const response = await applyEmployeeImprovementAsset(employeeId, assetId, {
+      actor_employee_id: "clara",
+      reason: "Applied from Employee work ledger improvement path.",
+    });
+    const [updatedWork, updatedEmployees, updatedGrowthEval] = await Promise.all([
+      getEmployeeWorkLedger(employeeId),
+      listChatEmployees(),
+      getEmployeeGrowthEval(employeeId).catch(() => null),
+    ]);
+    setWorkMap((current) => ({ ...current, [employeeId]: updatedWork }));
+    setEmployees(updatedEmployees);
+    if (updatedGrowthEval) {
+      setGrowthEvalMap((current) => ({ ...current, [employeeId]: updatedGrowthEval }));
+    }
+    return response;
   }
 
   if (loading) return <LoadingState />;
@@ -1094,7 +1872,7 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
                   <button
                     key={employee.id}
                     type="button"
-                    onClick={() => navigateTo("employees", employee.id)}
+                    onClick={() => navigateTo("employees", employee.id, selectedTab)}
                     className={cn(
                       "grid w-full grid-cols-[minmax(16rem,1.35fr)_minmax(10rem,0.8fr)_minmax(12rem,1fr)_minmax(10rem,0.8fr)_auto] items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/70",
                       active && "bg-primary/10",
@@ -1153,7 +1931,12 @@ export function EmployeesPage({ selectedId }: { selectedId: string | null }) {
           capabilities={selectedCapabilities}
           employee={selectedEmployee}
           graph={selectedGraph}
+          growthEval={selectedGrowthEval}
+          growthEvalLoading={growthEvalLoadingId === selectedEmployee.id}
+          initialTab={selectedTab}
+          onApplyImprovement={handleApplyImprovement}
           onDefaultEngineChange={handleDefaultEngineChange}
+          onProposeImprovement={handleProposeImprovement}
           threads={selectedThreads}
           work={selectedWork}
         />

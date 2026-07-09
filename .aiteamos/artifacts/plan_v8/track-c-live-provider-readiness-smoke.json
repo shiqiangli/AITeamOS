@@ -1,0 +1,967 @@
+{
+  "generated_at": "2026-06-26T04:10:11.036208+00:00",
+  "result": {
+    "blockers": [
+      {
+        "current_mode": "local_file",
+        "current_provider": "",
+        "detail": "Live Plane / Graphiti dogfood requires the Plane Ticket backend, but the selected Ticket backend mode is local_file.",
+        "plane_setup": {
+          "active_mode": "local_file",
+          "active_provider": "",
+          "api_key_configured": true,
+          "api_key_env": "PLANE_API_KEY",
+          "code_repository_scope_candidate_count": 0,
+          "code_repository_scope_candidates": [],
+          "code_repository_scope_detail": "Code Repository registry has repositories, but none has both Plane workspace and project configured.",
+          "code_repository_scope_missing": [
+            {
+              "deep_link": "#/settings/code-repositories",
+              "project_configured": false,
+              "provider": "local",
+              "repository_id": "repo-aiteamos-afc617",
+              "repository_name": "AITeamOS",
+              "source": "code_repository",
+              "status": "ready",
+              "workspace_configured": false
+            }
+          ],
+          "code_repository_scope_missing_count": 1,
+          "code_repository_scope_setup_action": "add_plane_scope_to_code_repository_or_ticket_backend",
+          "code_repository_scope_status": "incomplete",
+          "configured": false,
+          "detail": "Plane Ticket backend is not selected and Plane workspace/project setup is incomplete.",
+          "project_configured": false,
+          "required_mode": "plane",
+          "selected": false,
+          "settings_path": ".aiteamos/tickets/backend.json",
+          "setup_endpoint": "/api/v1/tickets/backend",
+          "setup_required": [
+            "PUT /api/v1/tickets/backend mode=plane",
+            ".aiteamos/tickets/backend.json mode=plane",
+            "plane_workspace_slug",
+            "plane_project_id"
+          ],
+          "status": "setup_blocked",
+          "workspace_configured": false
+        },
+        "reason": "plane_ticket_backend_not_selected",
+        "required_mode": "plane",
+        "required_provider": "plane",
+        "scope": "ticket_backend",
+        "setup_required": [
+          "PUT /api/v1/tickets/backend mode=plane",
+          ".aiteamos/tickets/backend.json mode=plane",
+          "plane_workspace_slug",
+          "plane_project_id"
+        ],
+        "status": "setup_blocked"
+      },
+      {
+        "detail": "Pass --execute and set AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 to mutate live Plane / Graphiti provider state.",
+        "reason": "live_provider_dogfood_not_confirmed",
+        "scope": "mutation_gate",
+        "setup_required": [
+          "--execute",
+          "AITEAMOS_LIVE_PROVIDER_DOGFOOD=1"
+        ],
+        "status": "confirmation_required"
+      }
+    ],
+    "mutation_gate": {
+      "blocker": {
+        "detail": "Pass --execute and set AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 to mutate live Plane / Graphiti provider state.",
+        "reason": "live_provider_dogfood_not_confirmed",
+        "setup_required": [
+          "--execute",
+          "AITEAMOS_LIVE_PROVIDER_DOGFOOD=1"
+        ]
+      },
+      "confirm_env_configured": false,
+      "confirm_env_var": "AITEAMOS_LIVE_PROVIDER_DOGFOOD",
+      "execute_flag": true,
+      "open": false
+    },
+    "profile": "core_loop",
+    "provider_prerequisites": {
+      "memory_backend": {
+        "backend": "graphiti",
+        "configured": true,
+        "detail": "Graphiti is configured with ChatGPT / OpenAI API; approved memory ingestion is available, with durable asset projection as the next extension.",
+        "enabled": true,
+        "graph_configured": true,
+        "graph_database": "neo4j",
+        "group_id": "aiteamos-test",
+        "llm_ai_engine": "openai",
+        "llm_ai_engine_name": "ChatGPT / OpenAI API",
+        "llm_api_key_configured": true,
+        "llm_api_key_env": "OPENAI_API_KEY",
+        "llm_configured": true,
+        "package_installed": true,
+        "password_configured": true,
+        "password_env": "AITEAMOS_GRAPHITI_PASSWORD",
+        "password_env_conflict": false,
+        "password_env_conflict_detail": "",
+        "status": "ready",
+        "uri": "bolt://localhost:7687",
+        "user": "neo4j"
+      },
+      "plane_ticket_backend_setup": {
+        "active_mode": "local_file",
+        "active_provider": "",
+        "api_key_configured": true,
+        "api_key_env": "PLANE_API_KEY",
+        "code_repository_scope_candidate_count": 0,
+        "code_repository_scope_candidates": [],
+        "code_repository_scope_detail": "Code Repository registry has repositories, but none has both Plane workspace and project configured.",
+        "code_repository_scope_missing": [
+          {
+            "deep_link": "#/settings/code-repositories",
+            "project_configured": false,
+            "provider": "local",
+            "repository_id": "repo-aiteamos-afc617",
+            "repository_name": "AITeamOS",
+            "source": "code_repository",
+            "status": "ready",
+            "workspace_configured": false
+          }
+        ],
+        "code_repository_scope_missing_count": 1,
+        "code_repository_scope_setup_action": "add_plane_scope_to_code_repository_or_ticket_backend",
+        "code_repository_scope_status": "incomplete",
+        "configured": false,
+        "detail": "Plane Ticket backend is not selected and Plane workspace/project setup is incomplete.",
+        "project_configured": false,
+        "required_mode": "plane",
+        "selected": false,
+        "settings_path": ".aiteamos/tickets/backend.json",
+        "setup_endpoint": "/api/v1/tickets/backend",
+        "setup_required": [
+          "PUT /api/v1/tickets/backend mode=plane",
+          ".aiteamos/tickets/backend.json mode=plane",
+          "plane_workspace_slug",
+          "plane_project_id"
+        ],
+        "status": "setup_blocked",
+        "workspace_configured": false
+      },
+      "provider_smoke": {
+        "reason": "readiness is read-only and does not call external provider smoke",
+        "status": "not_run"
+      },
+      "ticket_backend": {
+        "capabilities": [],
+        "detail": "Local append-only Ticket backend is active.",
+        "local_file_path": ".aiteamos/tickets/index.json",
+        "mapping": {},
+        "mode": "local_file",
+        "plane_setup": {
+          "active_mode": "local_file",
+          "active_provider": "",
+          "api_key_configured": true,
+          "api_key_env": "PLANE_API_KEY",
+          "code_repository_scope_candidate_count": 0,
+          "code_repository_scope_candidates": [],
+          "code_repository_scope_detail": "Code Repository registry has repositories, but none has both Plane workspace and project configured.",
+          "code_repository_scope_missing": [
+            {
+              "deep_link": "#/settings/code-repositories",
+              "project_configured": false,
+              "provider": "local",
+              "repository_id": "repo-aiteamos-afc617",
+              "repository_name": "AITeamOS",
+              "source": "code_repository",
+              "status": "ready",
+              "workspace_configured": false
+            }
+          ],
+          "code_repository_scope_missing_count": 1,
+          "code_repository_scope_setup_action": "add_plane_scope_to_code_repository_or_ticket_backend",
+          "code_repository_scope_status": "incomplete",
+          "code_repository_scope_suggestions": [],
+          "configured": false,
+          "detail": "Plane Ticket Backend is not selected and Plane workspace/project setup is incomplete.",
+          "project_configured": false,
+          "required_mode": "plane",
+          "selected": false,
+          "settings_path": ".aiteamos/tickets/backend.json",
+          "setup_endpoint": "/api/v1/tickets/backend",
+          "setup_required": [
+            "PUT /api/v1/tickets/backend mode=plane",
+            ".aiteamos/tickets/backend.json mode=plane",
+            "plane_workspace_slug",
+            "plane_project_id"
+          ],
+          "status": "setup_blocked",
+          "workspace_configured": false
+        },
+        "provider": "",
+        "provider_ref_count": 0,
+        "release_target": {
+          "active_mode": "local_file",
+          "blockers": [
+            "plane_ticket_backend_not_selected",
+            "plane_workspace_slug_missing",
+            "plane_project_id_missing",
+            "code_repository_plane_scope_incomplete"
+          ],
+          "code_repository_scope_status": "incomplete",
+          "detail": "Plan v8 release requires Plane as the active Ticket Backend, complete Plane workspace/project/API setup, and an available Code Repository Plane scope.",
+          "ready": false,
+          "required_mode": "plane",
+          "required_scope_status": "available",
+          "setup_action": "select_plane_ticket_backend",
+          "setup_required": [
+            "PUT /api/v1/tickets/backend mode=plane",
+            ".aiteamos/tickets/backend.json mode=plane",
+            "plane_workspace_slug",
+            "plane_project_id"
+          ],
+          "status": "blocked"
+        },
+        "saved_paths": {
+          "counters": ".aiteamos/tickets/counters.json",
+          "local_file": ".aiteamos/tickets/index.json",
+          "settings": ".aiteamos/tickets/backend.json",
+          "tickets": ".aiteamos/tickets"
+        },
+        "setup_required": [],
+        "status": "ready",
+        "supported_modes": [
+          {
+            "description": "Legacy append-only projection only for explicit migration checks; not the target Ticket Backend.",
+            "id": "local_file",
+            "label": "Local file",
+            "status": "legacy"
+          },
+          {
+            "description": "Plane-backed Ticket fact source through the AITeamOS TicketAdapter.",
+            "id": "plane",
+            "label": "Plane",
+            "status": "ready"
+          },
+          {
+            "description": "Future Jira-backed source of truth for enterprise Ticket integration after the Plane path is stable.",
+            "id": "jira",
+            "label": "Jira",
+            "status": "planned"
+          }
+        ],
+        "ticket_count": 4
+      }
+    },
+    "repo_write_executor_candidates": [
+      {
+        "capabilities": [
+          "agent_loop",
+          "official_sdk",
+          "repo:read",
+          "repo:write"
+        ],
+        "detail": "Claude Agent SDK Executor is not configured.",
+        "display_name": "Claude Agent SDK Executor",
+        "executor_id": "claude_agent_sdk",
+        "health": {
+          "capabilities": [
+            "agent_loop",
+            "official_sdk",
+            "repo:read",
+            "repo:write"
+          ],
+          "config": {
+            "api_base_url_configured": false,
+            "api_key_env": "",
+            "binary_path": "",
+            "command_template_configured": true,
+            "http_endpoint_path": "",
+            "mode": "non_destructive_inspect_and_report",
+            "model": "",
+            "timeout_seconds": 120,
+            "working_dir": ""
+          },
+          "config_env": {},
+          "configured": {
+            "api_base_url": false,
+            "api_key_env": false,
+            "binary": false,
+            "command_template": true,
+            "http_endpoint_path": false,
+            "model": false,
+            "working_dir": false
+          },
+          "delivery": {
+            "configured_mode": "handoff",
+            "default_mode": "non_destructive_inspect_and_report",
+            "non_destructive_default": true,
+            "prompt_delivery": "artifact_handoff",
+            "supported_modes": [
+              "handoff"
+            ]
+          },
+          "detail": "Claude Agent SDK Executor is not configured.",
+          "executor_id": "claude_agent_sdk",
+          "expected_output_schema": {
+            "approval_requests": "list[dict]",
+            "artifacts": "list[dict]",
+            "errors": "list[dict]",
+            "evidence": "list[dict]",
+            "learning_delta": "dict",
+            "memory_candidates": "list[dict]",
+            "report": "string",
+            "status": "completed | failed | blocked | needs_approval | partial | cancelled",
+            "tool_events": "list[dict]",
+            "usage": "dict"
+          },
+          "missing_env": [
+            "ANTHROPIC_API_KEY"
+          ],
+          "safety_policy": {
+            "completion_policy": "external_runtime_completion_must_not_be_faked",
+            "default_mode": "non_destructive_inspect_and_report",
+            "repo_mutation_guard": [
+              "ticket_bound",
+              "approval_bound",
+              "evidence_bound",
+              "repo_write_capability_required"
+            ]
+          },
+          "setup_url": "https://docs.anthropic.com/",
+          "status": "setup_blocked",
+          "supported_actions": [
+            "answer_only",
+            "append_report",
+            "inspect_code_repository"
+          ]
+        },
+        "ready": false,
+        "setup_required": [
+          "ANTHROPIC_API_KEY"
+        ],
+        "status": "setup_blocked"
+      },
+      {
+        "capabilities": [
+          "agent_loop",
+          "compatible_local_cli",
+          "deepseek_backend",
+          "openai_backend",
+          "repo:read",
+          "repo:write"
+        ],
+        "detail": "Claude Code-compatible Local CLI Executor is not configured.",
+        "display_name": "Claude Code-compatible Local CLI Executor",
+        "executor_id": "claude_code",
+        "health": {
+          "capabilities": [
+            "agent_loop",
+            "compatible_local_cli",
+            "deepseek_backend",
+            "openai_backend",
+            "repo:read",
+            "repo:write"
+          ],
+          "config": {
+            "api_base_url_configured": false,
+            "api_key_env": "",
+            "binary_path": "",
+            "command_template_configured": true,
+            "http_endpoint_path": "",
+            "mode": "non_destructive_inspect_and_report",
+            "model": "",
+            "timeout_seconds": 120,
+            "working_dir": ""
+          },
+          "config_env": {
+            "api_base_url": "CLAUDE_CODE_API_BASE_URL",
+            "api_key_env": "CLAUDE_CODE_API_KEY_ENV",
+            "binary_path": "CLAUDE_CODE_BIN",
+            "command_template": "CLAUDE_CODE_COMMAND_TEMPLATE",
+            "mode": "CLAUDE_CODE_MODE",
+            "model": "CLAUDE_CODE_MODEL",
+            "timeout_seconds": "CLAUDE_CODE_TIMEOUT_SECONDS",
+            "working_dir": "CLAUDE_CODE_WORKING_DIR"
+          },
+          "configured": {
+            "api_base_url": false,
+            "api_key_env": false,
+            "binary": false,
+            "command_template": true,
+            "http_endpoint_path": false,
+            "model": false,
+            "working_dir": false
+          },
+          "delivery": {
+            "configured_mode": "handoff",
+            "default_mode": "non_destructive_inspect_and_report",
+            "non_destructive_default": true,
+            "prompt_delivery": "artifact_handoff",
+            "supported_modes": [
+              "local_cli"
+            ]
+          },
+          "detail": "Claude Code-compatible Local CLI Executor is not configured.",
+          "executor_id": "claude_code",
+          "expected_output_schema": {
+            "approval_requests": "list[dict]",
+            "artifacts": "list[dict]",
+            "errors": "list[dict]",
+            "evidence": "list[dict]",
+            "learning_delta": "dict",
+            "memory_candidates": "list[dict]",
+            "report": "string",
+            "status": "completed | failed | blocked | needs_approval | partial | cancelled",
+            "tool_events": "list[dict]",
+            "usage": "dict"
+          },
+          "missing_env": [
+            "CLAUDE_CODE_BIN"
+          ],
+          "safety_policy": {
+            "completion_policy": "external_runtime_completion_must_not_be_faked",
+            "default_mode": "non_destructive_inspect_and_report",
+            "repo_mutation_guard": [
+              "ticket_bound",
+              "approval_bound",
+              "evidence_bound",
+              "repo_write_capability_required"
+            ]
+          },
+          "setup_url": "",
+          "status": "setup_blocked",
+          "supported_actions": [
+            "answer_only",
+            "append_report",
+            "inspect_code_repository"
+          ]
+        },
+        "ready": false,
+        "setup_required": [
+          "CLAUDE_CODE_BIN"
+        ],
+        "status": "setup_blocked"
+      },
+      {
+        "capabilities": [
+          "agent_loop",
+          "commercial_agent_backend",
+          "compatible_local_cli",
+          "repo:read",
+          "repo:write"
+        ],
+        "detail": "OpenAI Codex CLI Executor is configured for non-destructive inspect-and-report execution.",
+        "display_name": "OpenAI Codex CLI Executor",
+        "executor_id": "codex_cli",
+        "health": {
+          "capabilities": [
+            "agent_loop",
+            "commercial_agent_backend",
+            "compatible_local_cli",
+            "repo:read",
+            "repo:write"
+          ],
+          "config": {
+            "api_base_url_configured": false,
+            "api_key_env": "",
+            "binary_path": "/home/shiqiangli/.local/bin/codex",
+            "command_template_configured": true,
+            "http_endpoint_path": "",
+            "mode": "non_destructive_inspect_and_report",
+            "model": "",
+            "timeout_seconds": 120,
+            "working_dir": ""
+          },
+          "config_env": {
+            "api_base_url": "CODEX_CLI_API_BASE_URL",
+            "api_key_env": "CODEX_CLI_API_KEY_ENV",
+            "binary_path": "CODEX_CLI_BIN",
+            "command_template": "CODEX_CLI_COMMAND_TEMPLATE",
+            "mode": "CODEX_CLI_MODE",
+            "model": "CODEX_CLI_MODEL",
+            "timeout_seconds": "CODEX_CLI_TIMEOUT_SECONDS",
+            "working_dir": "CODEX_CLI_WORKING_DIR"
+          },
+          "configured": {
+            "api_base_url": false,
+            "api_key_env": false,
+            "binary": true,
+            "command_template": true,
+            "http_endpoint_path": false,
+            "model": false,
+            "working_dir": false
+          },
+          "delivery": {
+            "configured_mode": "local_cli",
+            "default_mode": "non_destructive_inspect_and_report",
+            "non_destructive_default": true,
+            "prompt_delivery": "stdin_and_prompt_file",
+            "supported_modes": [
+              "local_cli"
+            ]
+          },
+          "detail": "OpenAI Codex CLI Executor is configured for non-destructive inspect-and-report execution.",
+          "executor_id": "codex_cli",
+          "expected_output_schema": {
+            "approval_requests": "list[dict]",
+            "artifacts": "list[dict]",
+            "errors": "list[dict]",
+            "evidence": "list[dict]",
+            "learning_delta": "dict",
+            "memory_candidates": "list[dict]",
+            "report": "string",
+            "status": "completed | failed | blocked | needs_approval | partial | cancelled",
+            "tool_events": "list[dict]",
+            "usage": "dict"
+          },
+          "safety_policy": {
+            "completion_policy": "external_runtime_completion_must_not_be_faked",
+            "default_mode": "non_destructive_inspect_and_report",
+            "repo_mutation_guard": [
+              "ticket_bound",
+              "approval_bound",
+              "evidence_bound",
+              "repo_write_capability_required"
+            ]
+          },
+          "status": "ready",
+          "supported_actions": [
+            "answer_only",
+            "append_report",
+            "inspect_code_repository"
+          ]
+        },
+        "ready": true,
+        "setup_required": [],
+        "status": "ready"
+      },
+      {
+        "capabilities": [
+          "agent_loop",
+          "commercial_agent_backend",
+          "repo:read",
+          "repo:write"
+        ],
+        "detail": "Cursor Executor is not configured.",
+        "display_name": "Cursor Executor",
+        "executor_id": "cursor",
+        "health": {
+          "capabilities": [
+            "agent_loop",
+            "commercial_agent_backend",
+            "repo:read",
+            "repo:write"
+          ],
+          "config": {
+            "api_base_url_configured": false,
+            "api_key_env": "CURSOR_API_KEY",
+            "binary_path": "",
+            "command_template_configured": true,
+            "http_endpoint_path": "",
+            "mode": "non_destructive_inspect_and_report",
+            "model": "",
+            "timeout_seconds": 120,
+            "working_dir": ""
+          },
+          "config_env": {
+            "api_base_url": "CURSOR_API_BASE_URL",
+            "api_key_env": "CURSOR_API_KEY_ENV",
+            "http_endpoint_path": "CURSOR_INSPECT_ENDPOINT",
+            "mode": "CURSOR_MODE",
+            "model": "CURSOR_MODEL",
+            "timeout_seconds": "CURSOR_TIMEOUT_SECONDS",
+            "working_dir": "CURSOR_WORKING_DIR"
+          },
+          "configured": {
+            "api_base_url": false,
+            "api_key_env": true,
+            "binary": false,
+            "command_template": true,
+            "http_endpoint_path": false,
+            "model": false,
+            "working_dir": false
+          },
+          "delivery": {
+            "configured_mode": "handoff",
+            "default_mode": "non_destructive_inspect_and_report",
+            "non_destructive_default": true,
+            "prompt_delivery": "artifact_handoff",
+            "supported_modes": [
+              "http"
+            ]
+          },
+          "detail": "Cursor Executor is not configured.",
+          "executor_id": "cursor",
+          "expected_output_schema": {
+            "approval_requests": "list[dict]",
+            "artifacts": "list[dict]",
+            "errors": "list[dict]",
+            "evidence": "list[dict]",
+            "learning_delta": "dict",
+            "memory_candidates": "list[dict]",
+            "report": "string",
+            "status": "completed | failed | blocked | needs_approval | partial | cancelled",
+            "tool_events": "list[dict]",
+            "usage": "dict"
+          },
+          "missing_env": [
+            "CURSOR_API_KEY"
+          ],
+          "safety_policy": {
+            "completion_policy": "external_runtime_completion_must_not_be_faked",
+            "default_mode": "non_destructive_inspect_and_report",
+            "repo_mutation_guard": [
+              "ticket_bound",
+              "approval_bound",
+              "evidence_bound",
+              "repo_write_capability_required"
+            ]
+          },
+          "setup_url": "https://cursor.com/",
+          "status": "setup_blocked",
+          "supported_actions": [
+            "answer_only",
+            "append_report",
+            "inspect_code_repository"
+          ]
+        },
+        "ready": false,
+        "setup_required": [
+          "CURSOR_API_KEY"
+        ],
+        "status": "setup_blocked"
+      },
+      {
+        "capabilities": [
+          "agent_loop",
+          "compatible_local_cli",
+          "open_source_runtime",
+          "repo:read",
+          "repo:write"
+        ],
+        "detail": "OpenCode Executor is not configured.",
+        "display_name": "OpenCode Executor",
+        "executor_id": "opencode",
+        "health": {
+          "capabilities": [
+            "agent_loop",
+            "compatible_local_cli",
+            "open_source_runtime",
+            "repo:read",
+            "repo:write"
+          ],
+          "config": {
+            "api_base_url_configured": false,
+            "api_key_env": "",
+            "binary_path": "",
+            "command_template_configured": true,
+            "http_endpoint_path": "",
+            "mode": "non_destructive_inspect_and_report",
+            "model": "",
+            "timeout_seconds": 120,
+            "working_dir": ""
+          },
+          "config_env": {
+            "api_base_url": "OPENCODE_API_BASE_URL",
+            "api_key_env": "OPENCODE_API_KEY_ENV",
+            "binary_path": "OPENCODE_BIN",
+            "command_template": "OPENCODE_COMMAND_TEMPLATE",
+            "mode": "OPENCODE_MODE",
+            "model": "OPENCODE_MODEL",
+            "timeout_seconds": "OPENCODE_TIMEOUT_SECONDS",
+            "working_dir": "OPENCODE_WORKING_DIR"
+          },
+          "configured": {
+            "api_base_url": false,
+            "api_key_env": false,
+            "binary": false,
+            "command_template": true,
+            "http_endpoint_path": false,
+            "model": false,
+            "working_dir": false
+          },
+          "delivery": {
+            "configured_mode": "handoff",
+            "default_mode": "non_destructive_inspect_and_report",
+            "non_destructive_default": true,
+            "prompt_delivery": "artifact_handoff",
+            "supported_modes": [
+              "local_cli"
+            ]
+          },
+          "detail": "OpenCode Executor is not configured.",
+          "executor_id": "opencode",
+          "expected_output_schema": {
+            "approval_requests": "list[dict]",
+            "artifacts": "list[dict]",
+            "errors": "list[dict]",
+            "evidence": "list[dict]",
+            "learning_delta": "dict",
+            "memory_candidates": "list[dict]",
+            "report": "string",
+            "status": "completed | failed | blocked | needs_approval | partial | cancelled",
+            "tool_events": "list[dict]",
+            "usage": "dict"
+          },
+          "missing_env": [
+            "OPENCODE_BIN"
+          ],
+          "safety_policy": {
+            "completion_policy": "external_runtime_completion_must_not_be_faked",
+            "default_mode": "non_destructive_inspect_and_report",
+            "repo_mutation_guard": [
+              "ticket_bound",
+              "approval_bound",
+              "evidence_bound",
+              "repo_write_capability_required"
+            ]
+          },
+          "setup_url": "https://opencode.ai/",
+          "status": "setup_blocked",
+          "supported_actions": [
+            "answer_only",
+            "append_report",
+            "inspect_code_repository"
+          ]
+        },
+        "ready": false,
+        "setup_required": [
+          "OPENCODE_BIN"
+        ],
+        "status": "setup_blocked"
+      },
+      {
+        "capabilities": [
+          "agent_loop",
+          "open_source_runtime",
+          "repo:read",
+          "repo:write"
+        ],
+        "detail": "OpenHands Executor is not configured.",
+        "display_name": "OpenHands Executor",
+        "executor_id": "openhands",
+        "health": {
+          "capabilities": [
+            "agent_loop",
+            "open_source_runtime",
+            "repo:read",
+            "repo:write"
+          ],
+          "config": {
+            "api_base_url_configured": false,
+            "api_key_env": "",
+            "binary_path": "",
+            "command_template_configured": true,
+            "http_endpoint_path": "",
+            "mode": "non_destructive_inspect_and_report",
+            "model": "",
+            "timeout_seconds": 120,
+            "working_dir": ""
+          },
+          "config_env": {
+            "api_base_url": "OPENHANDS_BASE_URL",
+            "api_key_env": "OPENHANDS_API_KEY_ENV",
+            "http_endpoint_path": "OPENHANDS_INSPECT_ENDPOINT",
+            "mode": "OPENHANDS_MODE",
+            "model": "OPENHANDS_MODEL",
+            "timeout_seconds": "OPENHANDS_TIMEOUT_SECONDS",
+            "working_dir": "OPENHANDS_WORKING_DIR"
+          },
+          "configured": {
+            "api_base_url": false,
+            "api_key_env": false,
+            "binary": false,
+            "command_template": true,
+            "http_endpoint_path": false,
+            "model": false,
+            "working_dir": false
+          },
+          "delivery": {
+            "configured_mode": "handoff",
+            "default_mode": "non_destructive_inspect_and_report",
+            "non_destructive_default": true,
+            "prompt_delivery": "artifact_handoff",
+            "supported_modes": [
+              "http"
+            ]
+          },
+          "detail": "OpenHands Executor is not configured.",
+          "executor_id": "openhands",
+          "expected_output_schema": {
+            "approval_requests": "list[dict]",
+            "artifacts": "list[dict]",
+            "errors": "list[dict]",
+            "evidence": "list[dict]",
+            "learning_delta": "dict",
+            "memory_candidates": "list[dict]",
+            "report": "string",
+            "status": "completed | failed | blocked | needs_approval | partial | cancelled",
+            "tool_events": "list[dict]",
+            "usage": "dict"
+          },
+          "missing_env": [
+            "OPENHANDS_BASE_URL"
+          ],
+          "safety_policy": {
+            "completion_policy": "external_runtime_completion_must_not_be_faked",
+            "default_mode": "non_destructive_inspect_and_report",
+            "repo_mutation_guard": [
+              "ticket_bound",
+              "approval_bound",
+              "evidence_bound",
+              "repo_write_capability_required"
+            ]
+          },
+          "setup_url": "https://docs.all-hands.dev/",
+          "status": "setup_blocked",
+          "supported_actions": [
+            "answer_only",
+            "append_report",
+            "inspect_code_repository"
+          ]
+        },
+        "ready": false,
+        "setup_required": [
+          "OPENHANDS_BASE_URL"
+        ],
+        "status": "setup_blocked"
+      }
+    ],
+    "require_repo_write_executor": false,
+    "selected_executor_id": "langgraph",
+    "selected_executor_preflight": {
+      "blockers": [],
+      "capabilities": [
+        "answer_only",
+        "append_report",
+        "create_ticket",
+        "implement_ticket",
+        "record_failure",
+        "record_validation",
+        "request_human_review",
+        "request_validation",
+        "stream"
+      ],
+      "executor_id": "langgraph",
+      "health": {
+        "capabilities": [
+          "answer_only",
+          "append_report",
+          "create_ticket",
+          "implement_ticket",
+          "record_failure",
+          "record_validation",
+          "request_human_review",
+          "request_validation",
+          "stream"
+        ],
+        "checkpoint": {
+          "mode": "sqlite",
+          "path": "/home/shiqiangli/projects/AITeamOS/.aiteamos/langgraph/langgraph_checkpoints.sqlite"
+        },
+        "detail": "LangGraph executor is available for runtime-first dispatch.",
+        "executor_id": "langgraph",
+        "status": "ready"
+      },
+      "profile": "core_loop",
+      "require_repo_write_executor": false,
+      "status": "passed"
+    },
+    "status": "blocked",
+    "summary": {
+      "anti_wheel_boundary": "readiness reuses RuntimeExecutor health plus Ticket and Graphiti provider status",
+      "blocker_count": 2,
+      "memory_backend_status": "ready",
+      "plane_ticket_api_key_configured": true,
+      "plane_ticket_backend_configured": false,
+      "plane_ticket_backend_selected": false,
+      "plane_ticket_backend_setup_required": [
+        "PUT /api/v1/tickets/backend mode=plane",
+        ".aiteamos/tickets/backend.json mode=plane",
+        "plane_workspace_slug",
+        "plane_project_id"
+      ],
+      "plane_ticket_backend_setup_status": "setup_blocked",
+      "plane_ticket_project_configured": false,
+      "plane_ticket_scope_candidate_count": 0,
+      "plane_ticket_scope_missing_count": 1,
+      "plane_ticket_scope_setup_action": "add_plane_scope_to_code_repository_or_ticket_backend",
+      "plane_ticket_scope_status": "incomplete",
+      "plane_ticket_workspace_configured": false,
+      "profile": "core_loop",
+      "repo_write_candidate_count": 6,
+      "repo_write_ready_count": 1,
+      "ticket_backend_mode": "local_file",
+      "ticket_backend_provider": "",
+      "ticket_backend_release_target_blockers": [
+        "plane_ticket_backend_not_selected",
+        "plane_workspace_slug_missing",
+        "plane_project_id_missing",
+        "code_repository_plane_scope_incomplete"
+      ],
+      "ticket_backend_release_target_ready": false,
+      "ticket_backend_release_target_setup_action": "select_plane_ticket_backend",
+      "ticket_backend_release_target_status": "blocked",
+      "ticket_backend_status": "ready"
+    },
+    "warnings": []
+  },
+  "schema": "aiteamos.live_provider_readiness_smoke.v1",
+  "status": "passed",
+  "summary": {
+    "blocker_count": 2,
+    "blocker_reasons": [
+      "plane_ticket_backend_not_selected",
+      "live_provider_dogfood_not_confirmed"
+    ],
+    "blocker_scopes": [
+      "ticket_backend",
+      "mutation_gate"
+    ],
+    "memory_backend_status": "ready",
+    "mutation_gate_blocker_reason": "live_provider_dogfood_not_confirmed",
+    "mutation_gate_confirm_env_configured": false,
+    "mutation_gate_confirm_env_var": "AITEAMOS_LIVE_PROVIDER_DOGFOOD",
+    "mutation_gate_execute_flag": true,
+    "mutation_gate_open": false,
+    "plane_ticket_api_key_configured": true,
+    "plane_ticket_backend_configured": false,
+    "plane_ticket_backend_selected": false,
+    "plane_ticket_backend_setup_required": [
+      "PUT /api/v1/tickets/backend mode=plane",
+      ".aiteamos/tickets/backend.json mode=plane",
+      "plane_workspace_slug",
+      "plane_project_id"
+    ],
+    "plane_ticket_backend_setup_status": "setup_blocked",
+    "plane_ticket_project_configured": false,
+    "plane_ticket_scope_candidate_count": 0,
+    "plane_ticket_scope_missing_count": 1,
+    "plane_ticket_scope_setup_action": "add_plane_scope_to_code_repository_or_ticket_backend",
+    "plane_ticket_scope_status": "incomplete",
+    "plane_ticket_workspace_configured": false,
+    "profile": "core_loop",
+    "provider_smoke_status": "not_run",
+    "readiness_status": "blocked",
+    "ready_for_live_dogfood": false,
+    "repo_write_candidate_count": 6,
+    "repo_write_ready_count": 1,
+    "repo_write_ready_executor_ids": [
+      "codex_cli"
+    ],
+    "selected_executor_blocker_reasons": [],
+    "selected_executor_id": "langgraph",
+    "selected_executor_status": "passed",
+    "ticket_backend_mode": "local_file",
+    "ticket_backend_provider": "",
+    "ticket_backend_release_target_blockers": [
+      "plane_ticket_backend_not_selected",
+      "plane_workspace_slug_missing",
+      "plane_project_id_missing",
+      "code_repository_plane_scope_incomplete"
+    ],
+    "ticket_backend_release_target_ready": false,
+    "ticket_backend_release_target_setup_action": "select_plane_ticket_backend",
+    "ticket_backend_release_target_status": "blocked",
+    "ticket_backend_status": "ready"
+  },
+  "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+}

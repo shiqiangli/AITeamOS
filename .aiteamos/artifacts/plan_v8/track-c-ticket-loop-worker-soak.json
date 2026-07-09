@@ -1,0 +1,621 @@
+{
+  "checks": [
+    {
+      "actual": "queued",
+      "expected": "queued",
+      "name": "before.queue_status",
+      "passed": true
+    },
+    {
+      "actual": "duplicate_queued",
+      "expected": "duplicate_queued",
+      "name": "before.queue_reliability",
+      "passed": true
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "name": "before.queued_count",
+      "passed": true
+    },
+    {
+      "actual": "completed",
+      "expected": "completed",
+      "name": "tick.status",
+      "passed": true
+    },
+    {
+      "actual": [
+        "blocked",
+        "blocked"
+      ],
+      "expected": [
+        "blocked",
+        "blocked"
+      ],
+      "name": "tick.processed_statuses",
+      "passed": true
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "name": "tick.policy_action_count",
+      "passed": true
+    },
+    {
+      "actual": "failure_retrospective_candidate",
+      "expected": "failure_retrospective_candidate",
+      "name": "tick.policy_action_kind",
+      "passed": true
+    },
+    {
+      "actual": "needs_attention",
+      "expected": "needs_attention",
+      "name": "after.queue_status",
+      "passed": true
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "name": "after.failed_delta",
+      "passed": true
+    },
+    {
+      "actual": "error",
+      "expected": "error",
+      "name": "after.queue_reliability",
+      "passed": true
+    },
+    {
+      "actual": [
+        "assigned",
+        "assigned",
+        "ticket_loop_failure_retrospective_candidate",
+        "candidate",
+        "candidate",
+        "blocked",
+        "blocked",
+        "blocked",
+        "blocked",
+        "assigned",
+        "assigned",
+        "loop_queued",
+        "candidate",
+        "candidate",
+        "assigned",
+        "assigned",
+        "loop_queued",
+        "candidate",
+        "candidate",
+        "assigned",
+        "assigned",
+        "blocked",
+        "proposed",
+        "approved",
+        "approved",
+        "approved"
+      ],
+      "expected": "blocked",
+      "name": "after.timeline_statuses",
+      "passed": true
+    },
+    {
+      "actual": "asset-candidate-ticket-loop-failure-retrospective-ops-0001",
+      "expected": "present",
+      "name": "asset_candidate.id",
+      "passed": true
+    },
+    {
+      "actual": "failure_retrospective",
+      "expected": "failure_retrospective",
+      "name": "asset_candidate.type",
+      "passed": true
+    },
+    {
+      "actual": [
+        "ticket-loop-queue-ops-0001-85c78f5b",
+        "ticket-loop-queue-ops-0001-987483bf"
+      ],
+      "expected": [
+        "ticket-loop-queue-ops-0001-85c78f5b",
+        "ticket-loop-queue-ops-0001-987483bf"
+      ],
+      "name": "asset_candidate.queue_item_ids",
+      "passed": true
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "name": "worker.processed_delta",
+      "passed": true
+    },
+    {
+      "actual": "1",
+      "expected": "1",
+      "name": "worker.policy_action_delta",
+      "passed": true
+    },
+    {
+      "actual": "running",
+      "expected": "running",
+      "name": "daemon.started.status",
+      "passed": true
+    },
+    {
+      "actual": "stopped",
+      "expected": "stopped",
+      "name": "daemon.stopped.status",
+      "passed": true
+    },
+    {
+      "actual": [
+        "completed",
+        "completed"
+      ],
+      "expected": [
+        "completed",
+        "completed"
+      ],
+      "name": "daemon.queue_statuses",
+      "passed": true
+    },
+    {
+      "actual": [
+        "completed",
+        "completed"
+      ],
+      "expected": [
+        "completed",
+        "completed"
+      ],
+      "name": "daemon.run_statuses",
+      "passed": true
+    },
+    {
+      "actual": "6",
+      "expected": ">=6",
+      "name": "daemon.tick_delta",
+      "passed": true
+    },
+    {
+      "actual": "2",
+      "expected": "2",
+      "name": "daemon.processed_delta",
+      "passed": true
+    },
+    {
+      "actual": "idle",
+      "expected": [
+        "completed",
+        "idle"
+      ],
+      "name": "daemon.last_tick_status",
+      "passed": true
+    },
+    {
+      "actual": "",
+      "expected": "",
+      "name": "daemon.last_error",
+      "passed": true
+    },
+    {
+      "actual": ".aiteamos/ticket_loop_queue_worker.json",
+      "expected": "present",
+      "name": "daemon.saved_path",
+      "passed": true
+    }
+  ],
+  "daemon": {
+    "checks": [
+      {
+        "actual": "running",
+        "expected": "running",
+        "name": "daemon.started.status",
+        "passed": true
+      },
+      {
+        "actual": "stopped",
+        "expected": "stopped",
+        "name": "daemon.stopped.status",
+        "passed": true
+      },
+      {
+        "actual": [
+          "completed",
+          "completed"
+        ],
+        "expected": [
+          "completed",
+          "completed"
+        ],
+        "name": "daemon.queue_statuses",
+        "passed": true
+      },
+      {
+        "actual": [
+          "completed",
+          "completed"
+        ],
+        "expected": [
+          "completed",
+          "completed"
+        ],
+        "name": "daemon.run_statuses",
+        "passed": true
+      },
+      {
+        "actual": "6",
+        "expected": ">=6",
+        "name": "daemon.tick_delta",
+        "passed": true
+      },
+      {
+        "actual": "2",
+        "expected": "2",
+        "name": "daemon.processed_delta",
+        "passed": true
+      },
+      {
+        "actual": "idle",
+        "expected": [
+          "completed",
+          "idle"
+        ],
+        "name": "daemon.last_tick_status",
+        "passed": true
+      },
+      {
+        "actual": "",
+        "expected": "",
+        "name": "daemon.last_error",
+        "passed": true
+      },
+      {
+        "actual": ".aiteamos/ticket_loop_queue_worker.json",
+        "expected": "present",
+        "name": "daemon.saved_path",
+        "passed": true
+      }
+    ],
+    "status": "passed",
+    "summary": {
+      "interval_seconds": 0.1,
+      "min_ticks": 6,
+      "processed_delta": 2,
+      "queue_ids": [
+        "ticket-loop-queue-ops-0002-20ce390a",
+        "ticket-loop-queue-ops-0002-a8a13682"
+      ],
+      "queue_statuses": [
+        "completed",
+        "completed"
+      ],
+      "run_ids": [
+        "ticket-loop-worker-daemon-smoke-1",
+        "ticket-loop-worker-daemon-smoke-2"
+      ],
+      "run_statuses": [
+        "completed",
+        "completed"
+      ],
+      "started_status": {
+        "interval_seconds": 0.1,
+        "last_control_reason": "Run deterministic queue worker daemon smoke.",
+        "last_error": "",
+        "last_tick_at": "2026-06-21T15:22:33.379456+00:00",
+        "last_tick_status": "completed",
+        "max_items": 1,
+        "recent_policy_actions": [
+          {
+            "candidate_ids": [
+              "asset-candidate-ticket-loop-failure-retrospective-ops-0001"
+            ],
+            "detail": "Ticket loop failure retrospective Asset candidate was proposed for review.",
+            "handoff_refs": [],
+            "kind": "failure_retrospective_candidate",
+            "queue_ids": [],
+            "report_id": "report-4fafcfbf1a",
+            "run_ids": [],
+            "status": "proposed",
+            "ticket_id": "ops-0001"
+          }
+        ],
+        "running": true,
+        "saved_path": ".aiteamos/ticket_loop_queue_worker.json",
+        "started_at": "2026-06-21T15:22:33.418113+00:00",
+        "status": "running",
+        "stopped_at": "",
+        "total_policy_actions": 1,
+        "total_processed": 2,
+        "total_ticks": 1,
+        "worker_id": "ticket-loop-queue-worker"
+      },
+      "stopped_status": {
+        "interval_seconds": 0.1,
+        "last_control_reason": "Stop deterministic queue worker daemon smoke.",
+        "last_error": "",
+        "last_tick_at": "2026-06-21T15:22:34.160831+00:00",
+        "last_tick_status": "idle",
+        "max_items": 1,
+        "recent_policy_actions": [
+          {
+            "candidate_ids": [
+              "asset-candidate-ticket-loop-failure-retrospective-ops-0001"
+            ],
+            "detail": "Ticket loop failure retrospective Asset candidate was proposed for review.",
+            "handoff_refs": [],
+            "kind": "failure_retrospective_candidate",
+            "queue_ids": [],
+            "report_id": "report-4fafcfbf1a",
+            "run_ids": [],
+            "status": "proposed",
+            "ticket_id": "ops-0001"
+          }
+        ],
+        "running": false,
+        "saved_path": ".aiteamos/ticket_loop_queue_worker.json",
+        "started_at": "2026-06-21T15:22:33.418113+00:00",
+        "status": "stopped",
+        "stopped_at": "2026-06-21T15:22:34.162552+00:00",
+        "total_policy_actions": 1,
+        "total_processed": 4,
+        "total_ticks": 7,
+        "worker_id": "ticket-loop-queue-worker"
+      },
+      "tick_delta": 6,
+      "ticket_id": "ops-0002",
+      "timeout_seconds": 5.0
+    }
+  },
+  "generated_at": "2026-06-21T15:22:34.167410+00:00",
+  "schema": "aiteamos.ticket_loop_queue_worker_smoke.v2",
+  "status": "passed",
+  "summary": {
+    "after_queue_items": [
+      {
+        "queue_id": "ticket-loop-queue-ops-0001-85c78f5b",
+        "run_id": "ticket-loop-worker-smoke-1",
+        "status": "blocked"
+      },
+      {
+        "queue_id": "ticket-loop-queue-ops-0001-987483bf",
+        "run_id": "ticket-loop-worker-smoke-2",
+        "status": "blocked"
+      }
+    ],
+    "after_queue_status": {
+      "active_count": 0,
+      "completed_count": 0,
+      "failed_count": 2,
+      "latest_activity_at": "2026-06-21T15:22:33.349071+00:00",
+      "next_queue_id": "",
+      "next_run_id": "",
+      "next_ticket_id": "",
+      "oldest_queued_at": "",
+      "queued_count": 0,
+      "running_count": 0,
+      "saved_paths": {
+        "loop_queue": ".aiteamos/ticket_loop_queue.json",
+        "loop_runs": ".aiteamos/ticket_loop_runs.json"
+      },
+      "status": "needs_attention",
+      "total_count": 2
+    },
+    "after_reliability": {
+      "active_count": 0,
+      "completed_count": 0,
+      "detail": "At least one queued loop item failed.",
+      "duplicate_queued_count": 0,
+      "failed_count": 2,
+      "latest_activity_at": "2026-06-21T15:22:33.349071+00:00",
+      "queued_count": 0,
+      "running_count": 0,
+      "stale_running_after_seconds": 900,
+      "stale_running_count": 0,
+      "status": "error",
+      "ticket_id": "ops-0001",
+      "total_count": 2,
+      "worker_last_error": "",
+      "worker_running": false,
+      "worker_status": "stopped"
+    },
+    "asset_candidate_ids": [
+      "asset-candidate-ticket-loop-failure-retrospective-ops-0001"
+    ],
+    "before_queue_status": {
+      "active_count": 2,
+      "completed_count": 0,
+      "failed_count": 0,
+      "latest_activity_at": "2026-06-21T15:22:33.204249+00:00",
+      "next_queue_id": "ticket-loop-queue-ops-0001-85c78f5b",
+      "next_run_id": "ticket-loop-worker-smoke-1",
+      "next_ticket_id": "ops-0001",
+      "oldest_queued_at": "2026-06-21T15:22:33.202710+00:00",
+      "queued_count": 2,
+      "running_count": 0,
+      "saved_paths": {
+        "loop_queue": ".aiteamos/ticket_loop_queue.json",
+        "loop_runs": ".aiteamos/ticket_loop_runs.json"
+      },
+      "status": "queued",
+      "total_count": 2
+    },
+    "daemon": {
+      "interval_seconds": 0.1,
+      "min_ticks": 6,
+      "processed_delta": 2,
+      "queue_ids": [
+        "ticket-loop-queue-ops-0002-20ce390a",
+        "ticket-loop-queue-ops-0002-a8a13682"
+      ],
+      "queue_statuses": [
+        "completed",
+        "completed"
+      ],
+      "run_ids": [
+        "ticket-loop-worker-daemon-smoke-1",
+        "ticket-loop-worker-daemon-smoke-2"
+      ],
+      "run_statuses": [
+        "completed",
+        "completed"
+      ],
+      "started_status": {
+        "interval_seconds": 0.1,
+        "last_control_reason": "Run deterministic queue worker daemon smoke.",
+        "last_error": "",
+        "last_tick_at": "2026-06-21T15:22:33.379456+00:00",
+        "last_tick_status": "completed",
+        "max_items": 1,
+        "recent_policy_actions": [
+          {
+            "candidate_ids": [
+              "asset-candidate-ticket-loop-failure-retrospective-ops-0001"
+            ],
+            "detail": "Ticket loop failure retrospective Asset candidate was proposed for review.",
+            "handoff_refs": [],
+            "kind": "failure_retrospective_candidate",
+            "queue_ids": [],
+            "report_id": "report-4fafcfbf1a",
+            "run_ids": [],
+            "status": "proposed",
+            "ticket_id": "ops-0001"
+          }
+        ],
+        "running": true,
+        "saved_path": ".aiteamos/ticket_loop_queue_worker.json",
+        "started_at": "2026-06-21T15:22:33.418113+00:00",
+        "status": "running",
+        "stopped_at": "",
+        "total_policy_actions": 1,
+        "total_processed": 2,
+        "total_ticks": 1,
+        "worker_id": "ticket-loop-queue-worker"
+      },
+      "stopped_status": {
+        "interval_seconds": 0.1,
+        "last_control_reason": "Stop deterministic queue worker daemon smoke.",
+        "last_error": "",
+        "last_tick_at": "2026-06-21T15:22:34.160831+00:00",
+        "last_tick_status": "idle",
+        "max_items": 1,
+        "recent_policy_actions": [
+          {
+            "candidate_ids": [
+              "asset-candidate-ticket-loop-failure-retrospective-ops-0001"
+            ],
+            "detail": "Ticket loop failure retrospective Asset candidate was proposed for review.",
+            "handoff_refs": [],
+            "kind": "failure_retrospective_candidate",
+            "queue_ids": [],
+            "report_id": "report-4fafcfbf1a",
+            "run_ids": [],
+            "status": "proposed",
+            "ticket_id": "ops-0001"
+          }
+        ],
+        "running": false,
+        "saved_path": ".aiteamos/ticket_loop_queue_worker.json",
+        "started_at": "2026-06-21T15:22:33.418113+00:00",
+        "status": "stopped",
+        "stopped_at": "2026-06-21T15:22:34.162552+00:00",
+        "total_policy_actions": 1,
+        "total_processed": 4,
+        "total_ticks": 7,
+        "worker_id": "ticket-loop-queue-worker"
+      },
+      "tick_delta": 6,
+      "ticket_id": "ops-0002",
+      "timeout_seconds": 5.0
+    },
+    "daemon_status": "passed",
+    "failed_delta": 2,
+    "policy_actions": [
+      {
+        "candidate_ids": [
+          "asset-candidate-ticket-loop-failure-retrospective-ops-0001"
+        ],
+        "detail": "Ticket loop failure retrospective Asset candidate was proposed for review.",
+        "handoff_refs": [],
+        "kind": "failure_retrospective_candidate",
+        "queue_ids": [],
+        "report_id": "report-4fafcfbf1a",
+        "run_ids": [],
+        "status": "proposed",
+        "ticket_id": "ops-0001"
+      }
+    ],
+    "processed_statuses": [
+      "blocked",
+      "blocked"
+    ],
+    "queue_ids": [
+      "ticket-loop-queue-ops-0001-85c78f5b",
+      "ticket-loop-queue-ops-0001-987483bf"
+    ],
+    "ticket_id": "ops-0001",
+    "timeline_statuses": [
+      "assigned",
+      "assigned",
+      "ticket_loop_failure_retrospective_candidate",
+      "candidate",
+      "candidate",
+      "blocked",
+      "blocked",
+      "blocked",
+      "blocked",
+      "assigned",
+      "assigned",
+      "loop_queued",
+      "candidate",
+      "candidate",
+      "assigned",
+      "assigned",
+      "loop_queued",
+      "candidate",
+      "candidate",
+      "assigned",
+      "assigned",
+      "blocked",
+      "proposed",
+      "approved",
+      "approved",
+      "approved"
+    ],
+    "worker_policy_action_delta": 1,
+    "worker_processed_delta": 2,
+    "worker_status": {
+      "interval_seconds": 5.0,
+      "last_control_reason": "Run deterministic queue worker smoke tick.",
+      "last_error": "",
+      "last_tick_at": "2026-06-21T15:22:33.379456+00:00",
+      "last_tick_status": "completed",
+      "max_items": 2,
+      "recent_policy_actions": [
+        {
+          "candidate_ids": [
+            "asset-candidate-ticket-loop-failure-retrospective-ops-0001"
+          ],
+          "detail": "Ticket loop failure retrospective Asset candidate was proposed for review.",
+          "handoff_refs": [],
+          "kind": "failure_retrospective_candidate",
+          "queue_ids": [],
+          "report_id": "report-4fafcfbf1a",
+          "run_ids": [],
+          "status": "proposed",
+          "ticket_id": "ops-0001"
+        }
+      ],
+      "running": false,
+      "saved_path": ".aiteamos/ticket_loop_queue_worker.json",
+      "started_at": "",
+      "status": "completed",
+      "stopped_at": "",
+      "total_policy_actions": 1,
+      "total_processed": 2,
+      "total_ticks": 1,
+      "worker_id": "ticket-loop-queue-worker"
+    }
+  },
+  "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+}

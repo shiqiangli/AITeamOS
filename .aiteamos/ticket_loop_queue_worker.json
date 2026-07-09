@@ -1,0 +1,34 @@
+{
+  "worker": {
+    "interval_seconds": 0.1,
+    "last_control_reason": "Stop deterministic queue worker daemon smoke.",
+    "last_error": "",
+    "last_tick_at": "2026-06-21T15:22:34.160831+00:00",
+    "last_tick_status": "idle",
+    "max_items": 1,
+    "recent_policy_actions": [
+      {
+        "candidate_ids": [
+          "asset-candidate-ticket-loop-failure-retrospective-ops-0001"
+        ],
+        "detail": "Ticket loop failure retrospective Asset candidate was proposed for review.",
+        "handoff_refs": [],
+        "kind": "failure_retrospective_candidate",
+        "queue_ids": [],
+        "report_id": "report-4fafcfbf1a",
+        "run_ids": [],
+        "status": "proposed",
+        "ticket_id": "ops-0001"
+      }
+    ],
+    "running": false,
+    "saved_path": ".aiteamos/ticket_loop_queue_worker.json",
+    "started_at": "2026-06-21T15:22:33.418113+00:00",
+    "status": "stopped",
+    "stopped_at": "2026-06-21T15:22:34.162552+00:00",
+    "total_policy_actions": 1,
+    "total_processed": 4,
+    "total_ticks": 7,
+    "worker_id": "ticket-loop-queue-worker"
+  }
+}

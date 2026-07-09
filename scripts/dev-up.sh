@@ -88,18 +88,39 @@ fi
 
 export AITEAMOS_WORKSPACE_DIR="${AITEAMOS_WORKSPACE_DIR:-$ROOT_DIR}"
 export AITEAMOS_GRAPHITI_PASSWORD="${AITEAMOS_GRAPHITI_PASSWORD:-$NEO4J_PASSWORD}"
+export VITE_LANGGRAPH_API_URL="${VITE_LANGGRAPH_API_URL:-http://127.0.0.1:${AITEAMOS_LANGGRAPH_PORT:-2024}}"
+export VITE_LANGGRAPH_ASSISTANT_ID="${VITE_LANGGRAPH_ASSISTANT_ID:-aiteamos_workbench}"
 
 echo "Starting AITeamOS API at http://127.0.0.1:8000"
 "$PY" -m uvicorn aiteamos_api.main:app --host 127.0.0.1 --port 8000 --reload &
 API_PID=$!
+
+LANGGRAPH_PID=""
+if [[ "${AITEAMOS_WITH_LANGGRAPH:-1}" == "1" ]]; then
+  LANGGRAPH_PORT="${AITEAMOS_LANGGRAPH_PORT:-2024}"
+  echo "Starting LangGraph Agent Server at http://127.0.0.1:$LANGGRAPH_PORT"
+  (
+    cd "$ROOT_DIR"
+    "$VENV_DIR/bin/langgraph" dev --host 127.0.0.1 --port "$LANGGRAPH_PORT" --no-reload --allow-blocking
+  ) &
+  LANGGRAPH_PID=$!
+fi
 
 echo "Starting AITeamOS Dashboard at http://127.0.0.1:5173"
 (cd "$ROOT_DIR/apps/dashboard" && npm run dev) &
 WEB_PID=$!
 
 cleanup() {
-  kill "$API_PID" "$WEB_PID" 2>/dev/null || true
+  if [[ -n "$LANGGRAPH_PID" ]]; then
+    kill "$API_PID" "$WEB_PID" "$LANGGRAPH_PID" 2>/dev/null || true
+  else
+    kill "$API_PID" "$WEB_PID" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT INT TERM
 
-wait -n "$API_PID" "$WEB_PID"
+if [[ -n "$LANGGRAPH_PID" ]]; then
+  wait -n "$API_PID" "$WEB_PID" "$LANGGRAPH_PID"
+else
+  wait -n "$API_PID" "$WEB_PID"
+fi

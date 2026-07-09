@@ -12,11 +12,13 @@ from .read import (
     asset_graph_routes,
     asset_routes,
     capability_routes,
+    chat_agui_routes,
     chat_routes,
     employees_routes,
     knowledge_routes,
     memory_routes,
     repository_routes,
+    runtime_executor_routes,
     system_status_routes,
     ticket_routes,
     tool_connector_routes,
@@ -31,11 +33,13 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(asset_routes.router)
     app.include_router(capability_routes.router)
     app.include_router(chat_routes.router)
+    app.include_router(chat_agui_routes.router)
     app.include_router(employees_routes.router)
     app.include_router(knowledge_routes.router)
     app.include_router(tool_connector_routes.router)
     app.include_router(memory_routes.router)
     app.include_router(repository_routes.router)
+    app.include_router(runtime_executor_routes.router)
     app.include_router(system_status_routes.router)
     app.include_router(ticket_routes.router)
-    logger.info("Asset graph, assets, capability, chat, employees, knowledge, tool connector, memory, repository, system status, and ticket routes registered")
+    logger.info("Asset graph, assets, capability, chat, chat AG-UI compatibility, employees, knowledge, tool connector, memory, repository, runtime executor, system status, and ticket routes registered")

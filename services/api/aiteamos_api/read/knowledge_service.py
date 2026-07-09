@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .capability_service import list_capabilities
 from .memory_service import MemoryCandidate, list_approved_memories, list_memory_candidates
+from .skill_usage_service import skill_usage_summary
 from .ticket_service import ticket_asset_records
 from .validation_skill_catalog import VALIDATION_SKILL_DEFINITIONS
 
@@ -117,7 +118,8 @@ def _now() -> str:
 
 
 def _workspace_root() -> Path:
-    return Path(os.environ.get("AITEAMOS_WORKSPACE_DIR", Path.cwd())).resolve()
+    configured = os.environ.get("AITEAMOS_WORKSPACE_DIR")
+    return Path(configured).resolve() if configured else Path.cwd().resolve()
 
 
 def _workspace_dir() -> Path:
@@ -528,6 +530,7 @@ def _skill_asset_items() -> list[AssetRecord]:
             "content": text,
             "resources": resources,
             "saved_path": _relative(path),
+            **skill_usage_summary(_workspace_dir(), skill_id),
         }
         items.append(
             AssetRecord(
@@ -556,6 +559,7 @@ def _skill_asset_items() -> list[AssetRecord]:
             "source_ref": skill.source_ref,
             "owner_roles": list(skill.owner_roles),
             "phase": "phase5_validation",
+            **skill_usage_summary(_workspace_dir(), skill.id),
         }
         items.append(
             AssetRecord(

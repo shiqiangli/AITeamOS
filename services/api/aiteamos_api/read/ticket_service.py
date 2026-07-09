@@ -6,15 +6,18 @@ import html
 import json
 import os
 import re
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from uuid import uuid4
 
 import httpx
 import yaml
 from pydantic import BaseModel, Field
+
+from .repository_service import code_repository_plane_scope_summary, list_code_repositories
 
 CLARA_SYSTEM_EMPLOYEE_ID = "clara"
 CLARA_SYSTEM_ROLE = "AI Team OS Manager"
@@ -120,6 +123,17 @@ class TicketValidationRequest(BaseModel):
     source_run_id: str = ""
 
 
+class TicketHandoffRequest(BaseModel):
+    to_employee_id: str = ""
+    to_role: str = ""
+    from_employee_id: str = ""
+    from_role: str = ""
+    content: str = ""
+    actor_employee_id: str = CLARA_SYSTEM_EMPLOYEE_ID
+    actor_role: str = ""
+    source_run_id: str = ""
+
+
 class TicketStateTransitionRequest(BaseModel):
     status: str = Field(min_length=1)
     actor_employee_id: str = CLARA_SYSTEM_EMPLOYEE_ID
@@ -173,10 +187,50 @@ class TicketBackendStatus(BaseModel):
     provider: str = ""
     provider_ref_count: int = 0
     setup_required: list[str] = Field(default_factory=list)
+    plane_setup: dict[str, Any] = Field(default_factory=dict)
+    release_target: dict[str, Any] = Field(default_factory=dict)
     capabilities: list[str] = Field(default_factory=list)
     mapping: dict[str, str] = Field(default_factory=dict)
     saved_paths: dict[str, str] = Field(default_factory=dict)
     supported_modes: list[TicketBackendMode] = Field(default_factory=list)
+
+
+class TicketBackendPlaneScopeDiscovery(BaseModel):
+    status: str
+    detail: str
+    api_key_env: str = "PLANE_API_KEY"
+    api_key_configured: bool = False
+    external_calls: bool = False
+    checks: list[str] = Field(default_factory=list)
+    setup_required: list[str] = Field(default_factory=list)
+    suggestions: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class TicketProviderActionSmokeRequest(BaseModel):
+    execute: bool = False
+    confirm_env_var: str = "AITEAMOS_LIVE_PROVIDER_DOGFOOD"
+    ticket_id: str = ""
+    create_ticket_if_missing: bool = True
+    from_employee_id: str = CLARA_SYSTEM_EMPLOYEE_ID
+    from_role: str = CLARA_SYSTEM_ROLE
+    to_employee_id: str = "alex"
+    to_role: str = "AI RD / Implementer"
+    source_run_id: str = "plane-ticket-action-smoke"
+    report_content: str = "AITeamOS Plane action smoke for Ticket handoff/report writes."
+
+
+class TicketProviderActionSmokeResponse(BaseModel):
+    status: str
+    provider: str = ""
+    checks: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    failures: list[str] = Field(default_factory=list)
+    blockers: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    summary: dict[str, Any] = Field(default_factory=dict)
+    external_calls: bool = False
+    mutating: bool = False
 
 
 class TicketWorkItem(BaseModel):
@@ -198,6 +252,85 @@ class EmployeeTicketReportRecord(BaseModel):
     created_at: str
 
 
+class EmployeeAssetWorkRecord(BaseModel):
+    asset_id: str = ""
+    candidate_id: str = ""
+    asset_type: str = ""
+    title: str = ""
+    status: str = ""
+    review_state: str = ""
+    scope_kind: str = ""
+    scope_ref: str = ""
+    source_ticket_id: str = ""
+    source_run_id: str = ""
+    source_ref: str = ""
+    application_status: str = ""
+    application_report_id: str = ""
+    application_employee_id: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class EmployeeAssetReviewRecord(BaseModel):
+    review_id: str
+    candidate_id: str = ""
+    asset_id: str = ""
+    status: str = ""
+    reviewer_employee_id: str = ""
+    reason: str = ""
+    relation_to_employee: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class EmployeeRuntimeRunRecord(BaseModel):
+    request_id: str
+    run_id: str = ""
+    session_key: str = ""
+    ticket_id: str = ""
+    action: str = ""
+    executor_id: str = ""
+    status: str = ""
+    trace_ref: str = ""
+    artifact_count: int = 0
+    evidence_count: int = 0
+    tool_event_count: int = 0
+    memory_candidate_count: int = 0
+    latency_ms: int = 0
+    total_cost: float = 0.0
+    started_at: str = ""
+    finished_at: str = ""
+
+
+class EmployeeQualityFeedbackRecord(BaseModel):
+    id: str
+    kind: str = ""
+    status: str = ""
+    summary: str = ""
+    source_ref: str = ""
+    reviewer_employee_id: str = ""
+    ticket_id: str = ""
+    created_at: str = ""
+
+
+class EmployeeImprovementCandidateRequest(BaseModel):
+    actor_employee_id: str = CLARA_SYSTEM_EMPLOYEE_ID
+    reason: str = ""
+    title: str = ""
+    content: str = ""
+    proposed_skill_refs: list[str] = Field(default_factory=list)
+    proposed_memory_scopes: list[str] = Field(default_factory=list)
+    proposed_capability_tags: list[str] = Field(default_factory=list)
+    proposed_personality_tags: list[str] = Field(default_factory=list)
+
+
+class EmployeeImprovementCandidateResponse(BaseModel):
+    employee_id: str
+    feedback: EmployeeQualityFeedbackRecord
+    candidate: dict[str, Any]
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
 class EmployeeWorkLedger(BaseModel):
     employee_id: str
     current_tickets: list[TicketWorkItem] = Field(default_factory=list)
@@ -206,6 +339,11 @@ class EmployeeWorkLedger(BaseModel):
     validations: list[EmployeeTicketReportRecord] = Field(default_factory=list)
     blocked_records: list[EmployeeTicketReportRecord] = Field(default_factory=list)
     handoffs: list[dict[str, Any]] = Field(default_factory=list)
+    asset_candidates: list[EmployeeAssetWorkRecord] = Field(default_factory=list)
+    approved_assets: list[EmployeeAssetWorkRecord] = Field(default_factory=list)
+    asset_reviews: list[EmployeeAssetReviewRecord] = Field(default_factory=list)
+    runtime_runs: list[EmployeeRuntimeRunRecord] = Field(default_factory=list)
+    quality_feedback: list[EmployeeQualityFeedbackRecord] = Field(default_factory=list)
     contribution: dict[str, int] = Field(default_factory=dict)
 
 
@@ -256,6 +394,7 @@ class EmployeeGraphProjection(BaseModel):
     edges: list[TicketGraphEdge] = Field(default_factory=list)
     grouped_edges: dict[str, list[TicketGraphEdge]] = Field(default_factory=dict)
     source_counts: dict[str, int] = Field(default_factory=dict)
+    provider_projection: dict[str, Any] = Field(default_factory=dict)
 
 
 class AssetGraphProjection(BaseModel):
@@ -283,6 +422,13 @@ class EmployeeAnalytics(BaseModel):
     validation_pass_rate: float = 0.0
     candidates_produced: int = 0
     recalled_asset_count: int = 0
+    blocker_count: int = 0
+    validation_failure_count: int = 0
+    stale_asset_count: int = 0
+    useful_recall_count: int = 0
+    execution_run_count: int = 0
+    total_cost: float = 0.0
+    average_latency_ms: int = 0
     source_counts: dict[str, int] = Field(default_factory=dict)
 
 
@@ -316,6 +462,46 @@ class TicketPerformance(BaseModel):
     contribution: list[TicketEmployeeContribution] = Field(default_factory=list)
     quality_signals: dict[str, Any] = Field(default_factory=dict)
     source_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class TicketRuntimeProviderEvidence(BaseModel):
+    mode: str = ""
+    status: str = ""
+    provider: str = ""
+    provider_ref_recorded: bool = False
+    provider_record_id: str = ""
+    provider_project_id: str = ""
+    provider_url: str = ""
+    external_url: str = ""
+    synced_at: str = ""
+    detail: str = ""
+    setup_required: list[str] = Field(default_factory=list)
+
+
+class TicketRuntimeLoopRunEvidence(BaseModel):
+    run_id: str
+    status: str = ""
+    stop_reason: str = ""
+    active: bool = False
+    session_key: str = ""
+    step_count: int = 0
+    queued_at: str = ""
+    started_at: str = ""
+    finished_at: str = ""
+    updated_at: str = ""
+    saved_path: str = ""
+
+
+class TicketRuntimeEvidence(BaseModel):
+    ticket_id: str
+    status: str = ""
+    source_counts: dict[str, int] = Field(default_factory=dict)
+    provider_state: TicketRuntimeProviderEvidence = Field(default_factory=TicketRuntimeProviderEvidence)
+    governance_state: dict[str, Any] = Field(default_factory=dict)
+    latest_loop_run: TicketRuntimeLoopRunEvidence | None = None
+    blockers: list[dict[str, Any]] = Field(default_factory=list)
+    gaps: list[dict[str, Any]] = Field(default_factory=list)
+    links: dict[str, str] = Field(default_factory=dict)
 
 
 class TicketEvidenceRequirement(BaseModel):
@@ -380,7 +566,8 @@ def _now() -> str:
 
 
 def _workspace_root() -> Path:
-    return Path(os.environ.get("AITEAMOS_WORKSPACE_DIR", Path.cwd())).resolve()
+    configured = os.environ.get("AITEAMOS_WORKSPACE_DIR")
+    return Path(configured).resolve() if configured else Path.cwd().resolve()
 
 
 def _workspace_dir() -> Path:
@@ -451,6 +638,98 @@ def _default_backend_settings() -> TicketBackendSettings:
         },
         supported_modes=SUPPORTED_BACKENDS,
     )
+
+
+def _plane_backend_setup_summary(settings: TicketBackendSettings) -> dict[str, Any]:
+    api_key_env = settings.plane_api_key_env.strip() or "PLANE_API_KEY"
+    selected = settings.mode == "plane"
+    workspace_configured = bool(settings.plane_workspace_slug.strip())
+    project_configured = bool(settings.plane_project_id.strip())
+    api_key_configured = bool(os.environ.get(api_key_env))
+    setup_required: list[str] = []
+    if not selected:
+        setup_required.extend(["PUT /api/v1/tickets/backend mode=plane", ".aiteamos/tickets/backend.json mode=plane"])
+    if not workspace_configured:
+        setup_required.append("plane_workspace_slug")
+    if not project_configured:
+        setup_required.append("plane_project_id")
+    if not api_key_configured:
+        setup_required.append(api_key_env)
+    scope_summary = _plane_repository_scope_summary()
+    configured = workspace_configured and project_configured and api_key_configured
+    detail = "Plane Ticket Backend is selected and configured."
+    if not selected and not configured:
+        detail = "Plane Ticket Backend is not selected and Plane workspace/project setup is incomplete."
+    elif not selected:
+        detail = "Plane Ticket Backend setup is configured, but the active Ticket backend mode is not Plane."
+    elif not configured:
+        detail = "Plane Ticket Backend is selected, but Plane workspace/project setup is incomplete."
+    return {
+        "status": "ready" if selected and configured else "setup_blocked",
+        "detail": detail,
+        "selected": selected,
+        "configured": configured,
+        "active_mode": settings.mode,
+        "active_provider": "plane" if selected else "",
+        "required_mode": "plane",
+        "workspace_configured": workspace_configured,
+        "project_configured": project_configured,
+        "api_key_env": api_key_env,
+        "api_key_configured": api_key_configured,
+        "setup_required": setup_required,
+        "settings_path": _relative(_backend_settings_path()),
+        "setup_endpoint": "/api/v1/tickets/backend",
+        **scope_summary,
+    }
+
+
+def _plane_release_target_summary(
+    settings: TicketBackendSettings,
+    plane_setup: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    setup = plane_setup or _plane_backend_setup_summary(settings)
+    scope_status = str(setup.get("code_repository_scope_status") or "")
+    blockers: list[str] = []
+    setup_required = [str(item) for item in setup.get("setup_required", []) if str(item)]
+    if not setup.get("selected"):
+        blockers.append("plane_ticket_backend_not_selected")
+    if not setup.get("workspace_configured"):
+        blockers.append("plane_workspace_slug_missing")
+    if not setup.get("project_configured"):
+        blockers.append("plane_project_id_missing")
+    if not setup.get("api_key_configured"):
+        blockers.append("plane_api_key_missing")
+    if scope_status != "available":
+        blockers.append("code_repository_plane_scope_incomplete")
+    ready = not blockers
+    setup_action = "none"
+    if blockers:
+        setup_action = "configure_plane_ticket_backend"
+    if "code_repository_plane_scope_incomplete" in blockers:
+        setup_action = "configure_code_repository_plane_scope"
+    if "plane_ticket_backend_not_selected" in blockers:
+        setup_action = "select_plane_ticket_backend"
+    detail = (
+        "Plan v8 release target is ready: Plane is active, configured, and backed by an available Code Repository Plane scope."
+        if ready
+        else "Plan v8 release requires Plane as the active Ticket Backend, complete Plane workspace/project/API setup, and an available Code Repository Plane scope."
+    )
+    return {
+        "status": "ready" if ready else "blocked",
+        "ready": ready,
+        "detail": detail,
+        "active_mode": settings.mode,
+        "required_mode": "plane",
+        "required_scope_status": "available",
+        "code_repository_scope_status": scope_status,
+        "blockers": blockers,
+        "setup_required": list(dict.fromkeys(setup_required)),
+        "setup_action": setup_action,
+    }
+
+
+def _plane_repository_scope_summary() -> dict[str, Any]:
+    return code_repository_plane_scope_summary()
 
 
 def _write_backend_settings(settings: TicketBackendSettings) -> TicketBackendSettings:
@@ -525,6 +804,10 @@ def update_ticket_backend_settings(request: TicketBackendSettingsUpdateRequest) 
     return _write_backend_settings(settings)
 
 
+def discover_ticket_backend_plane_scope() -> TicketBackendPlaneScopeDiscovery:
+    return PlaneTicketAdapter(ticket_backend_settings()).discover_plane_scope()
+
+
 def _resolve_local_file_path(settings: TicketBackendSettings) -> Path:
     configured = Path(settings.local_file_path)
     if configured.is_absolute():
@@ -578,6 +861,14 @@ def _employee_role(employee_id: str) -> str:
     if not isinstance(payload, dict):
         return ""
     return str(payload.get("role") or "")
+
+
+def _validation_employee_from_text(content: str) -> str:
+    arrow_match = re.search(r"->\s*([A-Za-z][A-Za-z0-9_-]{1,63})", content)
+    if arrow_match:
+        return arrow_match.group(1).strip().lower()
+    named_match = re.search(r"\b(Peter|Alex|Clara|Maya)\b", content, re.IGNORECASE)
+    return named_match.group(1).strip().lower() if named_match else ""
 
 
 def _resolve_actor_role(actor_employee_id: str, actor_role: str) -> str:
@@ -761,6 +1052,8 @@ class TicketAdapter(Protocol):
 
     def request_ticket_validation(self, ticket_id: str, request: TicketValidationRequest) -> Ticket: ...
 
+    def record_ticket_handoff(self, ticket_id: str, request: TicketHandoffRequest) -> Ticket: ...
+
     def transition_ticket_state(self, ticket_id: str, request: TicketStateTransitionRequest) -> Ticket: ...
 
     def employee_work_ledger(self, employee_id: str) -> EmployeeWorkLedger: ...
@@ -768,6 +1061,10 @@ class TicketAdapter(Protocol):
     def ticket_asset_records(self) -> list[TicketAssetRecord]: ...
 
     def status(self) -> TicketBackendStatus: ...
+
+    def external_smoke(self) -> dict[str, Any]: ...
+
+    def action_smoke(self, request: TicketProviderActionSmokeRequest) -> TicketProviderActionSmokeResponse: ...
 
 
 class LocalFileTicketAdapter:
@@ -779,6 +1076,36 @@ class LocalFileTicketAdapter:
 
     def _event_files(self) -> list[Path]:
         return sorted(self.root.glob("*/*.ticket.jsonl"))
+
+    def external_smoke(self) -> dict[str, Any]:
+        status = self.status()
+        return {
+            "status": "passed" if status.status == "ready" else status.status,
+            "checks": ["local_file_ticket_index_read"],
+            "warnings": [],
+            "failures": [],
+            "blockers": [],
+            "evidence": {
+                "mode": status.mode,
+                "ticket_count": status.ticket_count,
+                "local_file_path": status.local_file_path,
+            },
+            "external_calls": False,
+        }
+
+    def action_smoke(self, request: TicketProviderActionSmokeRequest) -> TicketProviderActionSmokeResponse:
+        status = self.status()
+        return TicketProviderActionSmokeResponse(
+            status="skipped",
+            provider="local_file",
+            checks=["local_file_ticket_backend_active", "plane_action_smoke_skipped"],
+            warnings=["plane_action_smoke_requires_plane_backend"],
+            evidence={"ticket_backend_status": status.model_dump(mode="json")},
+            summary={
+                "ticket_backend_status": status.status,
+                "reason": "Local file Ticket backend has no external Plane action path.",
+            },
+        )
 
     def _ticket_file(self, namespace: str, ticket_id: str) -> Path:
         return self.root / namespace / f"{ticket_id}.ticket.jsonl"
@@ -1114,6 +1441,54 @@ class LocalFileTicketAdapter:
             raise KeyError(ticket_id)
         return updated
 
+    def record_ticket_handoff(self, ticket_id: str, request: TicketHandoffRequest) -> Ticket:
+        item = self.get_ticket(ticket_id)
+        path = self._ticket_file_by_id(ticket_id.strip())
+        if item is None or path is None:
+            raise KeyError(ticket_id)
+        to_employee_id = request.to_employee_id.strip()
+        to_role = request.to_role.strip()
+        if not (to_employee_id or to_role):
+            raise ValueError("Ticket handoff requires a target Employee or role.")
+
+        actor_id = request.actor_employee_id.strip() or CLARA_SYSTEM_EMPLOYEE_ID
+        actor_role = _resolve_actor_role(actor_id, request.actor_role)
+        timestamp = _now()
+        events = [
+            _event(
+                item.id,
+                "handoff_requested",
+                actor_id=actor_id,
+                actor_role=actor_role,
+                at=timestamp,
+                data={
+                    "from_employee_id": request.from_employee_id.strip() or item.assigned_employee_id,
+                    "from_role": request.from_role.strip() or item.assigned_role,
+                    "to_employee_id": to_employee_id,
+                    "to_role": to_role,
+                    "content": request.content.strip(),
+                    "source_run_id": request.source_run_id.strip(),
+                },
+            ),
+            _event(
+                item.id,
+                "assigned",
+                actor_id=actor_id,
+                actor_role=actor_role,
+                at=timestamp,
+                data={
+                    "assigned_employee_id": to_employee_id,
+                    "assigned_role": to_role,
+                    "source_run_id": request.source_run_id.strip(),
+                },
+            ),
+        ]
+        self._append_events(path, events)
+        updated = self.get_ticket(item.id)
+        if updated is None:
+            raise KeyError(ticket_id)
+        return updated
+
     def transition_ticket_state(self, ticket_id: str, request: TicketStateTransitionRequest) -> Ticket:
         item = self.get_ticket(ticket_id)
         path = self._ticket_file_by_id(ticket_id.strip())
@@ -1158,9 +1533,26 @@ class LocalFileTicketAdapter:
                 roles.add("validator")
             for event in ticket.events:
                 actor_id = event.actor.get("id", "")
-                if actor_id == normalized and event.type.startswith("handoff"):
+                event_data = event.data if isinstance(event.data, dict) else {}
+                handoff_employee_ids = {
+                    actor_id,
+                    str(event_data.get("from_employee_id") or ""),
+                    str(event_data.get("to_employee_id") or ""),
+                }
+                if normalized in handoff_employee_ids and event.type.startswith("handoff"):
                     roles.add("handoff")
-                    handoffs.append({"ticket_id": ticket.id, "title": ticket.title, "event": event.model_dump(mode="json")})
+                    handoffs.append(
+                        {
+                            "ticket_id": ticket.id,
+                            "title": ticket.title,
+                            "relation": (
+                                "target"
+                                if str(event_data.get("to_employee_id") or "") == normalized
+                                else ("source" if str(event_data.get("from_employee_id") or "") == normalized else "actor")
+                            ),
+                            "event": event.model_dump(mode="json"),
+                        }
+                    )
             for report in ticket.reports:
                 if report.reporter_employee_id != normalized:
                     continue
@@ -1193,7 +1585,7 @@ class LocalFileTicketAdapter:
             if not _terminal_status(ticket.status):
                 current[ticket.id] = item
 
-        return EmployeeWorkLedger(
+        return _augment_employee_work_ledger(EmployeeWorkLedger(
             employee_id=normalized,
             current_tickets=sorted(current.values(), key=lambda item: item.updated_at, reverse=True),
             historical_tickets=sorted(historical.values(), key=lambda item: item.updated_at, reverse=True),
@@ -1209,7 +1601,7 @@ class LocalFileTicketAdapter:
                 "blocked_count": len(blocked_records),
                 "handoff_count": len(handoffs),
             },
-        )
+        ))
 
     def ticket_asset_records(self) -> list[TicketAssetRecord]:
         records: list[TicketAssetRecord] = []
@@ -1254,12 +1646,15 @@ class LocalFileTicketAdapter:
     def status(self) -> TicketBackendStatus:
         items = self._load_items()
         self._write_index(items)
+        plane_setup = _plane_backend_setup_summary(self.settings)
         return TicketBackendStatus(
             mode=self.settings.mode,
             status="ready",
             detail="Local append-only Ticket backend is active.",
             ticket_count=len(items),
             local_file_path=_relative(self.index_path),
+            plane_setup=plane_setup,
+            release_target=_plane_release_target_summary(self.settings, plane_setup),
             saved_paths={
                 "settings": _relative(_backend_settings_path()),
                 "local_file": _relative(self.index_path),
@@ -1268,6 +1663,15 @@ class LocalFileTicketAdapter:
             },
             supported_modes=SUPPORTED_BACKENDS,
         )
+
+
+def _should_trust_proxy_env(url: str) -> bool:
+    host = (urlparse(url).hostname or "").strip().lower()
+    if host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:
+        return False
+    if host.endswith(".localhost"):
+        return False
+    return True
 
 
 class PlaneTicketAdapter:
@@ -1283,8 +1687,9 @@ class PlaneTicketAdapter:
             missing.append("plane_workspace_slug")
         if not self.settings.plane_project_id.strip():
             missing.append("plane_project_id")
-        if not os.environ.get(self.settings.plane_api_key_env.strip() or "PLANE_API_KEY"):
-            missing.append(self.settings.plane_api_key_env.strip() or "PLANE_API_KEY")
+        env_name = self.settings.plane_api_key_env.strip() or "PLANE_API_KEY"
+        if missing or not os.environ.get(env_name):
+            missing.append(env_name)
         return missing
 
     def _ensure_ready(self) -> None:
@@ -1329,8 +1734,16 @@ class PlaneTicketAdapter:
     def _request(self, method: str, path: str, *, json_payload: dict[str, Any] | None = None) -> dict[str, Any]:
         self._ensure_ready()
         url = self._api_url(path)
-        with httpx.Client(timeout=30) as client:
-            response = client.request(method, url, headers=self._headers(), json=json_payload)
+        max_attempts = 3
+        response: httpx.Response | None = None
+        for attempt in range(1, max_attempts + 1):
+            with httpx.Client(timeout=30, trust_env=_should_trust_proxy_env(url)) as client:
+                response = client.request(method, url, headers=self._headers(), json=json_payload)
+            if response.status_code not in {429, 502, 503, 504} or attempt == max_attempts:
+                break
+            time.sleep(0.25 * attempt)
+        if response is None:
+            raise ValueError("Plane Ticket Backend action blocker: no response")
         if response.status_code >= 400:
             raise ValueError(f"Plane Ticket Backend action blocker: {response.status_code} {response.text[:300]}")
         try:
@@ -1338,6 +1751,398 @@ class PlaneTicketAdapter:
         except ValueError:
             payload = {}
         return payload if isinstance(payload, dict) else {}
+
+    def _read_only_request(self, path: str) -> Any:
+        url = self._api_url(path)
+        with httpx.Client(timeout=30, trust_env=_should_trust_proxy_env(url)) as client:
+            response = client.request("GET", url, headers=self._headers(), json=None)
+        if response.status_code >= 400:
+            raise ValueError(f"Plane read-only discovery blocker: {response.status_code} {response.text[:300]}")
+        try:
+            return response.json()
+        except ValueError:
+            return {}
+
+    @staticmethod
+    def _records_from_payload(payload: Any) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if not isinstance(payload, dict):
+            return []
+        for key in ("results", "data", "workspaces", "projects"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        return []
+
+    def discover_plane_scope(self) -> TicketBackendPlaneScopeDiscovery:
+        api_key_env = self.settings.plane_api_key_env.strip() or "PLANE_API_KEY"
+        if not os.environ.get(api_key_env):
+            return TicketBackendPlaneScopeDiscovery(
+                status="blocked",
+                detail=f"Plane scope discovery requires {api_key_env}.",
+                api_key_env=api_key_env,
+                api_key_configured=False,
+                external_calls=False,
+                checks=["plane_api_key_missing"],
+                setup_required=[api_key_env],
+            )
+
+        checks = ["plane_workspace_list_requested"]
+        suggestions: list[dict[str, Any]] = []
+        workspace_count = 0
+        project_count = 0
+        try:
+            configured_workspaces = self._configured_discovery_workspace_slugs()
+            if configured_workspaces:
+                checks = ["plane_workspace_slug_configured"]
+                workspace_count = len(configured_workspaces)
+                for workspace_slug in configured_workspaces[:5]:
+                    project_count += self._collect_plane_project_suggestions(
+                        workspace_slug=workspace_slug,
+                        workspace_name=workspace_slug,
+                        suggestions=suggestions,
+                        checks=checks,
+                    )
+                    if len(suggestions) >= 10:
+                        break
+            else:
+                checks = ["plane_workspace_list_requested"]
+                workspaces_payload = self._read_only_request("/api/v1/workspaces/")
+                workspaces = self._records_from_payload(workspaces_payload)
+                workspace_count = len(workspaces)
+                for workspace in workspaces[:5]:
+                    workspace_slug = str(
+                        workspace.get("slug")
+                        or workspace.get("workspace_slug")
+                        or workspace.get("id")
+                        or workspace.get("name")
+                        or ""
+                    ).strip()
+                    if not workspace_slug:
+                        continue
+                    project_count += self._collect_plane_project_suggestions(
+                        workspace_slug=workspace_slug,
+                        workspace_name=str(workspace.get("name") or workspace_slug),
+                        suggestions=suggestions,
+                        checks=checks,
+                    )
+                    if len(suggestions) >= 10:
+                        break
+        except Exception as exc:
+            return TicketBackendPlaneScopeDiscovery(
+                status="failed",
+                detail=str(exc),
+                api_key_env=api_key_env,
+                api_key_configured=True,
+                external_calls=True,
+                checks=checks,
+                setup_required=[],
+                suggestions=[],
+                evidence={"workspace_count": workspace_count, "project_count": project_count},
+            )
+
+        status = "ready" if suggestions else "no_candidates"
+        detail = (
+            "Plane scope discovery found workspace/project candidates."
+            if suggestions
+            else "Plane scope discovery completed but found no workspace/project candidates."
+        )
+        return TicketBackendPlaneScopeDiscovery(
+            status=status,
+            detail=detail,
+            api_key_env=api_key_env,
+            api_key_configured=True,
+            external_calls=True,
+            checks=checks,
+            setup_required=[],
+            suggestions=suggestions[:10],
+            evidence={"workspace_count": workspace_count, "project_count": project_count},
+        )
+
+    def _configured_discovery_workspace_slugs(self) -> list[str]:
+        values = [
+            self.settings.plane_workspace_slug,
+            os.environ.get("AITEAMOS_PLANE_WORKSPACE_SLUG", ""),
+            os.environ.get("PLANE_WORKSPACE_SLUG", ""),
+        ]
+        seen: set[str] = set()
+        result: list[str] = []
+        for value in values:
+            workspace_slug = str(value or "").strip()
+            if not workspace_slug or workspace_slug in seen:
+                continue
+            seen.add(workspace_slug)
+            result.append(workspace_slug)
+        return result
+
+    def _collect_plane_project_suggestions(
+        self,
+        *,
+        workspace_slug: str,
+        workspace_name: str,
+        suggestions: list[dict[str, Any]],
+        checks: list[str],
+    ) -> int:
+        projects_payload = self._read_only_request(f"/api/v1/workspaces/{quote(workspace_slug, safe='')}/projects/")
+        projects = self._records_from_payload(projects_payload)
+        if "plane_project_list_requested" not in checks:
+            checks.append("plane_project_list_requested")
+        for project in projects[:10]:
+            project_id = str(
+                project.get("id")
+                or project.get("project_id")
+                or project.get("identifier")
+                or project.get("slug")
+                or ""
+            ).strip()
+            if not project_id:
+                continue
+            suggestions.append(
+                {
+                    "source": "plane_discovery",
+                    "plane_workspace_slug": workspace_slug,
+                    "plane_project_id": project_id,
+                    "workspace_name": workspace_name,
+                    "project_name": str(project.get("name") or project_id),
+                    "project_identifier": str(project.get("identifier") or ""),
+                    "status": "available",
+                    "deep_link": "#/settings/code-repositories",
+                }
+            )
+        return len(projects)
+
+    def external_smoke(self) -> dict[str, Any]:
+        status = self.status()
+        if status.status != "ready":
+            return {
+                "status": status.status,
+                "checks": ["plane_setup_blocker_reported"],
+                "warnings": [],
+                "failures": [],
+                "blockers": [
+                    {
+                        "id": "ticket:plane:setup",
+                        "status": status.status,
+                        "detail": status.detail,
+                        "setup_required": status.setup_required,
+                    }
+                ],
+                "evidence": {"ticket_backend_status": status.model_dump(mode="json")},
+                "external_calls": False,
+            }
+        try:
+            payload = self._request("GET", self._work_items_path())
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "checks": ["plane_project_work_items_read"],
+                "warnings": [],
+                "failures": ["plane_external_smoke_failed"],
+                "blockers": [
+                    {
+                        "id": "ticket:plane:external_smoke",
+                        "status": "failed",
+                        "detail": str(exc),
+                        "setup_required": [],
+                    }
+                ],
+                "evidence": {
+                    "endpoint": self._work_items_path(),
+                    "provider": "plane",
+                },
+                "external_calls": True,
+            }
+        return {
+            "status": "passed",
+            "checks": ["plane_project_work_items_read", "plane_external_call_completed"],
+            "warnings": [],
+            "failures": [],
+            "blockers": [],
+            "evidence": {
+                "endpoint": self._work_items_path(),
+                "response_keys": sorted(payload.keys())[:12],
+                "provider": "plane",
+            },
+            "external_calls": True,
+        }
+
+    def action_smoke(self, request: TicketProviderActionSmokeRequest) -> TicketProviderActionSmokeResponse:
+        status = self.status()
+        checks: list[str] = ["plane_action_smoke_requested"]
+        evidence: dict[str, Any] = {
+            "ticket_backend_status": status.model_dump(mode="json"),
+            "confirm_env_var": request.confirm_env_var,
+            "confirm_env_configured": os.environ.get(request.confirm_env_var, "") == "1",
+        }
+        if status.status != "ready":
+            return TicketProviderActionSmokeResponse(
+                status="blocked",
+                provider="plane",
+                checks=[*checks, "plane_setup_blocker_reported"],
+                blockers=[
+                    {
+                        "id": "ticket:plane:setup",
+                        "reason": "ticket_provider_not_ready",
+                        "status": status.status,
+                        "detail": status.detail,
+                        "setup_required": status.setup_required,
+                    }
+                ],
+                evidence=evidence,
+                summary={"ticket_backend_status": status.status, "blocker_stage": "setup"},
+            )
+        if not request.execute or os.environ.get(request.confirm_env_var, "") != "1":
+            return TicketProviderActionSmokeResponse(
+                status="dry_run",
+                provider="plane",
+                checks=[*checks, "plane_action_smoke_mutation_gate_checked"],
+                blockers=[
+                    {
+                        "id": "ticket:plane:action_smoke:confirmation",
+                        "reason": "plane_action_smoke_not_confirmed",
+                        "status": "confirmation_required",
+                        "detail": (
+                            f"Pass --execute and set {request.confirm_env_var}=1 to run a mutating "
+                            "Plane Ticket handoff/report action smoke."
+                        ),
+                        "setup_required": ["--execute", f"{request.confirm_env_var}=1"],
+                    }
+                ],
+                evidence=evidence,
+                summary={"ticket_backend_status": status.status, "mutation_gate_open": False},
+            )
+
+        stage = "load_or_create_ticket"
+        ticket: Ticket | None = None
+        ticket_source = ""
+        try:
+            if request.ticket_id.strip():
+                ticket = self.get_ticket(request.ticket_id.strip())
+                ticket_source = "existing"
+                if ticket is None:
+                    raise KeyError(request.ticket_id.strip())
+            elif request.create_ticket_if_missing:
+                ticket_source = "created"
+                ticket = self.create_ticket(
+                    TicketCreateRequest(
+                        title="AITeamOS Plane Ticket action smoke",
+                        description=(
+                            "Opt-in Plan v7 provider action smoke. This Ticket verifies the "
+                            "Plane-backed Ticket handoff/report write path before live dogfood."
+                        ),
+                        ticket_type="ops",
+                        assigned_employee_id=request.from_employee_id.strip() or CLARA_SYSTEM_EMPLOYEE_ID,
+                        assigned_role=request.from_role.strip() or CLARA_SYSTEM_ROLE,
+                        validation_employee_id="peter",
+                        validation_role="AI PV",
+                        source_thread_id="plane-ticket-action-smoke",
+                        source_run_id=request.source_run_id.strip() or "plane-ticket-action-smoke",
+                        actor_employee_id=CLARA_SYSTEM_EMPLOYEE_ID,
+                        actor_role=CLARA_SYSTEM_ROLE,
+                    )
+                )
+            else:
+                raise ValueError("ticket_id is required when create_ticket_if_missing=false.")
+
+            checks.append(f"plane_ticket_{ticket_source}_loaded")
+            evidence["ticket_id"] = ticket.id
+            evidence["provider_ref"] = ticket.provider_ref.model_dump(mode="json") if ticket.provider_ref else {}
+
+            stage = "record_ticket_handoff"
+            handoff = self.record_ticket_handoff(
+                ticket.id,
+                TicketHandoffRequest(
+                    from_employee_id=request.from_employee_id.strip() or ticket.assigned_employee_id,
+                    from_role=request.from_role.strip() or ticket.assigned_role,
+                    to_employee_id=request.to_employee_id.strip(),
+                    to_role=request.to_role.strip(),
+                    content=request.report_content.strip()
+                    or "AITeamOS Plane action smoke for Ticket handoff/report writes.",
+                    actor_employee_id=CLARA_SYSTEM_EMPLOYEE_ID,
+                    actor_role=CLARA_SYSTEM_ROLE,
+                    source_run_id=request.source_run_id.strip() or "plane-ticket-action-smoke",
+                ),
+            )
+            checks.append("ticket_handoff_projection_recorded")
+
+            stage = "append_handoff_report"
+            report = self.add_ticket_report(
+                ticket.id,
+                TicketReportRequest(
+                    reporter_employee_id=CLARA_SYSTEM_EMPLOYEE_ID,
+                    reporter_role=CLARA_SYSTEM_ROLE,
+                    content=(
+                        "Plane Ticket action smoke recorded a Ticket handoff and is verifying "
+                        "the Plane comment/report write path.\n\n"
+                        + (
+                            request.report_content.strip()
+                            or "AITeamOS Plane action smoke for Ticket handoff/report writes."
+                        )
+                    ),
+                    evidence=[f"plane_action_smoke:{request.source_run_id.strip() or 'plane-ticket-action-smoke'}"],
+                    report_type="employee_handoff",
+                    source_run_id=request.source_run_id.strip() or "plane-ticket-action-smoke",
+                ),
+            )
+            checks.append("plane_handoff_report_comment_appended")
+            latest_report = report.reports[-1] if report.reports else None
+            return TicketProviderActionSmokeResponse(
+                status="passed",
+                provider="plane",
+                checks=checks,
+                evidence={
+                    **evidence,
+                    "handoff_ticket": handoff.model_dump(mode="json"),
+                    "reported_ticket": report.model_dump(mode="json"),
+                    "report_id": latest_report.id if latest_report else "",
+                },
+                summary={
+                    "ticket_backend_status": status.status,
+                    "ticket_id": ticket.id,
+                    "ticket_source": ticket_source,
+                    "provider_record_id": ticket.provider_ref.provider_record_id if ticket.provider_ref else "",
+                    "handoff_recorded": True,
+                    "handoff_report_recorded": True,
+                    "report_id": latest_report.id if latest_report else "",
+                    "to_employee_id": request.to_employee_id.strip(),
+                    "mutation_gate_open": True,
+                },
+                external_calls=True,
+                mutating=True,
+            )
+        except Exception as exc:
+            reason = {
+                "load_or_create_ticket": "plane_ticket_load_or_create_failed",
+                "record_ticket_handoff": "plane_ticket_handoff_projection_failed",
+                "append_handoff_report": "plane_handoff_report_action_failed",
+            }.get(stage, "plane_action_smoke_failed")
+            return TicketProviderActionSmokeResponse(
+                status="blocked",
+                provider="plane",
+                checks=checks,
+                failures=[reason],
+                blockers=[
+                    {
+                        "id": f"ticket:plane:action_smoke:{stage}",
+                        "reason": reason,
+                        "status": "blocked",
+                        "detail": str(exc),
+                        "stage": stage,
+                        "setup_required": [],
+                    }
+                ],
+                evidence=evidence,
+                summary={
+                    "ticket_backend_status": status.status,
+                    "ticket_id": ticket.id if ticket is not None else "",
+                    "blocker_stage": stage,
+                    "blocker_reason": reason,
+                    "mutation_gate_open": True,
+                },
+                external_calls=True,
+                mutating=True,
+            )
 
     def _event_files(self) -> list[Path]:
         return sorted(self.root.glob("*/*.ticket.jsonl"))
@@ -1759,18 +2564,31 @@ class PlaneTicketAdapter:
             report_type=report_type,
             created_at=timestamp,
         )
+        aiteamos_comment = {
+            "ticket_id": item.id,
+            "report_id": report.id,
+            "report_type": report.report_type,
+            "reporter_employee_id": reporter_id,
+            "source_run_id": request.source_run_id.strip(),
+            "evidence": report.evidence,
+        }
+        validation_request_like = (
+            report_type in {"validation_request", "validation_requested"}
+            or "validation" in report.content.lower()
+            or "验证" in report.content
+        )
+        inferred_validation_employee = item.validation_employee_id or _validation_employee_from_text(report.content)
+        if validation_request_like:
+            aiteamos_comment.update(
+                {
+                    "request_type": "validation_request",
+                    "validation_employee_id": inferred_validation_employee,
+                    "validation_role": item.validation_role,
+                }
+            )
         comment_payload = {
             "comment_html": f"<p>{html.escape(report.content)}</p>",
-            "comment_json": {
-                "aiteamos": {
-                    "ticket_id": item.id,
-                    "report_id": report.id,
-                    "report_type": report.report_type,
-                    "reporter_employee_id": reporter_id,
-                    "source_run_id": request.source_run_id.strip(),
-                    "evidence": report.evidence,
-                }
-            },
+            "comment_json": {"aiteamos": aiteamos_comment},
             "access": "INTERNAL",
             "external_source": "aiteamos",
             "external_id": report.id,
@@ -1881,6 +2699,54 @@ class PlaneTicketAdapter:
             raise KeyError(ticket_id)
         return updated
 
+    def record_ticket_handoff(self, ticket_id: str, request: TicketHandoffRequest) -> Ticket:
+        self._ensure_ready()
+        item, path = self._get_projected_ticket(ticket_id)
+        if item is None or path is None:
+            raise KeyError(ticket_id)
+        to_employee_id = request.to_employee_id.strip()
+        to_role = request.to_role.strip()
+        if not (to_employee_id or to_role):
+            raise ValueError("Ticket handoff requires a target Employee or role.")
+
+        actor_id = request.actor_employee_id.strip() or CLARA_SYSTEM_EMPLOYEE_ID
+        actor_role = _resolve_actor_role(actor_id, request.actor_role)
+        timestamp = _now()
+        events = [
+            _event(
+                item.id,
+                "handoff_requested",
+                actor_id=actor_id,
+                actor_role=actor_role,
+                at=timestamp,
+                data={
+                    "from_employee_id": request.from_employee_id.strip() or item.assigned_employee_id,
+                    "from_role": request.from_role.strip() or item.assigned_role,
+                    "to_employee_id": to_employee_id,
+                    "to_role": to_role,
+                    "content": request.content.strip(),
+                    "source_run_id": request.source_run_id.strip(),
+                },
+            ),
+            _event(
+                item.id,
+                "assigned",
+                actor_id=actor_id,
+                actor_role=actor_role,
+                at=timestamp,
+                data={
+                    "assigned_employee_id": to_employee_id,
+                    "assigned_role": to_role,
+                    "source_run_id": request.source_run_id.strip(),
+                },
+            ),
+        ]
+        self._append_events(path, events)
+        updated, _ = self._get_projected_ticket(item.id)
+        if updated is None:
+            raise KeyError(ticket_id)
+        return updated
+
     def transition_ticket_state(self, ticket_id: str, request: TicketStateTransitionRequest) -> Ticket:
         self._ensure_ready()
         item, path = self._get_projected_ticket(ticket_id)
@@ -1933,9 +2799,26 @@ class PlaneTicketAdapter:
                 roles.add("validator")
             for event in ticket.events:
                 actor_id = event.actor.get("id", "")
-                if actor_id == normalized and event.type.startswith("handoff"):
+                event_data = event.data if isinstance(event.data, dict) else {}
+                handoff_employee_ids = {
+                    actor_id,
+                    str(event_data.get("from_employee_id") or ""),
+                    str(event_data.get("to_employee_id") or ""),
+                }
+                if normalized in handoff_employee_ids and event.type.startswith("handoff"):
                     roles.add("handoff")
-                    handoffs.append({"ticket_id": ticket.id, "title": ticket.title, "event": event.model_dump(mode="json")})
+                    handoffs.append(
+                        {
+                            "ticket_id": ticket.id,
+                            "title": ticket.title,
+                            "relation": (
+                                "target"
+                                if str(event_data.get("to_employee_id") or "") == normalized
+                                else ("source" if str(event_data.get("from_employee_id") or "") == normalized else "actor")
+                            ),
+                            "event": event.model_dump(mode="json"),
+                        }
+                    )
             for report in ticket.reports:
                 if report.reporter_employee_id != normalized:
                     continue
@@ -1968,7 +2851,7 @@ class PlaneTicketAdapter:
             if not _terminal_status(ticket.status):
                 current[ticket.id] = item
 
-        return EmployeeWorkLedger(
+        return _augment_employee_work_ledger(EmployeeWorkLedger(
             employee_id=normalized,
             current_tickets=sorted(current.values(), key=lambda item: item.updated_at, reverse=True),
             historical_tickets=sorted(historical.values(), key=lambda item: item.updated_at, reverse=True),
@@ -1984,7 +2867,7 @@ class PlaneTicketAdapter:
                 "blocked_count": len(blocked_records),
                 "handoff_count": len(handoffs),
             },
-        )
+        ))
 
     def ticket_asset_records(self) -> list[TicketAssetRecord]:
         self._ensure_ready()
@@ -2034,6 +2917,7 @@ class PlaneTicketAdapter:
     def status(self) -> TicketBackendStatus:
         missing = self._setup_required()
         items = self._load_items()
+        plane_setup = _plane_backend_setup_summary(self.settings)
         if missing:
             return TicketBackendStatus(
                 mode=self.settings.mode,
@@ -2043,6 +2927,8 @@ class PlaneTicketAdapter:
                 provider="plane",
                 provider_ref_count=len([item for item in items if item.provider_ref is not None]),
                 setup_required=missing,
+                plane_setup=plane_setup,
+                release_target=_plane_release_target_summary(self.settings, plane_setup),
                 capabilities=["setup_blocker"],
                 mapping=PLANE_TICKET_MAPPING,
                 saved_paths={"settings": _relative(_backend_settings_path()), "plane_projection": _relative(self.root)},
@@ -2056,6 +2942,8 @@ class PlaneTicketAdapter:
             ticket_count=len(items),
             provider="plane",
             provider_ref_count=len([item for item in items if item.provider_ref is not None]),
+            plane_setup=plane_setup,
+            release_target=_plane_release_target_summary(self.settings, plane_setup),
             capabilities=[
                 "create_ticket",
                 "read_provider_ref",
@@ -2063,6 +2951,7 @@ class PlaneTicketAdapter:
                 "append_report_comment",
                 "request_validation",
                 "request_human_review",
+                "record_handoff",
                 "transition_state",
                 "external_deep_link",
             ],
@@ -2097,6 +2986,9 @@ class PlannedTicketAdapter:
     def request_ticket_validation(self, ticket_id: str, request: TicketValidationRequest) -> Ticket:
         self._raise()
 
+    def record_ticket_handoff(self, ticket_id: str, request: TicketHandoffRequest) -> Ticket:
+        self._raise()
+
     def transition_ticket_state(self, ticket_id: str, request: TicketStateTransitionRequest) -> Ticket:
         self._raise()
 
@@ -2107,12 +2999,15 @@ class PlannedTicketAdapter:
         self._raise()
 
     def status(self) -> TicketBackendStatus:
+        plane_setup = _plane_backend_setup_summary(self.settings)
         return TicketBackendStatus(
             mode=self.settings.mode,
             status="planned",
             detail=f"Ticket backend '{self.settings.mode}' is configured, but Plane is the only external executable Ticket Backend in this version.",
             ticket_count=0,
             local_file_path=self.settings.local_file_path,
+            plane_setup=plane_setup,
+            release_target=_plane_release_target_summary(self.settings, plane_setup),
             mapping=PLANE_TICKET_MAPPING,
             saved_paths={
                 "settings": _relative(_backend_settings_path()),
@@ -2120,6 +3015,44 @@ class PlannedTicketAdapter:
                 "plane_projection": ".aiteamos/tickets/plane",
             },
             supported_modes=SUPPORTED_BACKENDS,
+        )
+
+    def external_smoke(self) -> dict[str, Any]:
+        status = self.status()
+        return {
+            "status": status.status,
+            "checks": ["planned_ticket_provider_reported"],
+            "warnings": [],
+            "failures": [],
+            "blockers": [
+                {
+                    "id": f"ticket:{self.settings.mode}:planned",
+                    "status": status.status,
+                    "detail": status.detail,
+                    "setup_required": [],
+                }
+            ],
+            "evidence": {"ticket_backend_status": status.model_dump(mode="json")},
+            "external_calls": False,
+        }
+
+    def action_smoke(self, request: TicketProviderActionSmokeRequest) -> TicketProviderActionSmokeResponse:
+        status = self.status()
+        return TicketProviderActionSmokeResponse(
+            status=status.status,
+            provider=self.settings.mode,
+            checks=["planned_ticket_provider_reported", "plane_action_smoke_unavailable"],
+            blockers=[
+                {
+                    "id": f"ticket:{self.settings.mode}:planned",
+                    "reason": "ticket_provider_not_implemented",
+                    "status": status.status,
+                    "detail": status.detail,
+                    "setup_required": [],
+                }
+            ],
+            evidence={"ticket_backend_status": status.model_dump(mode="json")},
+            summary={"ticket_backend_status": status.status, "blocker_stage": "planned_backend"},
         )
 
 
@@ -2134,6 +3067,16 @@ def ticket_adapter() -> TicketAdapter:
 
 def ticket_backend_status() -> TicketBackendStatus:
     return ticket_adapter().status()
+
+
+def ticket_provider_external_smoke() -> dict[str, Any]:
+    return ticket_adapter().external_smoke()
+
+
+def ticket_provider_action_smoke(
+    request: TicketProviderActionSmokeRequest | None = None,
+) -> TicketProviderActionSmokeResponse:
+    return ticket_adapter().action_smoke(request or TicketProviderActionSmokeRequest())
 
 
 def list_tickets(status: str | None = None) -> list[Ticket]:
@@ -2153,19 +3096,209 @@ def get_ticket_events(ticket_id: str) -> list[TicketEvent]:
 
 
 def add_ticket_report(ticket_id: str, request: TicketReportRequest) -> Ticket:
-    return ticket_adapter().add_ticket_report(ticket_id, request)
+    updated = ticket_adapter().add_ticket_report(ticket_id, request)
+    if _is_validation_pass_report_type(request.report_type):
+        return _maybe_auto_propose_ticket_closeout_candidates(
+            updated,
+            actor_employee_id=request.reporter_employee_id,
+            actor_role=request.reporter_role,
+            source_run_id=request.source_run_id,
+            trigger="validation_report",
+            reason=f"Auto-proposed after validation report {request.report_type.strip() or 'validation'}.",
+        )
+    return updated
 
 
 def request_ticket_validation(ticket_id: str, request: TicketValidationRequest) -> Ticket:
     return ticket_adapter().request_ticket_validation(ticket_id, request)
 
 
+def record_ticket_handoff(ticket_id: str, request: TicketHandoffRequest) -> Ticket:
+    return ticket_adapter().record_ticket_handoff(ticket_id, request)
+
+
 def transition_ticket_state(ticket_id: str, request: TicketStateTransitionRequest) -> Ticket:
-    return ticket_adapter().transition_ticket_state(ticket_id, request)
+    updated = ticket_adapter().transition_ticket_state(ticket_id, request)
+    if _closeout_status(request.status):
+        return _maybe_auto_propose_ticket_closeout_candidates(
+            updated,
+            actor_employee_id=request.actor_employee_id,
+            actor_role=request.actor_role,
+            source_run_id=request.source_run_id,
+            trigger="state_transition",
+            reason=f"Auto-proposed after Ticket state transition to {request.status.strip().lower()}.",
+        )
+    return updated
 
 
 def employee_work_ledger(employee_id: str) -> EmployeeWorkLedger:
     return ticket_adapter().employee_work_ledger(employee_id)
+
+
+def propose_employee_quality_improvement_candidate(
+    employee_id: str,
+    feedback_id: str,
+    request: EmployeeImprovementCandidateRequest,
+) -> EmployeeImprovementCandidateResponse:
+    normalized_employee_id = employee_id.strip()
+    normalized_feedback_id = feedback_id.strip()
+    if not normalized_employee_id:
+        raise ValueError("Employee id is required.")
+    if not normalized_feedback_id:
+        raise ValueError("Quality feedback id is required.")
+    ledger = employee_work_ledger(normalized_employee_id)
+    feedback = next((item for item in ledger.quality_feedback if item.id == normalized_feedback_id), None)
+    if feedback is None:
+        raise KeyError(normalized_feedback_id)
+
+    from .asset_candidate_service import AssetCandidateRecord, asset_candidates_path, list_asset_candidates, upsert_asset_candidate
+
+    timestamp = _now()
+    candidate_id = f"employee-improvement-{_safe_asset_ref(normalized_employee_id)}-{_safe_asset_ref(normalized_feedback_id)}"
+    existing_candidate = next((item for item in list_asset_candidates(asset_type="employee_improvement") if item.id == candidate_id), None)
+    actor_employee_id = request.actor_employee_id.strip() or CLARA_SYSTEM_EMPLOYEE_ID
+    title = request.title.strip() or f"Improve {normalized_employee_id} from {feedback.kind or 'quality'} feedback"
+    content = request.content.strip() or _employee_improvement_content(normalized_employee_id, feedback, request.reason)
+    relationships = _employee_improvement_relationships(normalized_employee_id, feedback)
+    profile_updates = _employee_improvement_profile_updates(request)
+    if not any(profile_updates.values()) and existing_candidate is not None:
+        existing_updates = existing_candidate.provenance.get("proposed_profile_updates")
+        if isinstance(existing_updates, dict):
+            profile_updates = {
+                "skill_refs": _unique_profile_update_values(existing_updates.get("skill_refs") if isinstance(existing_updates.get("skill_refs"), list) else []),
+                "memory_scopes": _unique_profile_update_values(existing_updates.get("memory_scopes") if isinstance(existing_updates.get("memory_scopes"), list) else []),
+                "capability_tags": _unique_profile_update_values(existing_updates.get("capability_tags") if isinstance(existing_updates.get("capability_tags"), list) else []),
+                "personality_tags": _unique_profile_update_values(existing_updates.get("personality_tags") if isinstance(existing_updates.get("personality_tags"), list) else []),
+            }
+    candidate = upsert_asset_candidate(
+        AssetCandidateRecord(
+            id=candidate_id,
+            source_candidate_id=normalized_feedback_id,
+            asset_id=existing_candidate.asset_id if existing_candidate is not None and existing_candidate.asset_id else f"asset-{candidate_id}",
+            asset_type="employee_improvement",
+            title=title,
+            content=content,
+            status="proposed",
+            scope_kind="employee",
+            scope_ref=normalized_employee_id,
+            owner_employee_id=normalized_employee_id,
+            source_kind="employee_quality_feedback",
+            source_ref=feedback.source_ref or feedback.id,
+            provenance={
+                "source_employee_id": normalized_employee_id,
+                "source_feedback_id": feedback.id,
+                "source_feedback_kind": feedback.kind,
+                "source_feedback_status": feedback.status,
+                "source_feedback_summary": feedback.summary,
+                "source_ticket_id": feedback.ticket_id,
+                "source_ref": feedback.source_ref,
+                "reviewer_employee_id": feedback.reviewer_employee_id,
+                "proposed_by_employee_id": actor_employee_id,
+                "proposal_reason": request.reason.strip(),
+                "proposed_profile_updates": profile_updates,
+                "improvement_loop": "employee_quality_feedback_to_asset_candidate.v1",
+                "relationships": relationships,
+            },
+            relationships=relationships,
+            review_state="proposed",
+            created_at=existing_candidate.created_at if existing_candidate is not None and existing_candidate.created_at else timestamp,
+            updated_at=timestamp,
+        )
+    )
+    return EmployeeImprovementCandidateResponse(
+        employee_id=normalized_employee_id,
+        feedback=feedback,
+        candidate=candidate.model_dump(mode="json"),
+        saved_paths={"asset_candidates": _relative(asset_candidates_path())},
+    )
+
+
+def _employee_improvement_content(employee_id: str, feedback: EmployeeQualityFeedbackRecord, reason: str) -> str:
+    lines = [
+        f"Employee improvement proposal for {employee_id}.",
+        "",
+        f"Feedback kind: {feedback.kind or 'quality_feedback'}",
+        f"Feedback status: {feedback.status or '-'}",
+        f"Feedback summary: {feedback.summary or '-'}",
+    ]
+    if feedback.ticket_id:
+        lines.append(f"Ticket: {feedback.ticket_id}")
+    if feedback.source_ref:
+        lines.append(f"Source: {feedback.source_ref}")
+    if feedback.reviewer_employee_id:
+        lines.append(f"Reviewer: {feedback.reviewer_employee_id}")
+    normalized_reason = reason.strip()
+    if normalized_reason:
+        lines.extend(["", f"Reviewer proposal reason: {normalized_reason}"])
+    lines.extend(
+        [
+            "",
+            "Suggested follow-up:",
+            "- Review the source Ticket, runtime run, or Asset review evidence.",
+            "- Decide whether this should become a Skill, Memory, permission change, runtime setting, or handoff policy update.",
+            "- Approve, link, or merge this candidate through the Asset Review Queue before changing durable Employee behavior.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _employee_improvement_relationships(employee_id: str, feedback: EmployeeQualityFeedbackRecord) -> list[dict[str, Any]]:
+    relationships: list[dict[str, Any]] = [
+        {
+            "type": "improves_employee",
+            "target_kind": "employee",
+            "target_ref": employee_id,
+            "reason": "Quality feedback proposed an Employee improvement candidate.",
+        }
+    ]
+    if feedback.ticket_id:
+        relationships.append(
+            {
+                "type": "derived_from_ticket",
+                "target_kind": "ticket",
+                "target_ref": feedback.ticket_id,
+                "reason": "Quality feedback was observed in this Ticket flow.",
+            }
+        )
+    if feedback.source_ref:
+        relationships.append(
+            {
+                "type": "derived_from_feedback",
+                "target_kind": feedback.kind or "quality_feedback",
+                "target_ref": feedback.source_ref,
+                "reason": "Quality feedback source evidence for this proposed improvement.",
+            }
+        )
+    return relationships
+
+
+def _employee_improvement_profile_updates(request: EmployeeImprovementCandidateRequest) -> dict[str, list[str]]:
+    return {
+        "skill_refs": _unique_profile_update_values(request.proposed_skill_refs),
+        "memory_scopes": _unique_profile_update_values(request.proposed_memory_scopes),
+        "capability_tags": _unique_profile_update_values(request.proposed_capability_tags),
+        "personality_tags": _unique_profile_update_values(request.proposed_personality_tags),
+    }
+
+
+def _unique_profile_update_values(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for value in values:
+        item = str(value).strip()
+        if not item:
+            continue
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(item)
+    return normalized
+
+
+def _safe_asset_ref(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_.:-]+", "-", value.strip())
+    return normalized.strip("-")[:160] or "feedback"
 
 
 def _string_list(value: Any) -> list[str]:
@@ -2179,8 +3312,406 @@ def _metadata_string(metadata: dict[str, Any], key: str) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _is_positive_memory_usefulness_status(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"used", "promoted", "useful"}
+
+
+def _closeout_status(status: str) -> bool:
+    return status.strip().lower() in {"validated", "completed", "done", "closed"}
+
+
+def _maybe_auto_propose_ticket_closeout_candidates(
+    ticket: Ticket,
+    *,
+    actor_employee_id: str,
+    actor_role: str,
+    source_run_id: str,
+    trigger: str,
+    reason: str,
+) -> Ticket:
+    if not (_closeout_status(ticket.status) or any(_is_validation_pass_report_type(report.report_type) for report in ticket.reports)):
+        return ticket
+    if trigger == "state_transition":
+        requirements = _ticket_evidence_requirements_from_ticket(ticket)
+        if not requirements.satisfied:
+            _record_auto_closeout_blocker(
+                ticket,
+                actor_employee_id=actor_employee_id,
+                actor_role=actor_role,
+                source_run_id=source_run_id,
+                trigger=trigger,
+                detail=(
+                    "Auto closeout Asset candidates were not proposed because validation evidence is incomplete. "
+                    f"Missing: {', '.join(requirements.missing_required)}."
+                ),
+            )
+            return get_ticket(ticket.id) or ticket
+    try:
+        from .asset_candidate_service import TicketCloseoutAssetCandidateRequest, propose_ticket_closeout_asset_candidates
+
+        propose_ticket_closeout_asset_candidates(
+            ticket.id,
+            TicketCloseoutAssetCandidateRequest(
+                actor_employee_id=actor_employee_id.strip() or CLARA_SYSTEM_EMPLOYEE_ID,
+                actor_role=_resolve_actor_role(actor_employee_id.strip() or CLARA_SYSTEM_EMPLOYEE_ID, actor_role),
+                reason=reason,
+            ),
+        )
+    except ValueError as exc:
+        _record_auto_closeout_blocker(
+            ticket,
+            actor_employee_id=actor_employee_id,
+            actor_role=actor_role,
+            source_run_id=source_run_id,
+            trigger=trigger,
+            detail=str(exc),
+        )
+    except Exception:
+        return ticket
+    return get_ticket(ticket.id) or ticket
+
+
+def _record_auto_closeout_blocker(
+    ticket: Ticket,
+    *,
+    actor_employee_id: str,
+    actor_role: str,
+    source_run_id: str,
+    trigger: str,
+    detail: str,
+) -> None:
+    marker = f"Auto closeout blocked ({trigger})"
+    if any(report.report_type == "ticket_closeout_blocked" and marker in report.content for report in ticket.reports):
+        return
+    try:
+        ticket_adapter().add_ticket_report(
+            ticket.id,
+            TicketReportRequest(
+                reporter_employee_id=actor_employee_id.strip() or CLARA_SYSTEM_EMPLOYEE_ID,
+                reporter_role=_resolve_actor_role(actor_employee_id.strip() or CLARA_SYSTEM_EMPLOYEE_ID, actor_role),
+                content=f"{marker}: {detail}",
+                report_type="ticket_closeout_blocked",
+                evidence=[],
+                source_run_id=source_run_id.strip() or f"ticket-closeout-auto-blocked:{ticket.id}:{trigger}",
+            ),
+        )
+    except Exception:
+        return
+
+
 def _asset_canonical_id(asset: TicketAssetRecord) -> str:
     return _metadata_string(asset.metadata, "asset_id") or _metadata_string(asset.metadata, "memory_id") or asset.id
+
+
+def _execution_artifact_mirror_records() -> list[dict[str, Any]]:
+    path = _workspace_dir() / "execution_artifacts.json"
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    records: list[dict[str, Any]] = []
+    for item in payload.values():
+        if isinstance(item, dict):
+            records.append(item)
+    return records
+
+
+def _execution_artifact_records_for_ticket(ticket_id: str) -> list[dict[str, Any]]:
+    normalized = ticket_id.strip()
+    return [
+        record
+        for record in _execution_artifact_mirror_records()
+        if str(record.get("ticket_id") or "").strip() == normalized
+    ]
+
+
+def _execution_artifact_records_for_employee(employee_id: str) -> list[dict[str, Any]]:
+    normalized = employee_id.strip()
+    return [
+        record
+        for record in _execution_artifact_mirror_records()
+        if str(record.get("employee_id") or "").strip() == normalized
+    ]
+
+
+def _numeric(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _usage_cost(usage: dict[str, Any]) -> float:
+    for key in ("cost_usd", "total_cost_usd", "estimated_cost_usd", "cost"):
+        cost = _numeric(usage.get(key))
+        if cost:
+            return cost
+    return 0.0
+
+
+def _execution_latency_ms(record: dict[str, Any]) -> int:
+    usage = record.get("usage") if isinstance(record.get("usage"), dict) else {}
+    explicit = _numeric(usage.get("latency_ms") or usage.get("duration_ms"))
+    if explicit:
+        return int(round(explicit))
+    started_at = str(record.get("started_at") or "").strip()
+    finished_at = str(record.get("finished_at") or "").strip()
+    if not (started_at and finished_at):
+        return 0
+    try:
+        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        finished = datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    latency = (finished - started).total_seconds() * 1000
+    return int(round(latency)) if latency > 0 else 0
+
+
+def _augment_employee_work_ledger(ledger: EmployeeWorkLedger) -> EmployeeWorkLedger:
+    normalized = ledger.employee_id.strip()
+    asset_candidates, approved_assets, asset_reviews, asset_feedback = _employee_asset_work_records(normalized)
+    runtime_runs = _employee_runtime_run_records(normalized)
+    runtime_feedback = _employee_runtime_quality_feedback(runtime_runs)
+    contribution = {
+        **ledger.contribution,
+        "asset_candidate_count": len(asset_candidates),
+        "approved_asset_count": len(approved_assets),
+        "asset_review_count": len(asset_reviews),
+        "runtime_run_count": len(runtime_runs),
+        "quality_feedback_count": len(asset_feedback) + len(runtime_feedback),
+        "tool_event_count": sum(run.tool_event_count for run in runtime_runs),
+    }
+    return ledger.model_copy(
+        update={
+            "asset_candidates": asset_candidates,
+            "approved_assets": approved_assets,
+            "asset_reviews": asset_reviews,
+            "runtime_runs": runtime_runs,
+            "quality_feedback": [*asset_feedback, *runtime_feedback],
+            "contribution": contribution,
+        }
+    )
+
+
+def _employee_asset_work_records(
+    employee_id: str,
+) -> tuple[
+    list[EmployeeAssetWorkRecord],
+    list[EmployeeAssetWorkRecord],
+    list[EmployeeAssetReviewRecord],
+    list[EmployeeQualityFeedbackRecord],
+]:
+    try:
+        from .asset_candidate_service import list_asset_candidates, list_asset_records, list_asset_reviews
+    except Exception:
+        return [], [], [], []
+
+    try:
+        candidates = list_asset_candidates()
+        assets = list_asset_records()
+        reviews = list_asset_reviews()
+    except Exception:
+        return [], [], [], []
+
+    matched_candidates = [
+        candidate for candidate in candidates if _asset_candidate_matches_employee(candidate, employee_id)
+    ]
+    matched_candidate_ids = {candidate.id for candidate in matched_candidates}
+    matched_asset_ids = {candidate.asset_id for candidate in matched_candidates if candidate.asset_id}
+    matched_assets = [
+        asset
+        for asset in assets
+        if _asset_record_matches_employee(asset, employee_id)
+        or (asset.id and asset.id in matched_asset_ids)
+        or (_asset_candidate_ref(asset) and _asset_candidate_ref(asset) in matched_candidate_ids)
+    ]
+    matched_asset_ids.update(asset.id for asset in matched_assets if asset.id)
+
+    review_records: list[EmployeeAssetReviewRecord] = []
+    quality_feedback: list[EmployeeQualityFeedbackRecord] = []
+    for review in reviews:
+        reviewer_match = _normalize_match_id(review.reviewer_employee_id) == _normalize_match_id(employee_id)
+        candidate_match = review.candidate_id in matched_candidate_ids
+        asset_match = review.asset_id in matched_asset_ids
+        if not (reviewer_match or candidate_match or asset_match):
+            continue
+        relation = "reviewer" if reviewer_match else "asset_owner"
+        review_records.append(
+            EmployeeAssetReviewRecord(
+                review_id=review.id,
+                candidate_id=review.candidate_id,
+                asset_id=review.asset_id,
+                status=review.status,
+                reviewer_employee_id=review.reviewer_employee_id,
+                reason=review.reason,
+                relation_to_employee=relation,
+                created_at=review.created_at,
+                updated_at=review.updated_at,
+            )
+        )
+        if candidate_match or asset_match:
+            quality_feedback.append(
+                EmployeeQualityFeedbackRecord(
+                    id=review.id,
+                    kind="asset_review",
+                    status=review.status,
+                    summary=review.reason or f"Asset review status: {review.status}",
+                    source_ref=review.candidate_id or review.asset_id,
+                    reviewer_employee_id=review.reviewer_employee_id,
+                    created_at=review.created_at,
+                )
+            )
+
+    return (
+        sorted([_asset_work_from_candidate(candidate) for candidate in matched_candidates], key=lambda item: item.updated_at or item.created_at, reverse=True),
+        sorted([_asset_work_from_asset(asset) for asset in matched_assets], key=lambda item: item.updated_at or item.created_at, reverse=True),
+        sorted(review_records, key=lambda item: item.updated_at or item.created_at, reverse=True),
+        sorted(quality_feedback, key=lambda item: item.created_at, reverse=True),
+    )
+
+
+def _employee_runtime_run_records(employee_id: str) -> list[EmployeeRuntimeRunRecord]:
+    records = []
+    for record in _execution_artifact_records_for_employee(employee_id):
+        usage = record.get("usage") if isinstance(record.get("usage"), dict) else {}
+        records.append(
+            EmployeeRuntimeRunRecord(
+                request_id=str(record.get("request_id") or ""),
+                run_id=str(record.get("run_id") or record.get("request_id") or ""),
+                session_key=str(record.get("session_key") or _execution_session_key(record, employee_id)),
+                ticket_id=str(record.get("ticket_id") or ""),
+                action=str(record.get("action") or ""),
+                executor_id=str(record.get("executor_id") or ""),
+                status=str(record.get("status") or ""),
+                trace_ref=str(record.get("trace_ref") or ""),
+                artifact_count=len(record.get("artifacts") if isinstance(record.get("artifacts"), list) else []),
+                evidence_count=len(record.get("evidence") if isinstance(record.get("evidence"), list) else []),
+                tool_event_count=len(record.get("tool_events") if isinstance(record.get("tool_events"), list) else []),
+                memory_candidate_count=len(record.get("memory_candidates") if isinstance(record.get("memory_candidates"), list) else []),
+                latency_ms=_execution_latency_ms(record),
+                total_cost=round(_usage_cost(usage), 6),
+                started_at=str(record.get("started_at") or ""),
+                finished_at=str(record.get("finished_at") or ""),
+            )
+    )
+    return sorted(records, key=lambda item: item.finished_at or item.started_at or item.request_id, reverse=True)
+
+
+def _execution_session_key(record: dict[str, Any], employee_id: str) -> str:
+    employee = str(record.get("employee_id") or employee_id).strip()
+    thread = str(record.get("thread_id") or record.get("run_id") or record.get("request_id") or "runtime").strip()
+    ticket = str(record.get("ticket_id") or "none").strip() or "none"
+    return f"{employee}::{thread}::{ticket}" if employee and thread else ""
+
+
+def _employee_runtime_quality_feedback(runtime_runs: list[EmployeeRuntimeRunRecord]) -> list[EmployeeQualityFeedbackRecord]:
+    feedback: list[EmployeeQualityFeedbackRecord] = []
+    for run in runtime_runs:
+        if run.status.strip().lower() not in {"blocked", "failed"}:
+            continue
+        feedback.append(
+            EmployeeQualityFeedbackRecord(
+                id=f"runtime-feedback:{run.request_id}",
+                kind="runtime_result",
+                status=run.status,
+                summary=f"Runtime run {run.request_id} ended with status={run.status}.",
+                source_ref=run.request_id,
+                ticket_id=run.ticket_id,
+                created_at=run.finished_at or run.started_at,
+            )
+        )
+    return feedback
+
+
+def _asset_work_from_candidate(candidate: Any) -> EmployeeAssetWorkRecord:
+    provenance = candidate.provenance if isinstance(candidate.provenance, dict) else {}
+    source_ticket_id = str(provenance.get("source_ticket_id") or "").strip()
+    if not source_ticket_id and candidate.scope_kind == "ticket":
+        source_ticket_id = candidate.scope_ref
+    return EmployeeAssetWorkRecord(
+        asset_id=candidate.asset_id,
+        candidate_id=candidate.id,
+        asset_type=candidate.asset_type,
+        title=candidate.title,
+        status=candidate.status,
+        review_state=candidate.review_state,
+        scope_kind=candidate.scope_kind,
+        scope_ref=candidate.scope_ref,
+        source_ticket_id=source_ticket_id,
+        source_run_id=str(provenance.get("source_run_id") or provenance.get("run_id") or "").strip(),
+        source_ref=candidate.source_ref,
+        created_at=candidate.created_at,
+        updated_at=candidate.updated_at,
+    )
+
+
+def _asset_work_from_asset(asset: Any) -> EmployeeAssetWorkRecord:
+    provenance = asset.provenance if isinstance(asset.provenance, dict) else {}
+    application = provenance.get("employee_improvement_application")
+    application_record = application if isinstance(application, dict) else {}
+    source_ticket_id = str(provenance.get("source_ticket_id") or "").strip()
+    if not source_ticket_id and asset.scope_kind == "ticket":
+        source_ticket_id = asset.scope_ref
+    return EmployeeAssetWorkRecord(
+        asset_id=asset.id,
+        candidate_id=_asset_candidate_ref(asset),
+        asset_type=asset.asset_type,
+        title=asset.title,
+        status=asset.status,
+        review_state=asset.review_state,
+        scope_kind=asset.scope_kind,
+        scope_ref=asset.scope_ref,
+        source_ticket_id=source_ticket_id,
+        source_run_id=str(provenance.get("source_run_id") or provenance.get("run_id") or "").strip(),
+        source_ref=asset.source_ref,
+        application_status=str(application_record.get("status") or "").strip(),
+        application_report_id=str(application_record.get("ticket_report_id") or "").strip(),
+        application_employee_id=str(application_record.get("employee_id") or "").strip(),
+        created_at=asset.created_at,
+        updated_at=asset.updated_at,
+    )
+
+
+def _asset_candidate_matches_employee(candidate: Any, employee_id: str) -> bool:
+    provenance = candidate.provenance if isinstance(candidate.provenance, dict) else {}
+    return _normalize_match_id(employee_id) in {
+        _normalize_match_id(candidate.owner_employee_id),
+        _normalize_match_id(str(provenance.get("source_employee_id") or "")),
+        _normalize_match_id(str(provenance.get("derived_from_employee_id") or "")),
+    }
+
+
+def _asset_record_matches_employee(asset: Any, employee_id: str) -> bool:
+    provenance = asset.provenance if isinstance(asset.provenance, dict) else {}
+    return _normalize_match_id(employee_id) in {
+        _normalize_match_id(asset.owner_employee_id),
+        _normalize_match_id(str(provenance.get("source_employee_id") or "")),
+        _normalize_match_id(str(provenance.get("derived_from_employee_id") or "")),
+    }
+
+
+def _asset_candidate_ref(asset: Any) -> str:
+    provenance = asset.provenance if isinstance(asset.provenance, dict) else {}
+    return str(
+        provenance.get("source_asset_candidate_id")
+        or provenance.get("source_candidate_id")
+        or provenance.get("source_memory_candidate_id")
+        or ""
+    ).strip()
+
+
+def _normalize_match_id(value: str) -> str:
+    return value.strip().lower()
 
 
 def _graph_employee_key(employee_id: str, role: str) -> str:
@@ -2349,6 +3880,81 @@ def ticket_graph_projection(ticket_id: str) -> TicketGraphProjection | None:
         else:
             add_edge("asset.linked_to.ticket", asset_node, ticket_node, label="linked to")
 
+    execution_records = _execution_artifact_records_for_ticket(ticket.id)
+    for record in execution_records:
+        run_id = str(record.get("run_id") or record.get("request_id") or "").strip()
+        if not run_id:
+            continue
+        run_metadata = {
+            "request_id": str(record.get("request_id") or "").strip(),
+            "executor_id": str(record.get("executor_id") or "").strip(),
+            "executor_session_ref": str(record.get("executor_session_ref") or "").strip(),
+            "checkpoint_ref": str(record.get("checkpoint_ref") or "").strip(),
+            "trace_ref": str(record.get("trace_ref") or "").strip(),
+            "action": str(record.get("action") or "").strip(),
+            "usage": record.get("usage") if isinstance(record.get("usage"), dict) else {},
+        }
+        execution_run_node = add_node(
+            "run",
+            run_id,
+            run_id,
+            status=str(record.get("status") or ""),
+            ref=run_id,
+            metadata=run_metadata,
+        )
+        add_edge("run.executed_for.ticket", execution_run_node, ticket_node, label="executed for", metadata=run_metadata)
+        employee_id = str(record.get("employee_id") or "").strip()
+        if employee_id:
+            employee_node = add_employee(employee_id)
+            add_edge("employee.started.run", employee_node, execution_run_node, label="started", metadata={"request_id": run_metadata["request_id"]})
+
+        tool_events = record.get("tool_events") if isinstance(record.get("tool_events"), list) else []
+        for index, event in enumerate(tool_events):
+            if not isinstance(event, dict):
+                continue
+            command = event.get("data", {}).get("command") if isinstance(event.get("data"), dict) else {}
+            command_id = str((command.get("id") if isinstance(command, dict) else "") or event.get("event") or f"tool-{index}").strip()
+            tool_key = f"{run_id}:{index}:{command_id or 'tool'}"
+            tool_node = add_node(
+                "tool_call",
+                tool_key,
+                command_id or str(event.get("event") or "tool"),
+                status=str(event.get("event") or ""),
+                ref=command_id,
+                metadata={"event": event.get("event"), "detail": event.get("detail"), "data": event.get("data") if isinstance(event.get("data"), dict) else {}},
+            )
+            add_edge("run.calls.tool", execution_run_node, tool_node, label="calls", metadata={"request_id": run_metadata["request_id"]})
+
+        artifacts = record.get("artifacts") if isinstance(record.get("artifacts"), list) else []
+        for index, artifact in enumerate(artifacts):
+            if not isinstance(artifact, dict):
+                continue
+            artifact_kind = str(artifact.get("kind") or "artifact").strip()
+            artifact_ref = str(artifact.get("id") or artifact.get("asset_id") or artifact.get("title") or f"{run_id}:artifact:{index}").strip()
+            artifact_node = add_node(
+                "artifact",
+                f"{run_id}:{index}:{artifact_ref}",
+                artifact_kind,
+                status=str(record.get("status") or ""),
+                ref=artifact_ref,
+                metadata={"kind": artifact_kind, "artifact": artifact, "request_id": run_metadata["request_id"]},
+            )
+            add_edge("run.produces.artifact", execution_run_node, artifact_node, label="produces", metadata={"artifact_kind": artifact_kind})
+
+        execution_evidence = record.get("evidence") if isinstance(record.get("evidence"), list) else []
+        for index, evidence in enumerate(execution_evidence):
+            if not isinstance(evidence, dict):
+                continue
+            evidence_ref = str(evidence.get("ref") or evidence.get("evidence_ref") or evidence.get("summary") or evidence.get("kind") or f"{run_id}:evidence:{index}").strip()
+            evidence_node = add_node(
+                "evidence",
+                f"{run_id}:execution-evidence:{index}",
+                evidence_ref,
+                ref=evidence_ref,
+                metadata={"evidence": evidence, "request_id": run_metadata["request_id"]},
+            )
+            add_edge("run.produces.evidence", execution_run_node, evidence_node, label="produces", evidence_refs=[evidence_ref])
+
     grouped_edges: dict[str, list[TicketGraphEdge]] = {}
     for edge in sorted(edges.values(), key=lambda item: (item.type, item.id)):
         grouped_edges.setdefault(edge.type, []).append(edge)
@@ -2362,6 +3968,9 @@ def ticket_graph_projection(ticket_id: str) -> TicketGraphProjection | None:
             "reports": len(ticket.reports),
             "assets": len(linked_assets),
             "evidence": sum(len(report.evidence) for report in ticket.reports),
+            "runs": len(execution_records),
+            "tool_events": sum(len(record.get("tool_events") if isinstance(record.get("tool_events"), list) else []) for record in execution_records),
+            "artifacts": sum(len(record.get("artifacts") if isinstance(record.get("artifacts"), list) else []) for record in execution_records),
         },
     )
 
@@ -2530,7 +4139,23 @@ def employee_graph_projection(employee_id: str) -> EmployeeGraphProjection | Non
             "assets": len(touched_assets),
             "events": len([edge for edge in edges.values() if edge.type == "employee.acted_on.ticket"]),
         },
+        provider_projection=_employee_provider_projection(normalized),
     )
+
+
+def _employee_provider_projection(employee_id: str) -> dict[str, Any]:
+    try:
+        from .memory_service import employee_profile_projection_status
+
+        return {"employee_profile": employee_profile_projection_status(employee_id)}
+    except Exception as exc:
+        return {
+            "employee_profile": {
+                "provider": "graphiti",
+                "status": "unavailable",
+                "detail": str(exc),
+            }
+        }
 
 
 def asset_graph_projection(asset_id: str) -> AssetGraphProjection | None:
@@ -2766,6 +4391,10 @@ def _employee_ids_from_work_facts(tickets: list[Ticket], assets: list[TicketAsse
         for employee_id in asset.assigned_employees:
             if employee_id:
                 employee_ids.add(employee_id)
+    for record in _execution_artifact_mirror_records():
+        employee_id = str(record.get("employee_id") or "").strip()
+        if employee_id:
+            employee_ids.add(employee_id)
     return sorted(employee_ids)
 
 
@@ -2775,6 +4404,7 @@ def _employee_analytics_from_facts(employee_id: str, tickets: list[Ticket], asse
     completed_ticket_ids: set[str] = set()
     validation_reports = 0
     validation_passes = 0
+    validation_failure_count = 0
     report_count = 0
     event_count = 0
 
@@ -2796,6 +4426,8 @@ def _employee_analytics_from_facts(employee_id: str, tickets: list[Ticket], asse
                 validation_reports += 1
                 if ticket.status.lower() in {"validated", "completed", "done", "closed"}:
                     validation_passes += 1
+            if _is_validation_failure_report_type(report.report_type):
+                validation_failure_count += 1
         for event in ticket.events:
             if event.actor.get("id", "") == normalized:
                 participates = True
@@ -2810,6 +4442,38 @@ def _employee_analytics_from_facts(employee_id: str, tickets: list[Ticket], asse
         and (asset.source_employee_id == normalized or _metadata_string(asset.metadata, "derived_from_employee_id") == normalized)
     )
     recalled_asset_count = sum(1 for asset in assets if asset.kind == "memory" and asset.source_employee_id == normalized)
+    stale_asset_count = sum(
+        1
+        for asset in assets
+        if asset.status in {"stale", "superseded"}
+        and (
+            asset.source_employee_id == normalized
+            or _metadata_string(asset.metadata, "derived_from_employee_id") == normalized
+            or normalized in asset.assigned_employees
+        )
+    )
+    useful_recall_count = sum(
+        1
+        for asset in assets
+        if asset.kind == "memory"
+        and asset.source_employee_id == normalized
+        and _is_positive_memory_usefulness_status(asset.metadata.get("usefulness_status"))
+    )
+    execution_records = _execution_artifact_records_for_employee(normalized)
+    execution_latencies = [_execution_latency_ms(record) for record in execution_records]
+    execution_latencies = [latency for latency in execution_latencies if latency > 0]
+    execution_blockers = len([
+        record
+        for record in execution_records
+        if str(record.get("status") or "").strip().lower() in {"blocked", "failed"}
+    ])
+    total_cost = round(
+        sum(
+            _usage_cost(record.get("usage") if isinstance(record.get("usage"), dict) else {})
+            for record in execution_records
+        ),
+        6,
+    )
     validation_pass_rate = round(validation_passes / validation_reports, 3) if validation_reports else 0.0
     return EmployeeAnalytics(
         employee_id=normalized,
@@ -2818,6 +4482,13 @@ def _employee_analytics_from_facts(employee_id: str, tickets: list[Ticket], asse
         validation_pass_rate=validation_pass_rate,
         candidates_produced=candidates_produced,
         recalled_asset_count=recalled_asset_count,
+        blocker_count=validation_failure_count + execution_blockers,
+        validation_failure_count=validation_failure_count,
+        stale_asset_count=stale_asset_count,
+        useful_recall_count=useful_recall_count,
+        execution_run_count=len(execution_records),
+        total_cost=total_cost,
+        average_latency_ms=int(round(sum(execution_latencies) / len(execution_latencies))) if execution_latencies else 0,
         source_counts={
             "tickets": len([ticket for ticket in tickets if ticket.assigned_employee_id == normalized or ticket.validation_employee_id == normalized]),
             "reports": report_count,
@@ -2829,6 +4500,7 @@ def _employee_analytics_from_facts(employee_id: str, tickets: list[Ticket], asse
                 or _metadata_string(asset.metadata, "derived_from_employee_id") == normalized
                 or normalized in asset.assigned_employees
             ]),
+            "execution_runs": len(execution_records),
         },
     )
 
@@ -3028,6 +4700,229 @@ def ticket_performance(ticket_id: str) -> TicketPerformance | None:
     )
 
 
+def ticket_runtime_evidence(ticket_id: str) -> TicketRuntimeEvidence | None:
+    adapter = ticket_adapter()
+    target_ticket_id = ticket_id.strip()
+    if not target_ticket_id:
+        return None
+    ticket = next((item for item in adapter.list_tickets() if item.id == target_ticket_id), None)
+    if ticket is None:
+        ticket = adapter.get_ticket(target_ticket_id)
+    if ticket is None:
+        return None
+
+    events = adapter.get_ticket_events(ticket.id) or ticket.events
+    linked_assets = ticket_assets_for_ticket(ticket.id)
+    graph = ticket_graph_projection(ticket.id)
+    performance = ticket_performance(ticket.id)
+    evidence_requirements = _ticket_evidence_requirements_from_ticket(ticket)
+    backend = ticket_backend_status()
+    execution_records = _execution_artifact_records_for_ticket(ticket.id)
+
+    loop_runs: list[Any] = []
+    timeline: Any | None = None
+    try:
+        from .ticket_loop_service import list_ticket_loop_runs, ticket_loop_timeline
+
+        loop_runs = list_ticket_loop_runs(ticket.id)
+        timeline = ticket_loop_timeline(ticket.id)
+    except (KeyError, ValueError):
+        loop_runs = []
+        timeline = None
+
+    provider_ref = ticket.provider_ref
+    provider_state = TicketRuntimeProviderEvidence(
+        mode=backend.mode,
+        status=backend.status,
+        provider=backend.provider or (provider_ref.provider if provider_ref else ""),
+        provider_ref_recorded=provider_ref is not None,
+        provider_record_id=provider_ref.provider_record_id if provider_ref else "",
+        provider_project_id=provider_ref.provider_project_id if provider_ref else "",
+        provider_url=provider_ref.provider_url if provider_ref else "",
+        external_url=ticket.external_url,
+        synced_at=provider_ref.synced_at if provider_ref else "",
+        detail=backend.detail,
+        setup_required=list(backend.setup_required),
+    )
+
+    provider_blockers = []
+    queue_reliability = None
+    timeline_summary = getattr(timeline, "summary", None)
+    if timeline_summary is not None:
+        provider_blockers = [
+            dict(item) if isinstance(item, dict) else item.model_dump(mode="json")
+            for item in getattr(timeline_summary, "provider_blockers", [])
+        ]
+        queue_reliability = getattr(timeline_summary, "queue_reliability", None)
+
+    timeline_session_keys = [
+        str(getattr(item, "source_ref", "") or "").strip()
+        for item in getattr(timeline, "items", []) or []
+        if getattr(item, "kind", "") == "runtime_session" and str(getattr(item, "source_ref", "") or "").strip()
+    ]
+
+    def run_session_key(run: Any) -> str:
+        for payload in (getattr(run, "response", {}), getattr(run, "request", {}), getattr(run, "control", {})):
+            if not isinstance(payload, dict):
+                continue
+            direct = str(payload.get("session_key") or "").strip()
+            if direct:
+                return direct
+            loop_state = payload.get("loop_state")
+            if isinstance(loop_state, dict):
+                loop_state_session = str(loop_state.get("session_key") or "").strip()
+                if loop_state_session:
+                    return loop_state_session
+        return timeline_session_keys[0] if timeline_session_keys else ""
+
+    latest_run = loop_runs[0] if loop_runs else None
+    latest_loop_run = (
+        TicketRuntimeLoopRunEvidence(
+            run_id=getattr(latest_run, "run_id", ""),
+            status=getattr(latest_run, "status", ""),
+            stop_reason=getattr(latest_run, "stop_reason", ""),
+            active=bool(getattr(latest_run, "active", False)),
+            session_key=run_session_key(latest_run),
+            step_count=int(getattr(latest_run, "step_count", 0) or 0),
+            queued_at=getattr(latest_run, "queued_at", ""),
+            started_at=getattr(latest_run, "started_at", ""),
+            finished_at=getattr(latest_run, "finished_at", ""),
+            updated_at=getattr(latest_run, "updated_at", ""),
+            saved_path=getattr(latest_run, "saved_path", ""),
+        )
+        if latest_run is not None
+        else None
+    )
+
+    report_count = len(ticket.reports)
+    evidence_count = sum(len(report.evidence) for report in ticket.reports)
+    memory_candidate_count = len([asset for asset in linked_assets if asset.kind == "memory_candidate"])
+    approved_memory_count = len([asset for asset in linked_assets if asset.kind == "memory" and asset.status == "approved"])
+    handoff_count = len([event for event in events if event.type.startswith("handoff")])
+    approval_resume_count = len(getattr(timeline_summary, "approval_resume", []) or []) if timeline_summary is not None else 0
+    retry_requirement_count = len(getattr(timeline_summary, "retry_requirements", []) or []) if timeline_summary is not None else 0
+    provider_blocker_count = len(provider_blockers)
+    queue_reliability_payload = queue_reliability.model_dump(mode="json") if queue_reliability is not None else None
+    queue_reliability_status = str((queue_reliability_payload or {}).get("status") or "")
+
+    governance_state = {
+        "timeline_status": str(getattr(timeline_summary, "status", "") or ""),
+        "next_action": str(getattr(timeline_summary, "next_action", "") or ""),
+        "waiting_reason": str(getattr(timeline_summary, "waiting_reason", "") or ""),
+        "can_run": bool(getattr(timeline_summary, "can_run", False)),
+        "can_resume": bool(getattr(timeline_summary, "can_resume", False)),
+        "can_retry": bool(getattr(timeline_summary, "can_retry", False)),
+        "approval_resume_count": approval_resume_count,
+        "retry_requirement_count": retry_requirement_count,
+        "provider_blocker_count": provider_blocker_count,
+        "queue_reliability_status": queue_reliability_status,
+        "queue_reliability": queue_reliability_payload,
+    }
+
+    blockers: list[dict[str, Any]] = []
+    gaps: list[dict[str, Any]] = []
+
+    def append_issue(target: list[dict[str, Any]], reason: str, detail: str, *, scope: str = "", status: str = "", setup_required: list[str] | None = None) -> None:
+        issue = {
+            "reason": reason,
+            "detail": detail,
+        }
+        if scope:
+            issue["scope"] = scope
+        if status:
+            issue["status"] = status
+        if setup_required:
+            issue["setup_required"] = setup_required
+        target.append(issue)
+
+    normalized_status = ticket.status.lower()
+    if normalized_status in {"blocked", "failed"}:
+        append_issue(blockers, "ticket_blocked_or_failed", f"Ticket status is {ticket.status}.", scope="ticket", status=ticket.status)
+    if backend.setup_required or backend.status not in {"ready", "active"}:
+        append_issue(
+            blockers,
+            "ticket_provider_not_ready",
+            backend.detail,
+            scope="ticket_backend",
+            status=backend.status,
+            setup_required=list(backend.setup_required),
+        )
+    for provider_blocker in provider_blockers:
+        blockers.append(provider_blocker)
+    if latest_loop_run is not None and latest_loop_run.status.lower() in {"blocked", "failed"}:
+        append_issue(
+            blockers,
+            "latest_loop_run_blocked",
+            latest_loop_run.stop_reason or f"Latest loop run status is {latest_loop_run.status}.",
+            scope="loop_run",
+            status=latest_loop_run.status,
+        )
+
+    if report_count == 0:
+        append_issue(gaps, "report_not_recorded", "No Ticket report is recorded yet.", scope="reports")
+    if evidence_count == 0:
+        append_issue(gaps, "evidence_not_recorded", "No report evidence is recorded yet.", scope="evidence")
+    if evidence_requirements.missing_required:
+        append_issue(
+            gaps,
+            "required_evidence_missing",
+            "Ticket evidence requirements are not fully satisfied.",
+            scope="evidence_requirements",
+            setup_required=list(evidence_requirements.missing_required),
+        )
+    if graph is None or not graph.edges:
+        append_issue(gaps, "graph_edges_not_projected", "Ticket Asset Graph has no projected edges yet.", scope="asset_graph")
+    if not loop_runs:
+        append_issue(gaps, "loop_run_not_recorded", "No governed Ticket loop run is recorded yet.", scope="loop_runs")
+    if backend.mode == "plane" and provider_ref is None:
+        append_issue(gaps, "provider_ref_missing", "Plane mode is active but this Ticket has no provider reference.", scope="provider_ref")
+    if queue_reliability_status and queue_reliability_status not in {"healthy", "idle", "completed"}:
+        append_issue(
+            gaps,
+            "queue_reliability_attention",
+            str((queue_reliability_payload or {}).get("detail") or "Ticket loop queue reliability needs attention."),
+            scope="loop_queue",
+            status=queue_reliability_status,
+        )
+
+    links = {
+        "ticket": f"tickets/overview/{ticket.id}",
+        "asset_graph": f"tickets/overview/{ticket.id}",
+    }
+    if latest_loop_run is not None and latest_loop_run.session_key:
+        links["runtime"] = f"runtime/{latest_loop_run.session_key}"
+    if ticket.external_url:
+        links["provider"] = ticket.external_url
+
+    return TicketRuntimeEvidence(
+        ticket_id=ticket.id,
+        status=ticket.status,
+        source_counts={
+            "events": len(events),
+            "reports": report_count,
+            "evidence": evidence_count,
+            "assets": len(linked_assets),
+            "memory_candidates": memory_candidate_count,
+            "approved_memories": approved_memory_count,
+            "graph_nodes": len(graph.nodes) if graph else 0,
+            "graph_edges": len(graph.edges) if graph else 0,
+            "loop_runs": len(loop_runs),
+            "runtime_artifact_runs": len(execution_records),
+            "handoffs": handoff_count,
+            "approval_resume": approval_resume_count,
+            "retry_requirements": retry_requirement_count,
+            "provider_blockers": provider_blocker_count,
+            **(performance.source_counts if performance else {}),
+        },
+        provider_state=provider_state,
+        governance_state=governance_state,
+        latest_loop_run=latest_loop_run,
+        blockers=blockers,
+        gaps=gaps,
+        links=links,
+    )
+
+
 def _self_bootstrap_next_learning_action(
     *,
     missing_required_evidence: int,
@@ -3104,7 +4999,7 @@ def self_bootstrap_learning_summary() -> SelfBootstrapLearningSummary:
         useful_memory_recalls = len([
             asset
             for asset in ticket_assets
-            if asset.kind == "memory" and str(asset.metadata.get("usefulness_status") or "") == "useful"
+            if asset.kind == "memory" and _is_positive_memory_usefulness_status(asset.metadata.get("usefulness_status"))
         ])
         missing_required_evidence = len(requirements.missing_required)
 
@@ -3159,7 +5054,7 @@ def self_bootstrap_learning_summary() -> SelfBootstrapLearningSummary:
     useful_memory_recalls = len([
         asset
         for asset in memory_usage_assets
-        if str(asset.metadata.get("usefulness_status") or "") == "useful"
+        if _is_positive_memory_usefulness_status(asset.metadata.get("usefulness_status"))
     ])
     stale_or_superseded_assets = len([asset for asset in assets if asset.status in {"stale", "superseded"}])
     summary = (

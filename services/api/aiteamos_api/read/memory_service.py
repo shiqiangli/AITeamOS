@@ -8,6 +8,7 @@ approved memories; broader durable asset projection is the next extension.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 import json
@@ -23,7 +24,10 @@ from uuid import uuid4
 import yaml
 from pydantic import BaseModel, Field
 
+from .asset_candidate_service import upsert_asset_candidate_from_memory_candidate
 from .ai_engine_catalog import AI_ENGINE_CATALOG, GRAPHITI_AI_ENGINE_IDS
+from .ai_engine_runtime_config import AiEngineRuntimeConfig
+from .langchain_model_provider import LangChainModelProvider
 
 try:  # Optional so local development works before Neo4j is configured.
     from graphiti_core.cross_encoder.client import CrossEncoderClient
@@ -60,10 +64,24 @@ GRAPHITI_MINIMAL_PROVENANCE_FIELDS = (
     "provider_refs",
     "source_ref",
 )
+GRAPHITI_NEO4J_PASSWORD_ENV_VARS = (
+    "AITEAMOS_GRAPHITI_PASSWORD",
+    "NEO4J_PASSWORD",
+    "AITEAMOS_NEO4J_PASSWORD",
+)
+GRAPHITI_NEO4J_PASSWORD_SETUP_LABEL = "AITEAMOS_GRAPHITI_PASSWORD, NEO4J_PASSWORD, or AITEAMOS_NEO4J_PASSWORD"
 RECALLABLE_MEMORY_STATUSES = {"approved"}
 RECALLABLE_DURABLE_ASSET_STATUSES = {"approved", "accepted", "validated"}
 MEMORY_REVIEW_STATUSES = {"rejected", "stale", "superseded"}
-MEMORY_RECALL_USEFULNESS_STATUSES = {"unreviewed", "useful", "not_useful", "neutral"}
+MEMORY_RECALL_USEFULNESS_STATUSES = {"unreviewed", "used", "irrelevant", "harmful", "promoted"}
+MEMORY_RECALL_USEFULNESS_ALIASES = {
+    "useful": "used",
+    "not_useful": "irrelevant",
+    "not-useful": "irrelevant",
+    "not useful": "irrelevant",
+    "neutral": "used",
+    "promote": "promoted",
+}
 _DURABLE_TICKET_STATUSES = {"validated", "completed", "done", "closed"}
 _DURABLE_VALIDATION_REPORT_TYPES = {"validation", "validation_passed", "validation_pass", "passed"}
 _ACCEPTED_DECISION_STATUSES = {"accepted"}
@@ -76,6 +94,8 @@ _NON_DURABLE_REPORT_TYPES = {
     "human_review",
     "human_review_requested",
     "request_human_review",
+    "ticket_closeout_candidates",
+    "ticket_closeout_blocked",
 }
 _DURABLE_ASSET_RELATIONSHIP_TYPES = {
     "supersedes",
@@ -160,6 +180,9 @@ class GraphitiBackendStatus(BaseModel):
     llm_ai_engine: str = "openai"
     llm_ai_engine_name: str = "ChatGPT / OpenAI API"
     llm_api_key_env: str = "OPENAI_API_KEY"
+    password_env: str = ""
+    password_env_conflict: bool = False
+    password_env_conflict_detail: str = ""
     password_configured: bool = False
     llm_api_key_configured: bool = False
 
@@ -412,6 +435,7 @@ class MemorySearchResponse(BaseModel):
     query: str
     results: list[MemorySearchResult]
     backend: GraphitiBackendStatus
+    excluded_results: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _now() -> str:
@@ -419,16 +443,18 @@ def _now() -> str:
 
 
 def _workspace_root() -> Path:
-    return Path(os.environ.get("AITEAMOS_WORKSPACE_DIR", Path.cwd())).resolve()
+    configured = os.environ.get("AITEAMOS_WORKSPACE_DIR")
+    return Path(configured).resolve() if configured else Path.cwd().resolve()
 
 
 def _workspace_dir() -> Path:
     return _workspace_root() / ".aiteamos"
 
 
-def _memory_dir() -> Path:
+def _memory_dir(*, ensure: bool = False) -> Path:
     path = _workspace_dir() / "memory"
-    path.mkdir(parents=True, exist_ok=True)
+    if ensure:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -500,6 +526,13 @@ def _save_approved(approved: list[MemoryCandidate]) -> None:
     _write_json(_approved_path(), [candidate.model_dump(mode="json") for candidate in approved])
 
 
+def _sync_asset_candidate(candidate: MemoryCandidate) -> None:
+    try:
+        upsert_asset_candidate_from_memory_candidate(candidate)
+    except Exception:
+        return
+
+
 def _bool_setting(value: Any, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
@@ -559,6 +592,53 @@ def _ai_engine_config(engine_id: str) -> dict[str, str]:
     }
 
 
+def _first_configured_env(names: tuple[str, ...]) -> tuple[str, str]:
+    for name in names:
+        value = str(os.environ.get(name) or "")
+        if value:
+            return name, value
+    return "", ""
+
+
+def _is_local_neo4j_uri(uri: str) -> bool:
+    normalized = uri.strip().lower()
+    if not normalized:
+        return False
+    local_prefixes = (
+        "bolt://localhost",
+        "bolt://127.0.0.1",
+        "bolt://0.0.0.0",
+        "neo4j://localhost",
+        "neo4j://127.0.0.1",
+        "neo4j://0.0.0.0",
+    )
+    return normalized.startswith(local_prefixes)
+
+
+def _graphiti_password_env_conflict(config: dict[str, str]) -> tuple[bool, str]:
+    if not _is_local_neo4j_uri(config.get("uri", "")):
+        return False, ""
+    local_password = str(os.environ.get("AITEAMOS_NEO4J_PASSWORD") or "")
+    if not local_password:
+        return False, ""
+    conflicting_sources = [
+        name
+        for name in ("AITEAMOS_GRAPHITI_PASSWORD", "NEO4J_PASSWORD")
+        if os.environ.get(name) and os.environ.get(name) != local_password
+    ]
+    if not conflicting_sources:
+        return False, ""
+    joined = ", ".join([*conflicting_sources, "AITEAMOS_NEO4J_PASSWORD"])
+    return (
+        True,
+        (
+            f"Local Graphiti / Neo4j password env mismatch: {joined} are set but do not match. "
+            "Align them to one local Neo4j password, or unset the stale Graphiti-specific env var so "
+            "AITEAMOS_NEO4J_PASSWORD can be used for the local compose Neo4j."
+        ),
+    )
+
+
 def _graphiti_config() -> dict[str, str]:
     settings = _read_json_object(_graphiti_settings_path())
 
@@ -566,11 +646,7 @@ def _graphiti_config() -> dict[str, str]:
     backend = os.environ.get("AITEAMOS_MEMORY_BACKEND", "").strip().lower()
     uri = str(settings.get("uri") or os.environ.get("AITEAMOS_GRAPHITI_URI") or os.environ.get("NEO4J_URI") or "")
     user = str(settings.get("user") or os.environ.get("AITEAMOS_GRAPHITI_USER") or os.environ.get("NEO4J_USER") or "neo4j")
-    password = str(
-        os.environ.get("AITEAMOS_GRAPHITI_PASSWORD")
-        or os.environ.get("NEO4J_PASSWORD")
-        or ""
-    )
+    password_env, password = _first_configured_env(GRAPHITI_NEO4J_PASSWORD_ENV_VARS)
     group_id = str(settings.get("group_id") or os.environ.get("AITEAMOS_GRAPHITI_GROUP_ID") or "aiteamos")
     graph_database = str(settings.get("graph_database") or "neo4j").strip().lower() or "neo4j"
     llm_ai_engine = _normalize_graphiti_ai_engine(
@@ -588,7 +664,7 @@ def _graphiti_config() -> dict[str, str]:
     enabled = (
         _bool_setting(file_enabled)
         if file_enabled is not None
-        else explicit_enabled in {"1", "true", "yes", "on"} or backend == "graphiti" or bool(uri)
+        else explicit_enabled in {"1", "true", "yes", "on"} or backend == "graphiti"
     )
     return {
         "uri": uri,
@@ -602,16 +678,15 @@ def _graphiti_config() -> dict[str, str]:
         "llm_base_url": llm_engine["base_url"],
         "llm_api_key_env": llm_engine["api_key_env"],
         "llm_api_key": llm_engine["api_key"],
+        "password_env": password_env,
         "enabled": "true" if enabled else "false",
     }
 
 
 def _graphiti_constructor_kwargs(config: dict[str, str]) -> dict[str, Any]:
-    if config["llm_ai_engine"] == "openai":
-        return {}
     try:
+        from graphiti_core.llm_client.client import LLMClient
         from graphiti_core.llm_client.config import LLMConfig
-        from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
     except ImportError:
         return {}
     llm_config = LLMConfig(
@@ -622,8 +697,16 @@ def _graphiti_constructor_kwargs(config: dict[str, str]) -> dict[str, Any]:
         temperature=0,
         max_tokens=8192,
     )
+    runtime_config = _graphiti_langchain_runtime_config(config)
+    model_provider = LangChainModelProvider()
 
-    class _AiteamosOpenAICompatibleGraphitiClient(OpenAIGenericClient):
+    class _AiteamosLangChainGraphitiClient(LLMClient):
+        def __init__(self) -> None:
+            super().__init__(config=llm_config, cache=False)
+            self.runtime_config = runtime_config
+            self.model_provider = model_provider
+            self.selected_engine = config["llm_ai_engine"]
+
         async def _generate_response(
             self,
             messages: list[Any],
@@ -631,40 +714,109 @@ def _graphiti_constructor_kwargs(config: dict[str, str]) -> dict[str, Any]:
             max_tokens: int = 8192,
             model_size: Any = None,
         ) -> dict[str, Any]:
-            openai_messages: list[dict[str, str]] = []
-            for message in messages:
-                content = self._clean_input(str(getattr(message, "content", "")))
-                role = str(getattr(message, "role", "user"))
-                openai_messages.append({"role": role if role in {"system", "user", "assistant"} else "user", "content": content})
-            if response_model is not None:
-                schema = response_model.model_json_schema()
-                openai_messages.insert(
-                    0,
-                    {
-                        "role": "system",
-                        "content": (
-                            "Return only a valid JSON object that matches this JSON schema. "
-                            "Do not wrap it in markdown.\n"
-                            + json.dumps(schema, ensure_ascii=False, sort_keys=True)
-                        ),
-                    },
-                )
-            elif openai_messages:
-                openai_messages[0]["content"] = "Return only a valid JSON object.\n" + openai_messages[0]["content"]
-            response = await self.client.chat.completions.create(
-                model=self.model or config["llm_model"],
-                messages=openai_messages,
-                temperature=0,
+            result = await self.model_provider.ainvoke(
+                selected_engine=self.selected_engine,
+                runtime=self.runtime_config,
+                messages=_graphiti_langchain_messages(self, messages, response_model=response_model),
                 max_tokens=max_tokens or 8192,
-                response_format={"type": "json_object"},
             )
-            return json.loads(response.choices[0].message.content or "{}")
+            return _parse_graphiti_json_response(result.content)
+
+        def _get_provider_type(self) -> str:
+            return f"langchain:{self.selected_engine}"
 
     return {
-        "llm_client": _AiteamosOpenAICompatibleGraphitiClient(config=llm_config, max_tokens=8192),
+        "llm_client": _AiteamosLangChainGraphitiClient(),
         "embedder": _AiteamosLocalEmbedder(),
         "cross_encoder": _AiteamosLocalCrossEncoder(),
     }
+
+
+def _graphiti_langchain_runtime_config(config: dict[str, str]) -> AiEngineRuntimeConfig:
+    engine = _normalize_graphiti_ai_engine(config.get("llm_ai_engine"))
+    openai_catalog = AI_ENGINE_CATALOG.get("openai", {})
+    deepseek_catalog = AI_ENGINE_CATALOG.get("deepseek", {})
+    return AiEngineRuntimeConfig(
+        config={
+            "active_engine": engine,
+            "fallback_on_error": False,
+            "openai_model": (
+                config["llm_model"]
+                if engine == "openai"
+                else str(openai_catalog.get("default_model") or "gpt-5.5")
+            ),
+            "deepseek_model": (
+                config["llm_model"]
+                if engine == "deepseek"
+                else str(deepseek_catalog.get("default_model") or "deepseek-reasoner")
+            ),
+            "deepseek_thinking": "enabled",
+            "engine_configs": {
+                engine: {
+                    "base_url": config["llm_base_url"],
+                    "max_tokens": 8192,
+                }
+            },
+        },
+        secrets={
+            "openai_api_key": (
+                config["llm_api_key"]
+                if engine == "openai"
+                else str(os.environ.get("OPENAI_API_KEY") or "")
+            ),
+            "deepseek_api_key": (
+                config["llm_api_key"]
+                if engine == "deepseek"
+                else str(os.environ.get("DEEPSEEK_API_KEY") or "")
+            ),
+        },
+    )
+
+
+def _graphiti_langchain_messages(
+    client: Any,
+    messages: list[Any],
+    *,
+    response_model: type[Any] | None,
+) -> list[dict[str, str]]:
+    converted: list[dict[str, str]] = []
+    for message in messages:
+        content = client._clean_input(str(getattr(message, "content", "")))
+        role = str(getattr(message, "role", "user"))
+        converted.append({"role": role if role in {"system", "user", "assistant"} else "user", "content": content})
+    if response_model is not None:
+        schema = response_model.model_json_schema()
+        converted.insert(
+            0,
+            {
+                "role": "system",
+                "content": (
+                    "Return only a valid JSON object that matches this JSON schema. "
+                    "Do not wrap it in markdown.\n"
+                    + json.dumps(schema, ensure_ascii=False, sort_keys=True)
+                ),
+            },
+        )
+    elif converted:
+        converted[0]["content"] = "Return only a valid JSON object.\n" + converted[0]["content"]
+    return converted
+
+
+def _parse_graphiti_json_response(content: str) -> dict[str, Any]:
+    text_value = str(content or "").strip()
+    if text_value.startswith("```"):
+        text_value = re.sub(r"^```(?:json)?\s*|\s*```$", "", text_value, flags=re.IGNORECASE | re.DOTALL).strip()
+    try:
+        payload = json.loads(text_value or "{}")
+    except json.JSONDecodeError:
+        start = text_value.find("{")
+        end = text_value.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        payload = json.loads(text_value[start : end + 1])
+    if not isinstance(payload, dict):
+        raise ValueError("Graphiti LangChain LLM response was not a JSON object.")
+    return payload
 
 
 def _new_graphiti_client(graphiti_cls: Any, config: dict[str, str]) -> Any:
@@ -682,6 +834,7 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
     graph_configured = bool(config["uri"] and config["user"] and config["password"])
     llm_configured = bool(config["llm_api_key"])
     configured = graph_configured and llm_configured
+    password_env_conflict, password_env_conflict_detail = _graphiti_password_env_conflict(config)
     graphiti_cls, episode_type = _graphiti_package()
     package_installed = graphiti_cls is not None and episode_type is not None
     if not enabled:
@@ -689,7 +842,7 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
         detail = "Graphiti is not enabled; configure Graphiti to use the target Memory / Asset Graph Backend."
     elif not graph_configured:
         status = "not_configured"
-        detail = "Set Graphiti Neo4j URI/user in Settings and password via AITEAMOS_GRAPHITI_PASSWORD or NEO4J_PASSWORD."
+        detail = f"Set Graphiti Neo4j URI/user in Settings and password via {GRAPHITI_NEO4J_PASSWORD_SETUP_LABEL}."
     elif not llm_configured:
         status = "llm_not_configured"
         detail = f"Set {config['llm_api_key_env'] or 'the selected AI Engine API key env'} for Graphiti ingestion and graph search."
@@ -717,9 +870,113 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
         llm_ai_engine=config["llm_ai_engine"],
         llm_ai_engine_name=config["llm_ai_engine_name"],
         llm_api_key_env=config["llm_api_key_env"],
-        password_configured=bool(config["password"]),
-        llm_api_key_configured=bool(config["llm_api_key"]),
+        password_env=config["password_env"],
+        password_env_conflict=password_env_conflict,
+        password_env_conflict_detail=password_env_conflict_detail,
+        password_configured=enabled and bool(config["password"]),
+        llm_api_key_configured=enabled and bool(config["llm_api_key"]),
     )
+
+
+async def graphiti_provider_external_smoke() -> dict[str, Any]:
+    backend = graphiti_backend_status()
+    if backend.password_env_conflict:
+        return {
+            "status": "not_configured",
+            "checks": ["graphiti_local_password_env_conflict_reported"],
+            "warnings": [],
+            "failures": [],
+            "blockers": [
+                {
+                    "id": "memory:graphiti:password_env_conflict",
+                    "status": "not_configured",
+                    "detail": backend.password_env_conflict_detail,
+                    "setup_required": [GRAPHITI_NEO4J_PASSWORD_SETUP_LABEL],
+                }
+            ],
+            "evidence": {"memory_backend_status": backend.model_dump(mode="json")},
+            "external_calls": False,
+        }
+    if backend.status != "ready":
+        return {
+            "status": backend.status,
+            "checks": ["graphiti_setup_blocker_reported"],
+            "warnings": [],
+            "failures": [],
+            "blockers": [
+                {
+                    "id": "memory:graphiti:setup",
+                    "status": backend.status,
+                    "detail": backend.detail,
+                    "setup_required": [
+                        item
+                        for item, configured in (
+                            ("Graphiti enabled", backend.enabled),
+                            ("Graphiti URI/user", backend.graph_configured),
+                            (GRAPHITI_NEO4J_PASSWORD_SETUP_LABEL, backend.password_configured),
+                            (backend.llm_api_key_env or "selected Graphiti LLM API key", backend.llm_api_key_configured),
+                            ("graphiti optional dependency", backend.package_installed),
+                        )
+                        if not configured
+                    ],
+                }
+            ],
+            "evidence": {"memory_backend_status": backend.model_dump(mode="json")},
+            "external_calls": False,
+        }
+
+    config = _graphiti_config()
+    graphiti_cls, _episode_type = _graphiti_package()
+    previous_env = _set_graphiti_environment(config)
+    graphiti: Any | None = None
+    try:
+        graphiti = _new_graphiti_client(graphiti_cls, config)
+        search = getattr(graphiti, "search")
+        parameters = inspect.signature(search).parameters
+        kwargs: dict[str, Any] = {}
+        if _accepts_kwarg(parameters, "group_ids"):
+            kwargs["group_ids"] = [config["group_id"]]
+        if _accepts_kwarg(parameters, "num_results"):
+            kwargs["num_results"] = 1
+        raw_results = await _maybe_await(search("AITeamOS provider conformance smoke", **kwargs))
+        result_count = len(list(raw_results or []))
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "checks": ["graphiti_read_search"],
+            "warnings": [],
+            "failures": ["graphiti_external_smoke_failed"],
+            "blockers": [
+                {
+                    "id": "memory:graphiti:external_smoke",
+                    "status": "failed",
+                    "detail": str(exc),
+                    "setup_required": [],
+                }
+            ],
+            "evidence": {"memory_backend_status": backend.model_dump(mode="json")},
+            "external_calls": True,
+        }
+    finally:
+        close = getattr(graphiti, "close", None) if graphiti is not None else None
+        if close is not None:
+            await _maybe_await(close())
+        _restore_environment(previous_env)
+
+    return {
+        "status": "passed",
+        "checks": ["graphiti_read_search", "graphiti_external_call_completed"],
+        "warnings": [],
+        "failures": [],
+        "blockers": [],
+        "evidence": {
+            "memory_backend_status": backend.model_dump(mode="json"),
+            "query": "AITeamOS provider conformance smoke",
+            "group_id": config["group_id"],
+            "result_count": result_count,
+        },
+        "external_calls": True,
+    }
 
 
 def graphiti_settings_response() -> GraphitiSettingsResponse:
@@ -733,8 +990,8 @@ def graphiti_settings_response() -> GraphitiSettingsResponse:
         llm_ai_engine=config["llm_ai_engine"],
         llm_ai_engine_name=config["llm_ai_engine_name"],
         llm_api_key_env=config["llm_api_key_env"],
-        password_configured=bool(config["password"]),
-        llm_api_key_configured=bool(config["llm_api_key"]),
+        password_configured=config["enabled"] == "true" and bool(config["password"]),
+        llm_api_key_configured=config["enabled"] == "true" and bool(config["llm_api_key"]),
         saved_paths={
             "settings": _relative(_graphiti_settings_path()),
         },
@@ -820,7 +1077,104 @@ def create_memory_candidate(request: MemoryCandidateCreateRequest) -> MemoryCand
     candidates = _load_candidates()
     candidates.append(candidate)
     _save_candidates(candidates)
+    _sync_asset_candidate(candidate)
     return candidate
+
+
+def create_memory_candidates_from_execution_result(
+    *,
+    memory_candidates: list[dict[str, Any]],
+    request_id: str,
+    run_id: str,
+    thread_id: str,
+    ticket_id: str,
+    employee_id: str,
+    action: str,
+    executor_id: str,
+    trace_ref: str,
+    provider_refs: list[dict[str, Any]] | None = None,
+    source_report_id: str = "",
+    evidence_id: str = "",
+) -> list[MemoryCandidate]:
+    created: list[MemoryCandidate] = []
+    if not memory_candidates:
+        return created
+
+    existing_keys = {
+        (
+            str(candidate.provenance.get("source_run_id") or "").strip(),
+            str(candidate.provenance.get("execution_candidate_index") or "").strip(),
+        )
+        for candidate in _load_candidates()
+    }
+    for index, item in enumerate(memory_candidates):
+        if not isinstance(item, dict):
+            continue
+        content = _first_string(item.get("content"), item.get("summary"), item.get("text"), item.get("memory"))
+        if not content:
+            continue
+        source_run_id = run_id or request_id
+        candidate_index = str(item.get("index") if item.get("index") is not None else index)
+        if (source_run_id, candidate_index) in existing_keys:
+            continue
+        memory_type = _first_string(item.get("memory_type"), item.get("type"), "fact")
+        source_kind = _first_string(item.get("source_kind"), "execution_result")
+        scope_kind = _first_string(item.get("scope_kind"), "ticket" if ticket_id else "employee")
+        scope_ref = _first_string(item.get("scope_ref"), ticket_id, employee_id, "aiteamos")
+        confidence = item.get("confidence", 0.66)
+        tags = {
+            "execution-result",
+            "ticket-aware" if ticket_id else "employee-aware",
+            action,
+            executor_id,
+            *_string_items(item.get("tags")),
+        }
+        provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+        candidate = create_memory_candidate(
+            MemoryCandidateCreateRequest(
+                content=_compact_text(content, 1200),
+                source_kind=source_kind,
+                source_ref=_first_string(item.get("source_ref"), trace_ref, source_run_id),
+                scope_kind=scope_kind,
+                scope_ref=scope_ref,
+                memory_type=memory_type,
+                confidence=max(0.0, min(float(confidence), 1.0)),
+                employee_ids=sorted({employee_id, *_string_items(item.get("employee_ids"))} - {""}),
+                tags=sorted({tag for tag in tags if tag}),
+                provenance={
+                    **provenance,
+                    "source_ticket_id": _first_string(provenance.get("source_ticket_id"), ticket_id),
+                    "source_employee_id": _first_string(provenance.get("source_employee_id"), employee_id),
+                    "source_run_id": _first_string(provenance.get("source_run_id"), source_run_id),
+                    "source_report_id": _first_string(provenance.get("source_report_id"), source_report_id),
+                    "evidence_id": _first_string(provenance.get("evidence_id"), evidence_id),
+                    "source_trace_path": _first_string(provenance.get("source_trace_path"), trace_ref),
+                    "thread_id": thread_id,
+                    "request_id": request_id,
+                    "run_id": source_run_id,
+                    "action": action,
+                    "executor_id": executor_id,
+                    "execution_candidate_index": candidate_index,
+                    "provider_refs": provider_refs or [],
+                    "why_should_be_remembered": _first_string(
+                        provenance.get("why_should_be_remembered"),
+                        item.get("why_should_be_remembered"),
+                        "Runtime produced a Ticket-bound reusable learning candidate.",
+                    ),
+                    "future_recall_query_hints": _string_items(item.get("future_recall_query_hints"))
+                    or sorted({ticket_id, action, *_compact_text(content, 160).split()[:8]} - {""}),
+                },
+            )
+        )
+        created.append(candidate)
+        existing_keys.add((source_run_id, candidate_index))
+    return created
+
+
+def _string_items(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _update_candidate(candidate: MemoryCandidate) -> MemoryCandidate:
@@ -829,9 +1183,11 @@ def _update_candidate(candidate: MemoryCandidate) -> MemoryCandidate:
         if current.id == candidate.id:
             candidates[index] = candidate
             _save_candidates(candidates)
+            _sync_asset_candidate(candidate)
             return candidate
     candidates.append(candidate)
     _save_candidates(candidates)
+    _sync_asset_candidate(candidate)
     return candidate
 
 
@@ -877,6 +1233,7 @@ def _replace_local_memory_candidate(candidate: MemoryCandidate) -> None:
         break
     if approved_updated:
         _save_approved(approved)
+    _sync_asset_candidate(candidate)
 
 
 def _find_local_memory_candidate(candidate_id: str) -> MemoryCandidate | None:
@@ -892,14 +1249,68 @@ def _memory_candidate_status(candidate_id: str) -> str | None:
 
 
 def _is_local_memory_asset_recallable(provenance: dict[str, Any]) -> bool:
+    return not _memory_asset_recall_exclusion_reason(provenance)
+
+
+def _memory_asset_recall_exclusion_reason(provenance: dict[str, Any]) -> str:
     asset_id = _first_string(provenance.get("asset_id"), provenance.get("memory_id"))
     if not asset_id:
-        return True
+        return ""
     local_status = _memory_candidate_status(asset_id)
     if local_status is not None:
-        return local_status in RECALLABLE_MEMORY_STATUSES
+        return (
+            ""
+            if local_status in RECALLABLE_MEMORY_STATUSES
+            else f"Local Memory candidate status is {local_status}; it must not be recalled as active context."
+        )
     graphiti_status = _first_string(provenance.get("asset_status"), provenance.get("status"))
-    return not graphiti_status or graphiti_status in RECALLABLE_DURABLE_ASSET_STATUSES
+    if graphiti_status and graphiti_status not in RECALLABLE_DURABLE_ASSET_STATUSES:
+        return f"Graphiti Asset status is {graphiti_status}; it must be treated as a stale/conflict hint, not active context."
+    return ""
+
+
+def _graphiti_excluded_memory_result(
+    *,
+    item_id: str,
+    content: str,
+    episode_id: str,
+    score: Any,
+    provenance: dict[str, Any],
+    reason: str,
+    backend_group_id: str,
+) -> dict[str, Any]:
+    scope = provenance.get("scope") if isinstance(provenance.get("scope"), dict) else {}
+    scope_kind = _first_string(scope.get("kind") if isinstance(scope, dict) else "")
+    scope_ref = _first_string(
+        scope.get("ref") if isinstance(scope, dict) else "",
+        provenance.get("source_ticket_id"),
+        backend_group_id,
+    )
+    source_employee_id = _first_string(provenance.get("source_employee_id"))
+    asset_id = _first_string(provenance.get("asset_id"), provenance.get("memory_id"), item_id)
+    return {
+        "id": item_id,
+        "memory_id": asset_id,
+        "asset_id": asset_id,
+        "content": _compact_text(content, 1000),
+        "source": "graphiti",
+        "score": float(score) if isinstance(score, int | float) else None,
+        "source_kind": _first_string(provenance.get("source_kind"), provenance.get("asset_type")),
+        "source_ref": _first_string(provenance.get("source_ref"), asset_id),
+        "scope_kind": scope_kind,
+        "scope_ref": scope_ref,
+        "memory_type": _first_string(provenance.get("asset_type")),
+        "employee_ids": [source_employee_id] if source_employee_id else [],
+        "tags": [],
+        "status": _first_string(provenance.get("asset_status"), provenance.get("status"), "excluded"),
+        "exclusion_reason": reason,
+        "superseded_by_candidate_id": _first_string(provenance.get("superseded_by_candidate_id")),
+        "provenance": provenance,
+        "graphiti_episode_id": episode_id,
+        "graphiti_result_id": item_id,
+        "graphiti_recalled": False,
+        "graphiti_backed": bool(episode_id),
+    }
 
 
 async def _maybe_await(value: Any) -> Any:
@@ -1065,6 +1476,35 @@ def _durable_asset_ingestion_record(asset_id: str) -> dict[str, Any] | None:
         if isinstance(graphiti_status, dict) and graphiti_status.get("status") == "ingested":
             return record
     return None
+
+
+def employee_profile_projection_status(employee_id: str) -> dict[str, Any]:
+    normalized_employee_id = employee_id.strip()
+    asset_id = f"employee-profile-{normalized_employee_id}"
+    record = _durable_asset_ingestion_record(asset_id)
+    backend = graphiti_backend_status().model_dump(mode="json")
+    if record is None:
+        return {
+            "provider": "graphiti",
+            "asset_id": asset_id,
+            "asset_type": "employee_profile_summary",
+            "status": "not_projected",
+            "backend_status": backend.get("status", ""),
+            "detail": "Employee profile summary has not been projected to Graphiti.",
+            "episode_id": "",
+            "ingested_at": "",
+        }
+    graphiti_status = record.get("graphiti_status") if isinstance(record.get("graphiti_status"), dict) else {}
+    return {
+        "provider": "graphiti",
+        "asset_id": asset_id,
+        "asset_type": str(record.get("asset_type") or "employee_profile_summary"),
+        "status": str(graphiti_status.get("status") or "ingested"),
+        "backend_status": backend.get("status", ""),
+        "detail": str(graphiti_status.get("detail") or "Employee profile summary is projected to Graphiti."),
+        "episode_id": str(graphiti_status.get("episode_id") or ""),
+        "ingested_at": str(record.get("ingested_at") or ""),
+    }
 
 
 def _graphiti_result_durable_asset_match(content: str, episode_id: str) -> dict[str, Any] | None:
@@ -1455,7 +1895,11 @@ def _ticket_summary_durable_asset_request(ticket: Any) -> DurableAssetIngestRequ
         for item in getattr(ticket, "code_repository_ids", []) or []
         if str(item).strip()
     ]
-    reports = [report for report in getattr(ticket, "reports", []) or []]
+    reports = [
+        report
+        for report in getattr(ticket, "reports", []) or []
+        if str(getattr(report, "report_type", "") or "report").strip().lower() not in _NON_DURABLE_REPORT_TYPES
+    ]
     report_count = len(reports)
     evidence_count = sum(len(getattr(report, "evidence", []) or []) for report in reports)
     provider_refs = _ticket_provider_refs(ticket)
@@ -2416,17 +2860,32 @@ def review_memory_candidate(candidate_id: str, request: MemoryCandidateReviewReq
 
 
 def _usage_summary(usage_history: list[dict[str, Any]]) -> dict[str, Any]:
-    useful = len([item for item in usage_history if item.get("usefulness_status") == "useful"])
-    not_useful = len([item for item in usage_history if item.get("usefulness_status") == "not_useful"])
+    status_counts = {
+        "unreviewed": 0,
+        "used": 0,
+        "irrelevant": 0,
+        "harmful": 0,
+        "promoted": 0,
+    }
+    for item in usage_history:
+        status = _normalize_memory_recall_usefulness_status(str(item.get("usefulness_status") or "unreviewed"), allow_unreviewed=True)
+        status_counts[status] = status_counts.get(status, 0) + 1
     latest = usage_history[-1] if usage_history else {}
+    latest_status = _normalize_memory_recall_usefulness_status(str(latest.get("usefulness_status") or "unreviewed"), allow_unreviewed=True)
     return {
         "recall_count": len(usage_history),
-        "useful_count": useful,
-        "not_useful_count": not_useful,
+        "used_count": status_counts.get("used", 0),
+        "irrelevant_count": status_counts.get("irrelevant", 0),
+        "harmful_count": status_counts.get("harmful", 0),
+        "promoted_count": status_counts.get("promoted", 0),
+        "unreviewed_count": status_counts.get("unreviewed", 0),
+        "status_counts": status_counts,
+        "useful_count": status_counts.get("used", 0),
+        "not_useful_count": status_counts.get("irrelevant", 0),
         "last_recalled_at": latest.get("at", ""),
         "last_recalled_ticket_id": (latest.get("source_ticket_ids") or [""])[0] if isinstance(latest.get("source_ticket_ids"), list) else "",
         "last_recalled_run_id": latest.get("source_run_id", ""),
-        "last_usefulness_status": latest.get("usefulness_status", "unreviewed"),
+        "last_usefulness_status": latest_status,
     }
 
 
@@ -2482,6 +2941,7 @@ def record_memory_recall_usage(
         candidate.provenance = candidate_provenance
         candidate.updated_at = timestamp
         _replace_local_memory_candidate(candidate)
+        _sync_asset_usefulness_from_memory_candidate(candidate)
 
         usage_refs.append(
             {
@@ -2505,12 +2965,14 @@ def review_memory_recall_usage(
     usage_id: str,
     request: MemoryRecallUsefulnessReviewRequest,
 ) -> MemoryCandidate:
-    usefulness_status = request.usefulness_status.strip().lower()
-    if usefulness_status not in MEMORY_RECALL_USEFULNESS_STATUSES - {"unreviewed"}:
+    try:
+        usefulness_status = _normalize_memory_recall_usefulness_status(request.usefulness_status, allow_unreviewed=False)
+    except ValueError as exc:
         raise ValueError(
             "Memory recall usefulness status must be one of: "
             + ", ".join(sorted(MEMORY_RECALL_USEFULNESS_STATUSES - {"unreviewed"}))
-        )
+            + ". Legacy aliases useful, not_useful, neutral, and promote are accepted."
+        ) from exc
     candidate = _find_local_memory_candidate(candidate_id)
     if candidate is None:
         raise KeyError(candidate_id)
@@ -2538,7 +3000,29 @@ def review_memory_recall_usage(
     candidate.provenance = provenance
     candidate.updated_at = timestamp
     _replace_local_memory_candidate(candidate)
+    _sync_asset_usefulness_from_memory_candidate(candidate)
     return candidate
+
+
+def _normalize_memory_recall_usefulness_status(value: str, *, allow_unreviewed: bool) -> str:
+    normalized = value.strip().lower().replace("-", "_")
+    normalized = MEMORY_RECALL_USEFULNESS_ALIASES.get(normalized, normalized)
+    if normalized == "unreviewed" and allow_unreviewed:
+        return normalized
+    allowed = MEMORY_RECALL_USEFULNESS_STATUSES if allow_unreviewed else MEMORY_RECALL_USEFULNESS_STATUSES - {"unreviewed"}
+    if normalized not in allowed:
+        raise ValueError(normalized)
+    return normalized
+
+
+def _sync_asset_usefulness_from_memory_candidate(candidate: MemoryCandidate) -> None:
+    try:
+        from .asset_candidate_service import sync_asset_usefulness_from_memory_candidate
+
+        sync_asset_usefulness_from_memory_candidate(candidate)
+    except Exception:
+        # Memory recall feedback must not fail if the local Asset read model needs repair.
+        return
 
 
 def _compact_text(value: str, limit: int = 900) -> str:
@@ -2582,6 +3066,60 @@ def _candidate_matches_scope(
     return True
 
 
+def _search_result_matches_scope(
+    result: MemorySearchResult,
+    *,
+    employee_id: str | None = None,
+    ticket_key: str | None = None,
+    project: str | None = None,
+) -> bool:
+    provenance = result.provenance if isinstance(result.provenance, dict) else {}
+    scope = provenance.get("scope") if isinstance(provenance.get("scope"), dict) else {}
+    normalized_employee_id = (employee_id or "").strip()
+    normalized_ticket_key = (ticket_key or "").strip()
+    normalized_project = (project or "").strip()
+    if normalized_employee_id and result.employee_ids and normalized_employee_id not in result.employee_ids:
+        return False
+    if normalized_ticket_key:
+        ticket_refs = {
+            result.scope_ref if result.scope_kind == "ticket" else "",
+            _first_string(provenance.get("source_ticket_id")),
+            _first_string(scope.get("ref")) if _first_string(scope.get("kind")) == "ticket" else "",
+        }
+        return normalized_ticket_key in ticket_refs
+    if normalized_project and result.scope_kind == "project" and result.scope_ref not in {normalized_project, "aiteamos"}:
+        return False
+    return True
+
+
+def _excluded_result_matches_scope(
+    item: dict[str, Any],
+    *,
+    employee_id: str | None = None,
+    ticket_key: str | None = None,
+    project: str | None = None,
+) -> bool:
+    provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+    scope = provenance.get("scope") if isinstance(provenance.get("scope"), dict) else {}
+    normalized_employee_id = (employee_id or "").strip()
+    normalized_ticket_key = (ticket_key or "").strip()
+    normalized_project = (project or "").strip()
+    employee_ids = [str(value).strip() for value in item.get("employee_ids", []) if str(value).strip()] if isinstance(item.get("employee_ids"), list) else []
+    if normalized_employee_id and employee_ids and normalized_employee_id not in employee_ids:
+        return False
+    scope_kind = _first_string(item.get("scope_kind"), scope.get("kind") if isinstance(scope, dict) else "")
+    scope_ref = _first_string(item.get("scope_ref"), scope.get("ref") if isinstance(scope, dict) else "")
+    if normalized_ticket_key:
+        ticket_refs = {
+            scope_ref if scope_kind == "ticket" else "",
+            _first_string(provenance.get("source_ticket_id")),
+        }
+        return normalized_ticket_key in ticket_refs
+    if normalized_project and scope_kind == "project" and scope_ref not in {normalized_project, "aiteamos"}:
+        return False
+    return True
+
+
 def _file_memory_results(
     *,
     query: str,
@@ -2618,11 +3156,16 @@ def _file_memory_results(
 
 
 async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchResult]:
-    backend = graphiti_backend_status()
-    if backend.status != "ready" or not query.strip():
-        return []
+    results, _excluded = await _graphiti_memory_search(query, limit)
+    return results
 
-    config = _graphiti_config()
+
+async def _graphiti_memory_search(query: str, limit: int) -> tuple[list[MemorySearchResult], list[dict[str, Any]]]:
+    backend = await asyncio.to_thread(graphiti_backend_status)
+    if backend.status != "ready" or not query.strip():
+        return [], []
+
+    config = await asyncio.to_thread(_graphiti_config)
     graphiti_cls, _episode_type = _graphiti_package()
     previous_env = _set_graphiti_environment(config)
     graphiti = _new_graphiti_client(graphiti_cls, config)
@@ -2636,7 +3179,7 @@ async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchR
             kwargs["num_results"] = limit
         raw_results = await _maybe_await(search(query, **kwargs))
     except Exception:
-        return []
+        return [], []
     finally:
         close = getattr(graphiti, "close", None)
         if close is not None:
@@ -2644,6 +3187,7 @@ async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchR
         _restore_environment(previous_env)
 
     results: list[MemorySearchResult] = []
+    excluded: list[dict[str, Any]] = []
     for index, item in enumerate(list(raw_results or [])[:limit]):
         content = getattr(item, "fact", None) or getattr(item, "name", None) or str(item)
         item_id = getattr(item, "uuid", None) or getattr(item, "source_node_uuid", None) or f"graphiti-{index}"
@@ -2651,7 +3195,11 @@ async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchR
         provenance = _graphiti_result_provenance(item)
         matched_memory: MemoryCandidate | None = None
         if not _first_string(provenance.get("asset_id"), provenance.get("memory_id")):
-            matched_memory = _graphiti_result_local_memory_match(str(content), str(episode_id or ""))
+            matched_memory = await asyncio.to_thread(
+                _graphiti_result_local_memory_match,
+                str(content),
+                str(episode_id or ""),
+            )
             if matched_memory is not None:
                 provenance = {
                     **_graphiti_asset_provenance(matched_memory),
@@ -2660,7 +3208,11 @@ async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchR
                     "graphiti_raw_type": provenance.get("raw_type", item.__class__.__name__),
                 }
             else:
-                durable_provenance = _graphiti_result_durable_asset_match(str(content), str(episode_id or ""))
+                durable_provenance = await asyncio.to_thread(
+                    _graphiti_result_durable_asset_match,
+                    str(content),
+                    str(episode_id or ""),
+                )
                 if durable_provenance is not None:
                     provenance = {
                         **durable_provenance,
@@ -2668,7 +3220,19 @@ async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchR
                         "graphiti_result_episode_id": str(episode_id) if episode_id else "",
                         "graphiti_raw_type": provenance.get("raw_type", item.__class__.__name__),
                     }
-        if not _is_local_memory_asset_recallable(provenance):
+        exclusion_reason = _memory_asset_recall_exclusion_reason(provenance)
+        if exclusion_reason:
+            excluded.append(
+                _graphiti_excluded_memory_result(
+                    item_id=str(item_id),
+                    content=str(content),
+                    episode_id=str(episode_id) if episode_id else "",
+                    score=getattr(item, "score", None),
+                    provenance=provenance,
+                    reason=exclusion_reason,
+                    backend_group_id=backend.group_id,
+                )
+            )
             continue
         scope = provenance.get("scope") if isinstance(provenance.get("scope"), dict) else {}
         provenance_source_kind = _first_string(provenance.get("source_kind"), provenance.get("asset_type"))
@@ -2700,7 +3264,7 @@ async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchR
                 graphiti_episode_id=str(episode_id) if episode_id else None,
             )
         )
-    return results
+    return results, excluded
 
 
 async def search_memory(
@@ -2713,7 +3277,8 @@ async def search_memory(
     include_graphiti: bool = True,
 ) -> MemorySearchResponse:
     capped_limit = max(1, min(limit, 50))
-    file_results = _file_memory_results(
+    file_results = await asyncio.to_thread(
+        _file_memory_results,
         query=query,
         employee_id=employee_id,
         ticket_key=ticket_key,
@@ -2721,15 +3286,36 @@ async def search_memory(
         limit=capped_limit,
     )
     remaining = max(0, capped_limit - len(file_results))
-    graphiti_results = (
-        await _graphiti_memory_results(query, remaining)
-        if include_graphiti and remaining
-        else []
-    )
+    graphiti_results: list[MemorySearchResult] = []
+    graphiti_excluded: list[dict[str, Any]] = []
+    if include_graphiti and remaining:
+        graphiti_results, graphiti_excluded = await _graphiti_memory_search(query, remaining)
+    graphiti_results = [
+        result
+        for result in graphiti_results
+        if _search_result_matches_scope(
+            result,
+            employee_id=employee_id,
+            ticket_key=ticket_key,
+            project=project,
+        )
+    ]
+    graphiti_excluded = [
+        item
+        for item in graphiti_excluded
+        if _excluded_result_matches_scope(
+            item,
+            employee_id=employee_id,
+            ticket_key=ticket_key,
+            project=project,
+        )
+    ]
+    backend_status = await asyncio.to_thread(graphiti_backend_status)
     return MemorySearchResponse(
         query=query,
         results=[*file_results, *graphiti_results],
-        backend=graphiti_backend_status(),
+        backend=backend_status,
+        excluded_results=graphiti_excluded,
     )
 
 
@@ -2791,9 +3377,12 @@ def propose_memory_from_chat_turn(
     action_plan: dict[str, Any] | None = None,
 ) -> MemoryCandidate | None:
     if any(
-        candidate.source_ref == run_id
-        or candidate.source_ref == trace_path
-        or candidate.provenance.get("source_run_id") == run_id
+        _is_chat_turn_memory_candidate(candidate)
+        and (
+            candidate.source_ref == run_id
+            or candidate.source_ref == trace_path
+            or candidate.provenance.get("source_run_id") == run_id
+        )
         for candidate in _load_candidates()
     ):
         return None
@@ -2853,3 +3442,7 @@ def propose_memory_from_chat_turn(
             },
         )
     )
+
+
+def _is_chat_turn_memory_candidate(candidate: MemoryCandidate) -> bool:
+    return candidate.source_kind in {"chat", "ticket_run"} and candidate.memory_type == "episode"

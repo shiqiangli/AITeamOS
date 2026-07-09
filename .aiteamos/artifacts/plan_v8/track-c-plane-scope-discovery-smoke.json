@@ -1,0 +1,41 @@
+{
+  "generated_at": "2026-06-26T04:26:54.089722+00:00",
+  "result": {
+    "api_key_configured": true,
+    "api_key_env": "PLANE_API_KEY",
+    "checks": [
+      "plane_workspace_slug_configured"
+    ],
+    "detail": "Plane read-only discovery blocker: 404 {\"error\": \"Workspace not found.\"}",
+    "evidence": {
+      "project_count": 0,
+      "workspace_count": 1
+    },
+    "external_calls": true,
+    "setup_required": [],
+    "status": "failed",
+    "suggestions": []
+  },
+  "schema": "aiteamos.plane_scope_discovery_smoke.v1",
+  "status": "passed",
+  "summary": {
+    "api_key_configured": true,
+    "api_key_env": "PLANE_API_KEY",
+    "checks": [
+      "plane_workspace_slug_configured"
+    ],
+    "detail": "Plane read-only discovery blocker: 404 {\"error\": \"Workspace not found.\"}",
+    "discovery_status": "failed",
+    "external_calls": true,
+    "external_mutation": false,
+    "first_project_id": "",
+    "first_project_name": "",
+    "first_workspace_name": "",
+    "first_workspace_slug": "",
+    "project_count": 0,
+    "setup_required": [],
+    "suggestion_count": 0,
+    "workspace_count": 1
+  },
+  "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+}

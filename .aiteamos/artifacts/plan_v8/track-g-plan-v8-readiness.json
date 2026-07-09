@@ -1,0 +1,347 @@
+{
+  "generated_at": "2026-06-26T04:28:20.658173+00:00",
+  "result": {
+    "blockers": [
+      "plane_ticket_backend_not_selected",
+      "live_provider_dogfood_not_confirmed"
+    ],
+    "checks": [
+      {
+        "blockers": [],
+        "detail": "Chat main-thread visible response contract from fresh Agent Server evidence plus the five-state visible-response matrix.",
+        "evidence": {
+          "artifact": "track-b-runtime-boundary-graphiti-langchain-agent-server-smoke.json",
+          "current_node": "final_response",
+          "matrix_artifact": "track-a-chat-visible-response-matrix.json",
+          "matrix_observed_states": [
+            "completed",
+            "blocked",
+            "needs_approval",
+            "handoff",
+            "provider_blocker"
+          ],
+          "matrix_passed_case_count": 5,
+          "matrix_required_states": [
+            "completed",
+            "blocked",
+            "needs_approval",
+            "handoff",
+            "provider_blocker"
+          ],
+          "runtime_status": "completed",
+          "visible_display_state": "completed",
+          "visible_response_version": "chat_visible_response.v1"
+        },
+        "id": "chat_visible_response",
+        "scope": "Track A",
+        "status": "passed"
+      },
+      {
+        "blockers": [
+          "plane_ticket_backend_not_selected",
+          "live_provider_dogfood_not_confirmed"
+        ],
+        "detail": "Latest plan_v8 artifact summary for Agent Server, live readiness, context retrieval, and Asset provenance.",
+        "evidence": {
+          "agent_server_smoke_count": 19,
+          "artifact_count": 31,
+          "asset_provenance_eval_count": 1,
+          "chat_visible_response_matrix_count": 1,
+          "context_retrieval_eval_count": 1,
+          "employee_growth_eval_count": 1,
+          "employee_growth_improvement_loop_application_status": "applied",
+          "employee_growth_improvement_loop_proof_status": "passed",
+          "employee_growth_improvement_loop_ticket_report_id": "report-34cd07f838",
+          "employee_growth_warning_count": 2,
+          "evidence_warnings": [
+            "plane_scope_discovery_failed",
+            "plane_ticket_action_smoke_skipped"
+          ],
+          "latest_generated_at": "2026-06-26T04:26:54.089722+00:00",
+          "live_provider_readiness_count": 1,
+          "live_provider_soak_evidence_count": 1,
+          "live_provider_soak_plan_count": 1,
+          "plan_v8_readiness_count": 1,
+          "plane_scope_discovery_external_mutation": false,
+          "plane_scope_discovery_smoke_count": 1,
+          "plane_scope_discovery_smoke_status": "passed",
+          "plane_scope_discovery_status": "failed",
+          "plane_scope_discovery_suggestion_count": 0,
+          "plane_ticket_action_smoke_count": 1,
+          "plane_ticket_action_smoke_provider": "local_file",
+          "plane_ticket_action_smoke_status": "skipped",
+          "ticket_loop_worker_daemon_status": "passed",
+          "ticket_loop_worker_policy_action_delta": 1,
+          "ticket_loop_worker_processed_delta": 2,
+          "ticket_loop_worker_soak_count": 1
+        },
+        "id": "plan_v8_artifact_evidence",
+        "scope": "Track C/F/G",
+        "status": "warning"
+      },
+      {
+        "blockers": [
+          "plane_ticket_backend_not_selected",
+          "live_provider_dogfood_not_confirmed"
+        ],
+        "detail": "Readiness for the live Plane / Graphiti Ticket-loop dogfood gate.",
+        "evidence": {
+          "memory_backend_status": "ready",
+          "mutation_gate_open": false,
+          "plane_ticket_api_key_configured": true,
+          "plane_ticket_backend_configured": false,
+          "plane_ticket_backend_selected": false,
+          "plane_ticket_backend_setup_required": [
+            "PUT /api/v1/tickets/backend mode=plane",
+            ".aiteamos/tickets/backend.json mode=plane",
+            "plane_workspace_slug",
+            "plane_project_id"
+          ],
+          "plane_ticket_backend_setup_status": "setup_blocked",
+          "plane_ticket_project_configured": false,
+          "plane_ticket_scope_candidate_count": 0,
+          "plane_ticket_scope_missing_count": 1,
+          "plane_ticket_scope_setup_action": "add_plane_scope_to_code_repository_or_ticket_backend",
+          "plane_ticket_scope_status": "incomplete",
+          "plane_ticket_workspace_configured": false,
+          "profile": "core_loop",
+          "repo_write_ready_count": 1,
+          "selected_executor_id": "langgraph",
+          "status": "blocked",
+          "ticket_backend_mode": "local_file",
+          "ticket_backend_provider": "",
+          "ticket_backend_release_target_blockers": [
+            "plane_ticket_backend_not_selected",
+            "plane_workspace_slug_missing",
+            "plane_project_id_missing",
+            "code_repository_plane_scope_incomplete"
+          ],
+          "ticket_backend_release_target_ready": false,
+          "ticket_backend_release_target_setup_action": "select_plane_ticket_backend",
+          "ticket_backend_release_target_status": "blocked",
+          "ticket_backend_status": "ready"
+        },
+        "id": "live_provider_dogfood",
+        "scope": "Track C",
+        "status": "blocked"
+      },
+      {
+        "blockers": [],
+        "detail": "Provider conformance keeps Ticket / Employee / Asset facts AITeamOS-owned and runtime behind LangGraph/RuntimeExecutor boundaries.",
+        "evidence": {
+          "contract_version": "provider_conformance.v1",
+          "core_blocked_count": 0,
+          "core_required_count": 6,
+          "direct_llm_provider_count": 0,
+          "production_ready_count": 8,
+          "provider_count": 13,
+          "runtime_boundary_blocker_count": 0,
+          "runtime_boundary_checks": [
+            "chat_route_transport_adapter",
+            "chat_runtime_factory_route_free",
+            "chat_execution_service_contract_boundary",
+            "workbench_runtime_context_contract_boundary",
+            "workbench_context_node_route_free_services",
+            "workbench_governance_node_route_free_services",
+            "graphiti_memory_provider_langchain_boundary"
+          ],
+          "runtime_boundary_status": "passed",
+          "runtime_boundary_warnings": []
+        },
+        "id": "provider_boundary",
+        "scope": "Track B/C",
+        "status": "passed"
+      },
+      {
+        "blockers": [],
+        "detail": "Local Ticket, Employee, Asset, and runtime ledgers are on expected schema boundaries.",
+        "evidence": {
+          "contract_version": "aiteamos_schema_registry.v1",
+          "covered_domains": [
+            "assets",
+            "employees",
+            "runtime",
+            "tickets"
+          ],
+          "current_count": 6,
+          "migration_required_count": 0,
+          "store_count": 8
+        },
+        "id": "schema_registry",
+        "scope": "Track G",
+        "status": "passed"
+      },
+      {
+        "blockers": [],
+        "detail": "Source files, generated artifacts, local projections, and test outputs are classified for release review.",
+        "evidence": {
+          "contract_version": "aiteamos_release_hygiene.v1",
+          "generated_artifact_count": 44,
+          "git_root": "/home/shiqiangli/projects/AITeamOS",
+          "local_projection_count": 4,
+          "source_count": 199,
+          "total_changed": 247,
+          "unknown_count": 0
+        },
+        "id": "release_hygiene",
+        "scope": "Track G",
+        "status": "warning"
+      }
+    ],
+    "commands": [
+      "python scripts/plan_v8_readiness.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-g-plan-v8-readiness.json",
+      "python scripts/chat_visible_response_matrix.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-a-chat-visible-response-matrix.json",
+      "python scripts/live_provider_soak_plan.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-live-provider-soak-plan.json",
+      "python scripts/live_provider_soak_evidence.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-live-provider-soak-evidence.json",
+      "python scripts/live_provider_readiness_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-live-provider-readiness-smoke.json",
+      "python scripts/plane_scope_discovery_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-plane-scope-discovery-smoke.json",
+      "python scripts/plane_ticket_action_smoke.py --workspace-dir . --source-run-id plan-v8-plane-action-smoke --output .aiteamos/artifacts/plan_v8/track-c-plane-ticket-action-smoke.json",
+      "python scripts/employee_growth_eval_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-e-employee-growth-eval-smoke.json",
+      "python scripts/environment_smoke.py --workspace-dir .",
+      "pytest tests/test_file_system_status_routes.py tests/test_context_retrieval_eval.py -q",
+      "cd apps/dashboard && npx vitest run --environment jsdom src/__tests__/system-status-page.test.tsx src/__tests__/assets-page.test.tsx src/__tests__/tickets-page.test.tsx",
+      "cd apps/dashboard && npm run build"
+    ],
+    "contract_version": "aiteamos_plan_v8_readiness.v1",
+    "detail": "Plan v8 readiness is blocked by 2 signal(s).",
+    "evidence_refs": [
+      "track-b-runtime-boundary-graphiti-langchain-agent-server-smoke.json",
+      "track-a-chat-visible-response-matrix.json",
+      "track-c-live-provider-readiness-smoke.json",
+      "track-c-live-provider-soak-plan.json",
+      "track-c-live-provider-soak-evidence.json",
+      "track-c-plane-scope-discovery-smoke.json",
+      "track-c-plane-ticket-action-smoke.json",
+      "track-c-ticket-loop-worker-soak.json",
+      "track-f-context-retrieval-eval-smoke.json",
+      "track-f-asset-provenance-eval-smoke.json",
+      "track-g-plan-v8-readiness.json",
+      "track-e-employee-growth-eval-smoke.json"
+    ],
+    "status": "blocked",
+    "summary": {
+      "blocked_count": 1,
+      "check_count": 6,
+      "contract_version": "aiteamos_plan_v8_readiness.v1",
+      "failed_count": 0,
+      "next_action": "Complete the Code Repository Plane workspace/project scope, switch the Ticket backend to Plane, rerun the Plane action smoke, then reopen the live mutation gate for Plane / Graphiti dogfood.",
+      "next_step_actions": [
+        {
+          "command": "",
+          "detail": "Open Settings -> Code Repositories, use Discover Plane scope to read workspace/project candidates without mutation, then complete the AITeamOS repository Plane scope.",
+          "evidence": {
+            "api_key_configured": true,
+            "discovery_endpoint": "/api/v1/tickets/backend/plane-scope/discovery",
+            "discovery_ui_action": "Discover Plane scope",
+            "external_mutation": false,
+            "scope_candidates": 0,
+            "scope_missing": 1,
+            "setup_action": "add_plane_scope_to_code_repository_or_ticket_backend"
+          },
+          "href": "#/settings/code-repositories",
+          "id": "complete_code_repository_plane_scope",
+          "kind": "settings",
+          "label": "Code Repository scope",
+          "mutation_gate_required": false,
+          "status": "incomplete"
+        },
+        {
+          "command": "",
+          "detail": "Open Settings -> Ticket Backend and use Apply scope or save the form with mode=plane.",
+          "evidence": {
+            "api_key_configured": true,
+            "current_mode": "local_file",
+            "current_provider": "",
+            "plane_selected": false,
+            "project_configured": false,
+            "release_target_blockers": [
+              "plane_ticket_backend_not_selected",
+              "plane_workspace_slug_missing",
+              "plane_project_id_missing",
+              "code_repository_plane_scope_incomplete"
+            ],
+            "release_target_ready": false,
+            "release_target_setup_action": "select_plane_ticket_backend",
+            "release_target_status": "blocked",
+            "workspace_configured": false
+          },
+          "href": "#/settings/ticket-backend",
+          "id": "apply_plane_ticket_backend",
+          "kind": "settings",
+          "label": "Ticket Backend Plane mode",
+          "mutation_gate_required": false,
+          "status": "setup_blocked"
+        },
+        {
+          "command": "python scripts/live_provider_readiness_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-live-provider-readiness-smoke.json",
+          "detail": "Run python scripts/live_provider_readiness_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-live-provider-readiness-smoke.json before any provider mutation.",
+          "evidence": {
+            "external_mutation": false,
+            "provider_smoke_status": "read_only"
+          },
+          "href": "",
+          "id": "run_live_provider_readiness_smoke",
+          "kind": "command",
+          "label": "Provider readiness smoke",
+          "mutation_gate_required": false,
+          "status": "ready_to_run"
+        },
+        {
+          "command": "python scripts/plane_ticket_action_smoke.py --workspace-dir . --source-run-id plan-v8-plane-action-smoke --output .aiteamos/artifacts/plan_v8/track-c-plane-ticket-action-smoke.json",
+          "detail": "Run python scripts/plane_ticket_action_smoke.py --workspace-dir . --source-run-id plan-v8-plane-action-smoke --output .aiteamos/artifacts/plan_v8/track-c-plane-ticket-action-smoke.json.",
+          "evidence": {
+            "current_mode": "local_file",
+            "requires_ticket_backend_mode": "plane"
+          },
+          "href": "",
+          "id": "run_plane_action_smoke",
+          "kind": "command",
+          "label": "Plane action smoke",
+          "mutation_gate_required": false,
+          "status": "blocked"
+        },
+        {
+          "command": "unset AITEAMOS_LIVE_PROVIDER_DOGFOOD",
+          "detail": "Keep AITEAMOS_LIVE_PROVIDER_DOGFOOD unset until Plane and Graphiti setup evidence is ready.",
+          "evidence": {
+            "confirm_env_var": "AITEAMOS_LIVE_PROVIDER_DOGFOOD",
+            "gate_open": false
+          },
+          "href": "",
+          "id": "keep_mutation_gate_closed",
+          "kind": "guard",
+          "label": "Mutation gate",
+          "mutation_gate_required": true,
+          "status": "closed"
+        },
+        {
+          "command": "AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 python scripts/live_provider_dogfood.py --execute --start-agent-server --profile core-loop --output .aiteamos/artifacts/plan_v8/track-c-live-soak-completed.json",
+          "detail": "When ready, run AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 python scripts/live_provider_dogfood.py --execute --start-agent-server --profile core-loop --output .aiteamos/artifacts/plan_v8/track-c-live-soak-completed.json.",
+          "evidence": {
+            "gate_open": false,
+            "requires_gate_open": true
+          },
+          "href": "",
+          "id": "run_live_provider_dogfood",
+          "kind": "command",
+          "label": "Live dogfood soak",
+          "mutation_gate_required": true,
+          "status": "blocked"
+        }
+      ],
+      "next_steps": [
+        "Open Settings -> Code Repositories, use Discover Plane scope to read workspace/project candidates without mutation, then complete the AITeamOS repository Plane scope.",
+        "Open Settings -> Ticket Backend and use Apply scope or save the form with mode=plane.",
+        "Run python scripts/live_provider_readiness_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-live-provider-readiness-smoke.json before any provider mutation.",
+        "Run python scripts/plane_ticket_action_smoke.py --workspace-dir . --source-run-id plan-v8-plane-action-smoke --output .aiteamos/artifacts/plan_v8/track-c-plane-ticket-action-smoke.json.",
+        "Keep AITEAMOS_LIVE_PROVIDER_DOGFOOD unset until Plane and Graphiti setup evidence is ready.",
+        "When ready, run AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 python scripts/live_provider_dogfood.py --execute --start-agent-server --profile core-loop --output .aiteamos/artifacts/plan_v8/track-c-live-soak-completed.json."
+      ],
+      "passed_count": 3,
+      "ready_for_release": false,
+      "warning_count": 2
+    }
+  },
+  "schema": "aiteamos.plan_v8_readiness.cli.v1",
+  "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+}

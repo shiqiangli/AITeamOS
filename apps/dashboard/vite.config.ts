@@ -22,6 +22,21 @@ function dashboardHttpsConfig() {
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("@assistant-ui")) return "vendor-assistant-ui";
+          if (id.includes("@langchain") || id.includes("langchain")) return "vendor-langchain";
+          if (id.includes("react-resizable-panels")) return "vendor-resizable-panels";
+          if (id.includes("@radix-ui")) return "vendor-radix";
+          if (id.includes("lucide-react")) return "vendor-icons";
+          return "vendor";
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

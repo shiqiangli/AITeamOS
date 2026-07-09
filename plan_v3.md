@@ -1,4 +1,4 @@
-# Runtime-first AITeamOS: 用成熟开源/官方 Agent Loop Runtime 补齐 AITeamOS 薄弱执行层，chat_routes.py 退回治理编排层
+# Runtime-first AITeamOS: 用成熟开源/本地/官方 Agent Loop Runtime 补齐 AITeamOS 薄弱执行层，chat_routes.py 退回治理编排层
 
 状态：架构修正计划  
 日期：2026-06-08  
@@ -78,7 +78,7 @@ AITeamOS 不做：
 - 通用 session persistence runtime。
 - 通用 tool ecosystem。
 - Claude Code / OpenHands / OpenCode / Cline 的重实现。
-- 把所谓“开源 Claude Code”或泄露源码作为商业关键路径。
+- 在 AITeamOS 主仓库中 vendor 或重实现 Claude Code / OpenHands / OpenCode 等外部 runtime。
 
 短期也不做：
 
@@ -197,15 +197,23 @@ class RuntimeExecutor(Protocol):
   - 可用于 coding / repo work / long-running execution。
   - 不作为唯一关键路径。
 - `ClaudeCodeExecutor`
-  - 可以通过官方 Claude Code CLI 或 SDK 做实验 handoff。
+  - 作为 Claude Code-compatible local CLI adapter，而不是绑定某一个 release 包来源。
+  - AITeamOS 只配置 `binary_path`、`working_dir`、`command_template`、`model`、`api_base_url`、`api_key_env`、`mode`。
+  - DeepSeek / OpenAI 等 LLM backend 可以通过 env / base URL / model 传给该本地 runtime。
   - 用于 inspect/report、repo edits with approval、test evidence。
-  - 不依赖泄露源码或非商业可控实现。
+  - approved repo mutation 必须返回 patch/diff 或 changed_files artifact，以及 runtime test evidence；否则 ingestion 前阻断。
+  - 外部 runtime 源码、构建和本地 release 包存放在 AITeamOS 仓库之外，AITeamOS 只依赖本地兼容 CLI 边界。
 - `OpenHandsExecutor`
   - 用于开源 coding agent runtime。
   - 适合 repo edit / test / browser-ish workflows。
+  - 通过 `OPENHANDS_BASE_URL` + 可配置 `OPENHANDS_INSPECT_ENDPOINT` 走 HTTP inspect-and-report adapter；未配置 endpoint 时只产生 non-fake handoff。
 - `OpenCodeExecutor`
   - 用于轻量 coding executor。
   - 适合本地 CLI 代理、review、patch proposal。
+- `CursorExecutor`
+  - 用于商业 agent backend。
+  - 通过 `CURSOR_API_KEY`、`CURSOR_API_BASE_URL`、`CURSOR_INSPECT_ENDPOINT` 走可配置 HTTP inspect-and-report adapter。
+  - 不在 AITeamOS 中硬编码非公开 provider route；缺少 endpoint 时返回 setup/handoff 状态，不伪装完成。
 - `LocalToolExecutor`
   - 只承载 AITeamOS 内部确定性操作，例如 Ticket 写入、permission inspect、bounded local command evidence。
   - 不是通用 agent loop。
@@ -284,15 +292,16 @@ AG-UI：
 - 但事件来源应从 `ExecutionResult` / executor stream 统一转换。
 - 不再在 `/agent` 与 `/messages/stream` 中各写一套执行分支。
 
-## Claude Agent SDK / Claude Code Positioning
+## Claude Agent SDK / Claude Code-compatible Runtime Positioning
 
-Claude Code / Claude Agent SDK 可以作为重要 executor，但不应成为唯一关键路径。
+Claude Code-compatible local runtime / Claude Agent SDK 可以作为重要 executor，但不应成为唯一关键路径。
 
 原则：
 
-- 可以在不涉及商业协议前，把 Claude Code / Claude Agent SDK 作为主要实验 executor。
-- 必须通过官方 SDK、官方 CLI、正式授权 API、或用户明确配置的本地安装接入。
-- 不要把所谓“开源 Claude Code”或泄露源码作为商业关键路径。
+- `ClaudeCodeExecutor` 面向 Claude Code-compatible local CLI，不绑定官方 release 包。
+- AITeamOS 不在主仓库中 vendor、fork 或重实现外部 runtime；外部 runtime 由本地 `binary_path` / `command_template` 配置接入。
+- DeepSeek / OpenAI 等 LLM backend 通过 `api_key_env`、`api_base_url`、`model` 等配置传给本地 runtime。
+- 可以把 Claude Code-compatible local runtime / Claude Agent SDK 作为主要实验 executor。
 - 不能让 Claude executor 变成 AITeamOS 的组织记忆层。
 - 不能让 Claude executor 的 session 变成 AITeamOS 的 Ticket ledger。
 - Claude 输出必须回收为 `ExecutionResult`，再由 AITeamOS 写入 report / artifacts / evidence / learning candidates。
@@ -301,7 +310,7 @@ Claude Code / Claude Agent SDK 可以作为重要 executor，但不应成为唯�
 
 ```text
 ExecutionRequest
-  -> ClaudeAgentSDKExecutor inspect-and-report
+  -> ClaudeCodeExecutor / ClaudeAgentSDKExecutor inspect-and-report
   -> ExecutionResult(report, artifacts, evidence, trace_ref, tool_events)
   -> AITeamOS append Ticket report / evidence
 ```
@@ -313,6 +322,11 @@ repo mutation 必须满足：
 - approval policy 允许或已有 approval。
 - executor result 提供 patch / changed files / test evidence。
 - AITeamOS ingestion 写入 Ticket report、evidence、trace 和 approval refs。
+- 缺少 patch/changed files 或 test evidence 时返回 governance blocker，不写入成功 report。
+- Chat / Clara 将已有 Ticket 上的实现类请求归一化为 `implement_ticket`，只生成 `ExecutionRequest` 和 approval request；真正执行仍由外部 `RuntimeExecutor` 完成。
+- `ExecutionResultIngestionService` 必须作为第二道闸校验 approved repo mutation 的 patch/changed_files 和 runtime test evidence，防止伪造或绕过 executor guard 的结果写入成功 ledger。
+- `ExecutionResult.approval_requests` 必须落为 AITeamOS approval records / Review Queue facts。
+- approved external runtime run 必须从 approval record 重建 `ExecutionRequest`，注入 `approval_refs` / `approved_capabilities`，再通过 `ExecutionDispatchService` 执行。
 
 ## Execution Dispatch Contract
 
@@ -721,6 +735,7 @@ Runtime 可以内部使用 subagents，但必须满足：
 - `ExecutionResult.artifacts` -> Asset Registry / Ticket Asset Graph。
 - `ExecutionResult.approval_requests` -> Review Queue / approval events。
 - `ExecutionResult.memory_candidates` -> candidate queue。
+- 外部 runtime 通过 `artifacts` / `learning_delta` 返回的 Decision / Doc / Skill / Capability / validated Ticket summary candidates 先归一化为 Review Queue candidates，approval 之后再投影到 Graphiti。
 - `ExecutionResult.learning_delta` -> self-bootstrap summary。
 - `ExecutionResult.tool_events` -> trace summary。
 - `ExecutionResult.usage` -> Employee analytics / system status。
@@ -759,6 +774,10 @@ Runtime 可以内部使用 subagents，但必须满足：
 - supported action types。
 - result normalization。
 - failure/blocker semantics。
+- non-destructive smoke diagnostics, routed through `ExecutionDispatchService` and `RuntimeExecutor` instead of route-level subprocess or provider helpers。
+- optional smoke-result ingestion that is Ticket-bound; if no Ticket is supplied, diagnostics must report setup/blocker/result facts without fake ledger completion。
+- 对本地 CLI 或 HTTP API runtime，必须把 report / artifacts / evidence / usage 规范化为 `ExecutionResult`。
+- 对外部 runtime 产出的 durable asset candidates，必须保留 Ticket / Employee / run / executor provenance，并进入 AITeamOS Review Queue；runtime 不能绕过 approval 直接成为 durable memory。
 
 ### Phase 4: Self-bootstrap On Runtime-first
 
@@ -902,7 +921,7 @@ Phase 7: Additional executor adapters and advanced external execution
 | AITeamOS permission duplicates runtime sandbox | complexity and false safety | Keep governance permission in `capability_grants`; runtime owns tool sandbox |
 | Context becomes global dump | cost, leakage, poor reasoning | Require `ScopedTaskContext` and trace recall provenance |
 | Claude Code becomes single critical path | commercial and operational risk | Keep LangGraph default/fallback; support pluggable executors |
-| Leaked or unofficial runtime source is used | legal/product risk | Only official SDK/CLI/API or approved open-source runtimes |
+| Runtime implementation becomes tightly coupled to one package source | vendor lock-in and brittle upgrades | Keep runtime source/build out of AITeamOS; configure compatible local CLI/API through adapter settings |
 | LocalToolExecutor becomes another agent runtime | wheel reinvention returns | Limit it to deterministic AITeamOS governance operations |
 | Result ingestion hides failures | false accountability | Require status, errors, evidence, trace_ref, usage |
 | Streaming duplicated across endpoints | inconsistent behavior | Normalize executor stream -> SSE / AG-UI adapters |
@@ -918,7 +937,12 @@ Architecture acceptance:
 - `chat_routes.py` target responsibility is thin and non-runtime.
 - LangGraph is the first executor, not just a side bridge.
 - Claude Agent SDK / Claude Code are optional executor adapters, not the only key path.
-- Leaked or unofficial Claude Code source is explicitly rejected as commercial path.
+- Claude Code is modeled as a compatible local CLI adapter; AITeamOS does not vendor or reimplement its runtime source.
+- RuntimeExecutor non-sensitive adapter configuration is persisted in `.aiteamos/runtime_executors.json`; secrets remain environment variable references.
+- Runtime executor smoke diagnostics exist for non-destructive CLI/HTTP adapter checks, dispatch through `RuntimeExecutor`, and only ingest results when bound to a Ticket.
+- Ticket-bound repo implementation requests can flow from Chat into `implement_ticket`, return external runtime approval requests, and remain blocked from successful ingestion without patch/changed_files plus runtime test evidence.
+- Runtime executor approval APIs can list/review approval records and run an approved external runtime request without route-level subprocess execution.
+- Assets / Review Queue UI lists runtime approval records beside memory / decision / skill / tool candidates, can approve or reject them, and can trigger an approved runtime run through the RuntimeExecutor API while surfacing setup blockers instead of fake completion.
 
 Phase 0 engineering acceptance:
 
@@ -947,6 +971,7 @@ Permission acceptance:
 - Runtime owns tool permission and sandbox implementation.
 - High-risk actions return approval requests instead of silently executing.
 - Approval requests land in Review Queue / approval records.
+- Runtime approval records are visible and actionable from the existing Assets Review Queue, not from a separate agent console.
 
 Tool acceptance:
 

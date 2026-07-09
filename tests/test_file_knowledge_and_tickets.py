@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from aiteamos_api.main import create_app
-from aiteamos_api.read import chat_routes, memory_service, ticket_service
+from aiteamos_api.read import chat_routes, chat_runtime_factory, memory_service, ticket_service
 
 
 def _command_event(payload: dict, command_id: str, phase: str = "completed") -> dict:
@@ -73,6 +73,248 @@ def test_plane_ticket_mapping_table_freezes_phase05_contract():
         "evidence": "tagged Plane comment link",
         "asset_link": "AITeamOS asset graph edge plus optional Plane comment backlink",
     }
+
+
+def test_plane_ticket_action_smoke_dry_run_stays_non_mutating(tmp_path, monkeypatch):
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(tmp_path))
+    monkeypatch.setenv("PLANE_API_KEY", "plane-test-key")
+    monkeypatch.delenv("AITEAMOS_LIVE_PROVIDER_DOGFOOD", raising=False)
+    calls: list[dict] = []
+
+    class FakePlaneClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, method, url, headers, json):
+            calls.append({"method": method, "url": url, "json": json})
+            raise AssertionError("Plane should not be called during action smoke dry-run.")
+
+    monkeypatch.setattr(ticket_service.httpx, "Client", FakePlaneClient)
+    ticket_service.update_ticket_backend_settings(
+        ticket_service.TicketBackendSettingsUpdateRequest(
+            mode="plane",
+            plane_api_base_url="https://plane.test",
+            plane_web_base_url="https://app.plane.test",
+            plane_workspace_slug="ait",
+            plane_project_id="plane-project-1",
+            plane_api_key_env="PLANE_API_KEY",
+        )
+    )
+
+    response = ticket_service.ticket_provider_action_smoke(
+        ticket_service.TicketProviderActionSmokeRequest(execute=True)
+    )
+
+    assert response.status == "dry_run"
+    assert response.provider == "plane"
+    assert response.external_calls is False
+    assert response.blockers[0]["reason"] == "plane_action_smoke_not_confirmed"
+    assert calls == []
+
+
+def test_plane_ticket_action_smoke_exercises_create_handoff_and_report_comment(tmp_path, monkeypatch):
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(tmp_path))
+    monkeypatch.setenv("PLANE_API_KEY", "plane-test-key")
+    monkeypatch.setenv("AITEAMOS_LIVE_PROVIDER_DOGFOOD", "1")
+    calls: list[dict] = []
+
+    class FakePlaneResponse:
+        def __init__(self, status_code: int, payload: dict):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        def json(self):
+            return self._payload
+
+    class FakePlaneClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, method, url, headers, json):
+            calls.append({"method": method, "url": url, "headers": headers, "json": json})
+            if method == "POST" and url.endswith("/work-items/"):
+                return FakePlaneResponse(
+                    200,
+                    {
+                        "id": "plane-action-smoke-1",
+                        "project": "plane-project-1",
+                        "url": "https://app.plane.test/ait/projects/plane-project-1/work-items/plane-action-smoke-1",
+                    },
+                )
+            if method == "POST" and url.endswith("/comments/"):
+                return FakePlaneResponse(200, {"id": "plane-comment-action-smoke-1"})
+            return FakePlaneResponse(404, {"detail": "unexpected call"})
+
+    monkeypatch.setattr(ticket_service.httpx, "Client", FakePlaneClient)
+    ticket_service.update_ticket_backend_settings(
+        ticket_service.TicketBackendSettingsUpdateRequest(
+            mode="plane",
+            plane_api_base_url="https://plane.test",
+            plane_web_base_url="https://app.plane.test",
+            plane_workspace_slug="ait",
+            plane_project_id="plane-project-1",
+            plane_api_key_env="PLANE_API_KEY",
+        )
+    )
+
+    response = ticket_service.ticket_provider_action_smoke(
+        ticket_service.TicketProviderActionSmokeRequest(execute=True, source_run_id="pytest-plane-action-smoke")
+    )
+
+    assert response.status == "passed"
+    assert response.summary["ticket_source"] == "created"
+    assert response.summary["provider_record_id"] == "plane-action-smoke-1"
+    assert response.summary["handoff_recorded"] is True
+    assert response.summary["handoff_report_recorded"] is True
+    assert response.summary["to_employee_id"] == "alex"
+    assert response.external_calls is True
+    assert response.mutating is True
+    assert [call["method"] for call in calls] == ["POST", "POST"]
+    assert calls[0]["url"] == "https://plane.test/api/v1/workspaces/ait/projects/plane-project-1/work-items/"
+    assert calls[1]["url"] == "https://plane.test/api/v1/workspaces/ait/projects/plane-project-1/work-items/plane-action-smoke-1/comments/"
+    assert calls[1]["json"]["comment_json"]["aiteamos"]["report_type"] == "employee_handoff"
+    assert calls[1]["json"]["comment_json"]["aiteamos"]["source_run_id"] == "pytest-plane-action-smoke"
+
+
+def test_plane_ticket_action_smoke_retries_transient_comment_write_502(tmp_path, monkeypatch):
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(tmp_path))
+    monkeypatch.setenv("PLANE_API_KEY", "plane-test-key")
+    monkeypatch.setenv("AITEAMOS_LIVE_PROVIDER_DOGFOOD", "1")
+    monkeypatch.setattr(ticket_service.time, "sleep", lambda _seconds: None)
+    calls: list[dict] = []
+    comment_attempts = 0
+
+    class FakePlaneResponse:
+        def __init__(self, status_code: int, payload: dict):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        def json(self):
+            return self._payload
+
+    class FakePlaneClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, method, url, headers, json):
+            nonlocal comment_attempts
+            calls.append({"method": method, "url": url, "headers": headers, "json": json})
+            if method == "POST" and url.endswith("/work-items/"):
+                return FakePlaneResponse(
+                    200,
+                    {
+                        "id": "plane-action-smoke-retry",
+                        "project": "plane-project-1",
+                        "url": "https://app.plane.test/ait/projects/plane-project-1/work-items/plane-action-smoke-retry",
+                    },
+                )
+            if method == "POST" and url.endswith("/comments/"):
+                comment_attempts += 1
+                if comment_attempts == 1:
+                    return FakePlaneResponse(502, {"detail": "temporary Plane gateway"})
+                return FakePlaneResponse(200, {"id": "plane-comment-action-smoke-retry"})
+            return FakePlaneResponse(404, {"detail": "unexpected call"})
+
+    monkeypatch.setattr(ticket_service.httpx, "Client", FakePlaneClient)
+    ticket_service.update_ticket_backend_settings(
+        ticket_service.TicketBackendSettingsUpdateRequest(
+            mode="plane",
+            plane_api_base_url="https://plane.test",
+            plane_web_base_url="https://app.plane.test",
+            plane_workspace_slug="ait",
+            plane_project_id="plane-project-1",
+            plane_api_key_env="PLANE_API_KEY",
+        )
+    )
+
+    response = ticket_service.ticket_provider_action_smoke(
+        ticket_service.TicketProviderActionSmokeRequest(execute=True, source_run_id="pytest-plane-action-smoke-retry")
+    )
+
+    assert response.status == "passed"
+    assert response.summary["handoff_report_recorded"] is True
+    assert response.summary["provider_record_id"] == "plane-action-smoke-retry"
+    assert [call["method"] for call in calls] == ["POST", "POST", "POST"]
+    assert [call["url"].endswith("/comments/") for call in calls] == [False, True, True]
+    assert comment_attempts == 2
+
+
+def test_plane_ticket_action_smoke_surfaces_comment_write_blocker(tmp_path, monkeypatch):
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(tmp_path))
+    monkeypatch.setenv("PLANE_API_KEY", "plane-test-key")
+    monkeypatch.setenv("AITEAMOS_LIVE_PROVIDER_DOGFOOD", "1")
+
+    class FakePlaneResponse:
+        def __init__(self, status_code: int, payload: dict):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = json.dumps(payload)
+
+        def json(self):
+            return self._payload
+
+    class FakePlaneClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, method, url, headers, json):
+            if method == "POST" and url.endswith("/work-items/"):
+                return FakePlaneResponse(
+                    200,
+                    {"id": "plane-action-smoke-502", "project": "plane-project-1"},
+                )
+            if method == "POST" and url.endswith("/comments/"):
+                return FakePlaneResponse(502, {"detail": "Plane comment endpoint unavailable"})
+            return FakePlaneResponse(404, {"detail": "unexpected call"})
+
+    monkeypatch.setattr(ticket_service.httpx, "Client", FakePlaneClient)
+    ticket_service.update_ticket_backend_settings(
+        ticket_service.TicketBackendSettingsUpdateRequest(
+            mode="plane",
+            plane_api_base_url="https://plane.test",
+            plane_web_base_url="https://app.plane.test",
+            plane_workspace_slug="ait",
+            plane_project_id="plane-project-1",
+            plane_api_key_env="PLANE_API_KEY",
+        )
+    )
+
+    response = ticket_service.ticket_provider_action_smoke(
+        ticket_service.TicketProviderActionSmokeRequest(execute=True)
+    )
+
+    assert response.status == "blocked"
+    assert response.failures == ["plane_handoff_report_action_failed"]
+    assert response.blockers[0]["stage"] == "append_handoff_report"
+    assert response.blockers[0]["reason"] == "plane_handoff_report_action_failed"
+    assert "Plane Ticket Backend action blocker: 502" in response.blockers[0]["detail"]
+    assert response.summary["blocker_stage"] == "append_handoff_report"
 
 
 @pytest.mark.parametrize(
@@ -284,6 +526,7 @@ def test_knowledge_routes_search_docs_memories_and_decisions(tmp_path, monkeypat
 def test_ticket_routes_create_and_record_reports(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.delenv("PLANE_API_KEY", raising=False)
     client = TestClient(create_app())
 
     backend = client.get("/api/v1/tickets/backend")
@@ -295,6 +538,13 @@ def test_ticket_routes_create_and_record_reports(tmp_path, monkeypatch):
     assert default_status.json()["status"] == "setup_blocked"
     assert default_status.json()["provider"] == "plane"
     assert {"plane_workspace_slug", "plane_project_id", "PLANE_API_KEY"}.issubset(set(default_status.json()["setup_required"]))
+    plane_setup = default_status.json()["plane_setup"]
+    assert plane_setup["status"] == "setup_blocked"
+    assert plane_setup["selected"] is True
+    assert plane_setup["workspace_configured"] is False
+    assert plane_setup["project_configured"] is False
+    assert plane_setup["api_key_configured"] is False
+    assert plane_setup["code_repository_scope_status"] == "missing"
 
     default_create = client.post(
         "/api/v1/tickets",
@@ -690,6 +940,19 @@ def test_plane_ticket_backend_smoke_create_report_transition(tmp_path, monkeypat
     assert contribution_by_employee["peter"]["validator"] is True
     assert contribution_by_employee["peter"]["event_count"] == 1
 
+    runtime_evidence = client.get("/api/v1/tickets/rd-0001/runtime-evidence")
+    assert runtime_evidence.status_code == 200
+    runtime_payload = runtime_evidence.json()
+    assert runtime_payload["ticket_id"] == "rd-0001"
+    assert runtime_payload["source_counts"]["reports"] == 1
+    assert runtime_payload["source_counts"]["evidence"] == 1
+    assert runtime_payload["source_counts"]["graph_edges"] >= len(edge_types)
+    assert runtime_payload["source_counts"]["loop_runs"] == 0
+    assert runtime_payload["provider_state"]["provider"] == "plane"
+    assert runtime_payload["provider_state"]["provider_ref_recorded"] is True
+    assert runtime_payload["provider_state"]["provider_record_id"] == "plane-ticket-1"
+    assert {item["reason"] for item in runtime_payload["gaps"]} >= {"loop_run_not_recorded"}
+
     employee_graph = client.get("/api/v1/employees/alex/graph")
     assert employee_graph.status_code == 200
     employee_graph_payload = employee_graph.json()
@@ -720,6 +983,58 @@ def test_plane_ticket_backend_smoke_create_report_transition(tmp_path, monkeypat
     plane_projection = workspace / ".aiteamos" / "tickets" / "plane" / "rd" / "rd-0001.ticket.jsonl"
     assert plane_projection.exists()
     assert not (workspace / ".aiteamos" / "tickets" / "rd" / "rd-0001.ticket.jsonl").exists()
+
+
+def test_plane_ticket_backend_bypasses_proxy_env_for_localhost_base_url(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("PLANE_API_KEY", "plane-test-key")
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:7890")
+    client_kwargs: list[dict] = []
+
+    class FakePlaneResponse:
+        status_code = 200
+        text = "{}"
+
+        def json(self):
+            return {"results": [{"id": "plane-smoke-1"}], "total_count": 1}
+
+    class FakePlaneClient:
+        def __init__(self, *args, **kwargs):
+            client_kwargs.append(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, method, url, headers, json):
+            assert method == "GET"
+            assert url == "http://localhost:8082/api/v1/workspaces/ait/projects/plane-project-1/work-items/"
+            assert headers["X-API-Key"] == "plane-test-key"
+            return FakePlaneResponse()
+
+    monkeypatch.setattr(ticket_service.httpx, "Client", FakePlaneClient)
+
+    client = TestClient(create_app())
+    backend = client.put(
+        "/api/v1/tickets/backend",
+        json={
+            "mode": "plane",
+            "plane_api_base_url": "http://localhost:8082",
+            "plane_web_base_url": "http://localhost:8082",
+            "plane_workspace_slug": "ait",
+            "plane_project_id": "plane-project-1",
+            "plane_api_key_env": "PLANE_API_KEY",
+        },
+    )
+    assert backend.status_code == 200
+
+    smoke = ticket_service.ticket_provider_external_smoke()
+
+    assert smoke["status"] == "passed"
+    assert client_kwargs[0]["trust_env"] is False
 
 
 def test_ticket_assets_include_approved_memory_recall_usage(tmp_path, monkeypatch):
@@ -878,7 +1193,7 @@ def test_ticket_assets_include_approved_memory_recall_usage(tmp_path, monkeypatc
     reviewed_usage = client.post(
         f"/api/v1/memory/candidates/{candidate.json()['id']}/usage/{usage_refs[0]['usage_id']}/review",
         json={
-            "usefulness_status": "useful",
+            "usefulness_status": "used",
             "reason": "The recalled Graphiti asset helped Clara explain the follow-up Ticket.",
             "reviewer_employee_id": "peter",
         },
@@ -902,7 +1217,7 @@ def test_ticket_assets_include_approved_memory_recall_usage(tmp_path, monkeypatc
     assert memory_asset["metadata"]["source_trace_path"] == ".aiteamos/traces/run-followup.jsonl"
     assert memory_asset["metadata"]["graphiti_episode_id"] == "episode-ticket-asset-1"
     assert memory_asset["metadata"]["graphiti_result_id"] == "graphiti-result-ticket-asset-1"
-    assert memory_asset["metadata"]["usefulness_status"] == "useful"
+    assert memory_asset["metadata"]["usefulness_status"] == "used"
     assert memory_asset["metadata"]["derived_from_ticket_id"] == "rd-0000"
     assert memory_asset["metadata"]["source_report_id"] == "report-prior"
     assert memory_asset["metadata"]["evidence_id"] == "evidence-prior"
@@ -1226,7 +1541,7 @@ def test_chat_request_validation_uses_phase1_action_plan_and_plane_provider_ref(
     assert ticket["provider_ref"]["provider_record_id"] == "plane-ticket-validation-1"
     assert payload["run_metadata"]["provider_refs"][0]["provider_record_id"] == "plane-ticket-validation-1"
 
-    comment_call = calls[1]
+    comment_call = next(call for call in calls if call["method"] == "POST" and call["url"].endswith("/comments/"))
     assert comment_call["method"] == "POST"
     assert comment_call["json"]["external_source"] == "aiteamos"
     assert comment_call["json"]["comment_json"]["aiteamos"]["request_type"] == "validation_request"
@@ -1341,7 +1656,7 @@ def test_chat_request_human_review_records_blocker_report_and_plane_ref(tmp_path
     assert "缺少外部发布授权" in ticket["reports"][-1]["content"]
     assert payload["run_metadata"]["provider_refs"][0]["provider_record_id"] == "plane-ticket-human-review-1"
 
-    comment_call = calls[1]
+    comment_call = next(call for call in calls if call["method"] == "POST" and call["url"].endswith("/comments/"))
     assert comment_call["method"] == "POST"
     assert comment_call["json"]["external_source"] == "aiteamos"
     assert comment_call["json"]["comment_json"]["aiteamos"]["report_type"] == "human_review_requested"
@@ -1548,7 +1863,7 @@ def test_clara_can_search_knowledge_and_create_ticket(tmp_path, monkeypatch):
                 )
             return FakePlaneResponse(404, {"detail": "unexpected call"})
 
-    monkeypatch.setattr(chat_routes.httpx, "AsyncClient", FailingAsyncClient)
+    monkeypatch.setattr(chat_runtime_factory.httpx, "AsyncClient", FailingAsyncClient)
     monkeypatch.setattr(ticket_service.httpx, "Client", FakePlaneClient)
 
     client = TestClient(create_app())

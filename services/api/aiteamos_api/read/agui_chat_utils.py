@@ -1,9 +1,7 @@
-"""Small AG-UI/LangGraph bridge helpers used by chat routes."""
+"""Small AG-UI/LangGraph compatibility helpers."""
 
 from __future__ import annotations
 
-import json
-import re
 from typing import Any
 
 from langchain_core.messages import AnyMessage, HumanMessage
@@ -30,26 +28,6 @@ def latest_human_message_text(messages: list[AnyMessage]) -> str:
         if isinstance(message, HumanMessage):
             return message_content_to_text(message.content)
     return ""
-
-
-def sse_payload(event: str, data: dict[str, Any]) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-def reply_chunks(reply: str) -> list[str]:
-    chunks = re.split(r"(\s+)", reply)
-    merged: list[str] = []
-    current = ""
-    for chunk in chunks:
-        if not chunk:
-            continue
-        current += chunk
-        if len(current) >= 16 or "\n" in current:
-            merged.append(current)
-            current = ""
-    if current:
-        merged.append(current)
-    return merged or [reply]
 
 
 def agui_message_payload(message: Any) -> dict[str, Any]:

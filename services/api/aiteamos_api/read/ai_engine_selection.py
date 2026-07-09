@@ -8,6 +8,23 @@ from typing import Any
 from .ai_engine_catalog import AI_ENGINE_CATALOG, SUPPORTED_AI_ENGINE_IDS
 
 REMOTE_AI_ENGINE_PRIORITY = ("deepseek", "openai")
+SUPPORTED_RUNTIME_EXECUTOR_IDS = {
+    "claude_agent_sdk",
+    "claude_code",
+    "codex_cli",
+    "cursor",
+    "openhands",
+    "opencode",
+}
+RUNTIME_EXECUTOR_AI_ENGINE_ALIASES = {
+    "claude-agent-sdk": "claude_agent_sdk",
+    "claude_agent": "claude_agent_sdk",
+    "claude-code": "claude_code",
+    "codex": "codex_cli",
+    "codex-cli": "codex_cli",
+    "open-hands": "openhands",
+    "open-code": "opencode",
+}
 
 
 def normalize_ai_engine(value: str | None) -> str:
@@ -23,7 +40,8 @@ def normalize_employee_default_ai_engine(value: str | None) -> str:
         return "system"
     if engine in {"fallback", "file_stub", "file-stub"}:
         return "stub"
-    return engine if engine in {"system", *SUPPORTED_AI_ENGINE_IDS} else "system"
+    engine = RUNTIME_EXECUTOR_AI_ENGINE_ALIASES.get(engine, engine)
+    return engine if engine in {"system", *SUPPORTED_AI_ENGINE_IDS, *SUPPORTED_RUNTIME_EXECUTOR_IDS} else "system"
 
 
 def api_key_configured_for_engine(engine_id: str, engine_config: dict[str, Any]) -> bool:

@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "graph_database": "neo4j",
+  "group_id": "aiteamos-test",
+  "llm_ai_engine": "openai",
+  "updated_at": "2026-06-21T03:51:35.966705+00:00",
+  "uri": "bolt://localhost:7687",
+  "user": "neo4j"
+}

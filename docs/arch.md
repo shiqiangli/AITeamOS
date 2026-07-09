@@ -51,6 +51,7 @@ The Dashboard is a React/Vite application. The API is FastAPI with Pydantic mode
   traces/
     <run_id>.jsonl
   ai_engines.json
+  runtime_executors.json
   engine_threads.json
   code_repositories.json
   tool_connectors.json
@@ -114,6 +115,15 @@ Knowledge / Memory / Asset Graph service:
 - projects approved Skill summaries to Graphiti as durable assets with AITeamOS provenance
 - projects validated Ticket report and evidence summaries to Graphiti from Plane-backed Ticket facts
 - keeps Graphiti search results linked back to AITeamOS asset, Ticket, run, report, and evidence refs
+
+Runtime executor approval records:
+
+- are created from `ExecutionResult.approval_requests`
+- read non-sensitive adapter configuration from `.aiteamos/runtime_executors.json`, while API keys and tokens remain environment variables only
+- preserve source ExecutionRequest / ExecutionResult provenance
+- are listed, reviewed, and approved-run through `/api/v1/runtime-executors/{executor_id}/approvals`
+- appear in the existing Assets Review Queue alongside memory, decision, skill, and tool candidates
+- keep external repo mutation approval inside AITeamOS governance instead of a separate agent console
 
 System Status service:
 
@@ -250,6 +260,10 @@ Current API surfaces:
 - `/api/v1/memory/graphiti/skills/{skill_id}/durable-asset`
 - `/api/v1/memory/graphiti/tickets/{ticket_id}/durable-assets`
 - `/api/v1/repositories`
+- `/api/v1/runtime-executors/{executor_id}/smoke`
+- `/api/v1/runtime-executors/{executor_id}/approvals`
+- `/api/v1/runtime-executors/{executor_id}/approvals/{approval_id}/review`
+- `/api/v1/runtime-executors/{executor_id}/approvals/{approval_id}/run`
 - `/api/v1/tool-connectors`
 - `/api/v1/system-status`
 

@@ -65,3 +65,10 @@ store it in local JSON config.
 | Bolt URI | bolt://localhost:7687 |
 | User | neo4j |
 | Password | `${AITEAMOS_NEO4J_PASSWORD}` required |
+
+For the repository dev launcher, Graphiti uses `AITEAMOS_GRAPHITI_PASSWORD`
+when it is set, otherwise it falls back to `NEO4J_PASSWORD` and then
+`AITEAMOS_NEO4J_PASSWORD`. Keep these local password env vars aligned for the
+same Neo4j volume. If a volume was initialized with an older password, update
+the Neo4j password or recreate the local development volume before relying on
+the container healthcheck.

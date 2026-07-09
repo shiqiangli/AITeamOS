@@ -12,7 +12,7 @@ COMMAND_PLANNING_SIGNAL_RE = re.compile(
     r"kernel\.permissions|permissions\.inspect|"
     r"create_employee|edit_employee_profile|delete_employee|list_employees|"
     r"list_skills|create_skill|assign_skill_to_employee|delete_skill|"
-    r"search_knowledge|create_ticket|record_ticket_report|record_validation|record_failure|request_ticket_validation|request_validation|request_human_review|self_bootstrap_summary|bootstrap_summary|learning_summary|list_tickets|list_code_repositories|inspect_code_repository|"
+    r"search_knowledge|create_ticket|implement_ticket|record_ticket_report|record_validation|record_failure|request_ticket_validation|request_validation|request_human_review|self_bootstrap_close|self_bootstrap_complete|self_bootstrap_start|start_self_bootstrap|self_bootstrap_summary|bootstrap_summary|learning_summary|list_tickets|list_code_repositories|inspect_code_repository|"
     r"创建|新增|添加|新建|补|配置|设置|编辑|修改|更新|调整|改成|改为|删除|移除|删掉|分配|关联|权限|授权|请求|复核|审核|审批|确认|人工|人类|"
     r"列出|列表|清单|有哪些|所有|员工|成员|用户|委派|派给|交给|推进|汇报|验证|完成|"
     r"技能|知识库|文档|决策|记忆|代码仓库|代码库|仓库|工单|任务|终端|命令|执行|\brepos?\b|\brepository\b|\brepositories\b|"
@@ -44,6 +44,8 @@ HANDLER_TO_COMMAND_ID: dict[str, str] = {
     "record_ticket_report": "tickets.manage:report",
     "request_ticket_validation": "tickets.manage:request_validation",
     "request_human_review": "tickets.manage:request_human_review",
+    "self_bootstrap_close": "tickets.manage:self_bootstrap_close",
+    "self_bootstrap_start": "tickets.manage:self_bootstrap_start",
     "self_bootstrap_summary": "tickets.manage:self_bootstrap_summary",
     "list_code_repositories": "repositories.list:list",
     "inspect_code_repository": "repositories.inspect:inspect",
@@ -52,21 +54,53 @@ HANDLER_TO_COMMAND_ID: dict[str, str] = {
 }
 CHAT_ACTION_TO_COMMAND_ID: dict[str, str] = {
     "answer_only": "none",
+    "list_employees": "employees.manage:list",
+    "create_employee": "employees.manage:create",
+    "edit_employee_profile": "employees.manage:update",
+    "delete_employee": "employees.manage:delete",
+    "list_skills": "assets.manage:list_skills",
+    "create_skill": "assets.manage:create_skill",
+    "assign_skill_to_employee": "assets.manage:assign_skill",
+    "delete_skill": "assets.manage:delete_skill",
+    "inspect_permissions": "kernel.permissions:inspect",
+    "search_knowledge": "knowledge.search:search",
+    "inspect_code_repository": "repositories.inspect:inspect",
+    "implement_ticket": "runtime.external:repo_mutation",
     "create_ticket": "tickets.manage:create",
     "append_report": "tickets.manage:report",
     "record_validation": "tickets.manage:report",
     "record_failure": "tickets.manage:report",
     "request_validation": "tickets.manage:request_validation",
     "request_human_review": "tickets.manage:request_human_review",
+    "self_bootstrap_close": "tickets.manage:self_bootstrap_close",
+    "self_bootstrap_start": "tickets.manage:self_bootstrap_start",
     "self_bootstrap_summary": "tickets.manage:self_bootstrap_summary",
+    "list_code_repositories": "repositories.list:list",
+    "terminal_run": "terminal.run:run",
 }
 COMMAND_ID_TO_CHAT_ACTION: dict[str, str] = {
     "none": "answer_only",
+    "employees.manage:list": "list_employees",
+    "employees.manage:create": "create_employee",
+    "employees.manage:update": "edit_employee_profile",
+    "employees.manage:delete": "delete_employee",
+    "assets.manage:list_skills": "list_skills",
+    "assets.manage:create_skill": "create_skill",
+    "assets.manage:assign_skill": "assign_skill_to_employee",
+    "assets.manage:delete_skill": "delete_skill",
+    "kernel.permissions:inspect": "inspect_permissions",
+    "knowledge.search:search": "search_knowledge",
+    "repositories.inspect:inspect": "inspect_code_repository",
+    "runtime.external:repo_mutation": "implement_ticket",
     "tickets.manage:create": "create_ticket",
     "tickets.manage:report": "append_report",
     "tickets.manage:request_validation": "request_validation",
     "tickets.manage:request_human_review": "request_human_review",
+    "tickets.manage:self_bootstrap_close": "self_bootstrap_close",
+    "tickets.manage:self_bootstrap_start": "self_bootstrap_start",
     "tickets.manage:self_bootstrap_summary": "self_bootstrap_summary",
+    "repositories.list:list": "list_code_repositories",
+    "terminal.run:run": "terminal_run",
 }
 
 
@@ -171,12 +205,26 @@ KERNEL_COMMAND_SPECS: dict[str, KernelCommandSpec] = {
         permissions=("tickets:write",),
         description="Request human review for a blocked or high-risk Ticket.",
     ),
+    "tickets.manage:self_bootstrap_close": KernelCommandSpec(
+        id="tickets.manage:self_bootstrap_close",
+        capability="tickets.manage",
+        operation="self_bootstrap_close",
+        permissions=("tickets:write",),
+        description="Close a self-bootstrap Ticket with Clara learning summary and recall usefulness feedback.",
+    ),
     "tickets.manage:self_bootstrap_summary": KernelCommandSpec(
         id="tickets.manage:self_bootstrap_summary",
         capability="tickets.manage",
         operation="self_bootstrap_summary",
         permissions=("tickets:read",),
         description="Summarize self-bootstrap learning facts from Tickets, evidence, and recalled assets.",
+    ),
+    "tickets.manage:self_bootstrap_start": KernelCommandSpec(
+        id="tickets.manage:self_bootstrap_start",
+        capability="tickets.manage",
+        operation="self_bootstrap_start",
+        permissions=("tickets:write",),
+        description="Start a governed self-bootstrap improvement Ticket batch from current learning facts.",
     ),
     "repositories.list:list": KernelCommandSpec(
         id="repositories.list:list",

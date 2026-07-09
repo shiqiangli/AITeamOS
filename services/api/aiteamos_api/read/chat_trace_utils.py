@@ -30,6 +30,8 @@ def commands_from_trace_events(trace_events: list[Any]) -> list[dict[str, Any]]:
             continue
         command_data = event_data.get("command") if isinstance(event_data.get("command"), dict) else {}
         command_id = str(command_data.get("id") or event_data.get("command_id") or "unknown")
+        if is_result_ingestion_command(command_id, event):
+            continue
 
         if command_id not in calls:
             order.append(command_id)
@@ -49,6 +51,13 @@ def commands_from_trace_events(trace_events: list[Any]) -> list[dict[str, Any]]:
             call["status"] = phase
             call["result"] = event_data
     return [calls[command_id] for command_id in order]
+
+
+def is_result_ingestion_command(command_id: str, event: Any) -> bool:
+    if command_id in {"memory.candidates:propose", "asset.candidates:propose", "memory.recall:record_usage"}:
+        return True
+    detail = str(getattr(event, "detail", "") or "")
+    return "through result ingestion" in detail
 
 
 def collect_provider_refs(value: Any) -> list[dict[str, Any]]:

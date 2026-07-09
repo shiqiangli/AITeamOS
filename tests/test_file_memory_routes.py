@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from aiteamos_api.main import create_app
-from aiteamos_api.read import memory_service, ticket_service
+from aiteamos_api.read import asset_candidate_service, memory_service, ticket_service
+
+
+def test_graphiti_llm_client_uses_langchain_provider_boundary() -> None:
+    source = Path(memory_service.__file__).read_text(encoding="utf-8")
+
+    assert "LangChainModelProvider" in source
+    assert "_AiteamosLangChainGraphitiClient" in source
+    assert "model_provider.ainvoke" in source
+    assert "client.chat.completions.create" not in source
+    assert "OpenAIGenericClient" not in source
 
 
 def test_memory_candidate_approval_requires_graphiti_backend(tmp_path, monkeypatch):
@@ -57,6 +69,21 @@ def test_memory_candidate_approval_requires_graphiti_backend(tmp_path, monkeypat
     assert state["last_graphiti_status"]["status"] == "disabled"
 
 
+def test_memory_read_paths_do_not_create_directory_when_it_already_exists(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    memory_dir = workspace / ".aiteamos" / "memory"
+    memory_dir.mkdir(parents=True)
+
+    def fail_mkdir(*args, **kwargs):
+        raise AssertionError("read-only memory paths must not call mkdir")
+
+    monkeypatch.setattr(type(memory_dir), "mkdir", fail_mkdir)
+
+    assert memory_service._candidates_path() == memory_dir / "candidates.json"
+    assert memory_service.list_memory_candidates() == []
+
+
 def test_graphiti_settings_are_file_backed_and_read_secrets_from_env(tmp_path, monkeypatch):
     workspace = tmp_path
     monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
@@ -105,6 +132,78 @@ def test_graphiti_settings_are_file_backed_and_read_secrets_from_env(tmp_path, m
     assert "password" not in settings_payload
     assert "openai_api_key" not in settings_payload
     assert not (workspace / ".aiteamos" / "secrets.local.json").exists()
+
+
+def test_graphiti_settings_accept_local_neo4j_password_env(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.delenv("AITEAMOS_GRAPHITI_PASSWORD", raising=False)
+    monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
+    monkeypatch.setenv("AITEAMOS_NEO4J_PASSWORD", "local-neo4j-test-password")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+
+    client = TestClient(create_app())
+    updated = client.put(
+        "/api/v1/memory/graphiti/settings",
+        json={
+            "enabled": True,
+            "graph_database": "neo4j",
+            "uri": "bolt://localhost:7687",
+            "user": "neo4j",
+            "group_id": "aiteamos-test",
+            "llm_ai_engine": "openai",
+        },
+    )
+
+    assert updated.status_code == 200
+    payload = updated.json()
+    assert payload["password_configured"] is True
+    assert payload["backend"]["password_env"] == "AITEAMOS_NEO4J_PASSWORD"
+    assert "local-neo4j-test-password" not in json.dumps(payload)
+
+
+def test_graphiti_external_smoke_reports_local_password_env_conflict_without_provider_call(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_GRAPHITI_PASSWORD", "stale-graphiti-password")
+    monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
+    monkeypatch.setenv("AITEAMOS_NEO4J_PASSWORD", "compose-neo4j-password")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+
+    class FakeEpisodeType:
+        message = "message"
+
+    class FakeGraphiti:
+        instances: list["FakeGraphiti"] = []
+
+        def __init__(self, *args, **kwargs):
+            FakeGraphiti.instances.append(self)
+
+    monkeypatch.setattr(memory_service, "Graphiti", FakeGraphiti)
+    monkeypatch.setattr(memory_service, "EpisodeType", FakeEpisodeType)
+
+    client = TestClient(create_app())
+    updated = client.put(
+        "/api/v1/memory/graphiti/settings",
+        json={
+            "enabled": True,
+            "graph_database": "neo4j",
+            "uri": "bolt://localhost:7687",
+            "user": "neo4j",
+            "group_id": "aiteamos-test",
+            "llm_ai_engine": "openai",
+        },
+    )
+    assert updated.status_code == 200
+
+    result = asyncio.run(memory_service.graphiti_provider_external_smoke())
+
+    assert result["status"] == "not_configured"
+    assert result["external_calls"] is False
+    assert result["blockers"][0]["id"] == "memory:graphiti:password_env_conflict"
+    assert "AITEAMOS_NEO4J_PASSWORD" in result["blockers"][0]["detail"]
+    assert result["evidence"]["memory_backend_status"]["password_env_conflict"] is True
+    assert FakeGraphiti.instances == []
 
 
 def test_graphiti_ingest_and_search_preserve_aiteamos_provenance(tmp_path, monkeypatch):
@@ -1044,6 +1143,19 @@ permissions:
     assert "run_terminal" not in episode["episode_body"]
     assert "propose_code_change" not in episode["episode_body"]
 
+    ticket_backend = client.put(
+        "/api/v1/tickets/backend",
+        json={"mode": "local_file", "local_file_path": ".aiteamos/tickets/index.json"},
+    )
+    assert ticket_backend.status_code == 200
+    graph = client.get("/api/v1/employees/alex/graph")
+    assert graph.status_code == 200
+    projection = graph.json()["provider_projection"]["employee_profile"]
+    assert projection["provider"] == "graphiti"
+    assert projection["asset_id"] == "employee-profile-alex"
+    assert projection["status"] == "ingested"
+    assert projection["episode_id"] == "episode-employee-profile-alex"
+
     repeated = client.post("/api/v1/memory/graphiti/employees/alex/durable-asset")
     assert repeated.status_code == 200
     repeated_payload = repeated.json()
@@ -1429,6 +1541,111 @@ def test_durable_asset_relationships_project_to_graphiti(tmp_path, monkeypatch):
     assert graphiti_result["employee_ids"] == ["clara"]
     assert graphiti_result["provenance"]["asset_id"] == relationship_id
     assert graphiti_result["provenance"]["metadata"]["relationship_type"] == "supersedes"
+
+
+def test_asset_record_relationship_projection_route_uses_graphiti_boundary(tmp_path, monkeypatch):
+    workspace = tmp_path
+    monkeypatch.setenv("AITEAMOS_WORKSPACE_DIR", str(workspace))
+    monkeypatch.setenv("AITEAMOS_GRAPHITI_PASSWORD", "neo4j-test-password")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
+
+    class FakeEpisodeType:
+        message = "message"
+        text = "text"
+
+    class FakeEpisode:
+        def __init__(self, uuid: str):
+            self.uuid = uuid
+
+    class FakeAddResult:
+        def __init__(self, episode_id: str):
+            self.episode = FakeEpisode(episode_id)
+
+    class FakeGraphiti:
+        indexed_asset_ids: list[str] = []
+
+        def __init__(self, uri, user, password):
+            self.uri = uri
+            self.user = user
+            self.password = password
+
+        async def build_indices_and_constraints(self):
+            return None
+
+        async def add_episode(self, **kwargs):
+            marker = "AITeamOS provenance:\n"
+            provenance = json.loads(kwargs["episode_body"].split(marker, maxsplit=1)[1])
+            asset_id = provenance["asset_id"]
+            FakeGraphiti.indexed_asset_ids.append(asset_id)
+            return FakeAddResult(f"episode-{asset_id}")
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(memory_service, "Graphiti", FakeGraphiti)
+    monkeypatch.setattr(memory_service, "EpisodeType", FakeEpisodeType)
+
+    asset_candidate_service.upsert_asset_record(
+        asset_candidate_service.AssetRecord(
+            id="asset-closeout-ui",
+            asset_type="solution",
+            title="Closeout solution for Graphiti projection",
+            content="Project relationship facts through Graphiti.",
+            status="approved",
+            scope_kind="ticket",
+            scope_ref="rd-0020",
+            owner_employee_id="alex",
+            source_kind="ticket_closeout",
+            source_ref=".aiteamos/traces/run-closeout.jsonl",
+            provenance={
+                "source_ticket_id": "rd-0020",
+                "source_employee_id": "alex",
+                "source_run_id": "run-closeout",
+                "source_report_id": "report-closeout",
+            },
+            relationships=[
+                {
+                    "type": "supersedes",
+                    "target_kind": "asset",
+                    "target_ref": "asset-closeout-v1",
+                    "reason": "The validated closeout flow replaces the older asset guidance.",
+                }
+            ],
+            provider="local_file",
+            provider_ref=".aiteamos/assets/registry.json#asset-closeout-ui",
+        ),
+        workspace_dir=workspace,
+    )
+    client = TestClient(create_app())
+    settings = client.put(
+        "/api/v1/memory/graphiti/settings",
+        json={
+            "enabled": True,
+            "graph_database": "neo4j",
+            "uri": "bolt://localhost:7687",
+            "user": "neo4j",
+            "group_id": "aiteamos-test",
+            "llm_ai_engine": "openai",
+        },
+    )
+    assert settings.status_code == 200
+
+    projected = client.post("/api/v1/assets/records/asset-closeout-ui/relationships/project/graphiti")
+
+    assert projected.status_code == 200
+    payload = projected.json()
+    assert payload["asset_id"] == "asset-closeout-ui"
+    assert payload["status"] == "ingested"
+    assert payload["ingested_relationships"][0]["relationship_type"] == "supersedes"
+    assert payload["ingested_relationships"][0]["target_asset_id"] == "asset-closeout-v1"
+    relationship_id = payload["ingested_relationships"][0]["relationship_id"]
+    assert relationship_id in FakeGraphiti.indexed_asset_ids
+    records = client.get("/api/v1/assets/records")
+    assert records.status_code == 200
+    record = next(item for item in records.json() if item["id"] == "asset-closeout-ui")
+    graphiti_relationships = record["provenance"]["graphiti_relationships"]
+    assert graphiti_relationships[0]["relationship_id"] == relationship_id
+    assert graphiti_relationships[0]["status"] == "ingested"
 
 
 def test_validated_ticket_report_and_evidence_assets_project_to_graphiti(tmp_path, monkeypatch):
@@ -2229,7 +2446,43 @@ ai_engine:
     )
     assert usefulness.status_code == 200
     reviewed_memory = usefulness.json()
-    assert reviewed_memory["provenance"]["usage_history"][0]["usefulness_status"] == "useful"
+    assert reviewed_memory["provenance"]["usage_history"][0]["usefulness_status"] == "used"
     assert reviewed_memory["provenance"]["usage_history"][0]["reviewer_employee_id"] == "pv"
+    assert reviewed_memory["provenance"]["usage_summary"]["used_count"] == 1
     assert reviewed_memory["provenance"]["usage_summary"]["useful_count"] == 1
+    asset_candidates = client.get("/api/v1/assets/candidates")
+    assert asset_candidates.status_code == 200
+    memory_asset_candidate = next(item for item in asset_candidates.json() if item["source_candidate_id"] == candidate["id"])
+    assert memory_asset_candidate["usefulness_stats"]["used_count"] == 1
+    assert memory_asset_candidate["usefulness_stats"]["last_usefulness_status"] == "used"
+    asset_records = client.get("/api/v1/assets/records")
+    assert asset_records.status_code == 200
+    matching_asset_records = [item for item in asset_records.json() if item["id"] == candidate["id"]]
+    if matching_asset_records:
+        assert matching_asset_records[0]["usefulness_stats"]["used_count"] == 1
+        assert matching_asset_records[0]["provenance"]["usage_summary"]["last_usefulness_status"] == "used"
+    asset_review = client.post(
+        f"/api/v1/assets/candidates/{memory_asset_candidate['id']}/review",
+        json={
+            "status": "approved",
+            "reviewer_employee_id": "clara",
+            "reason": "Promote memory candidate into AssetRecord for usefulness sync verification.",
+        },
+    )
+    assert asset_review.status_code == 200
+    promoted = client.post(
+        f"/api/v1/memory/candidates/{candidate['id']}/usage/{usage_ref['usage_id']}/review",
+        json={
+            "usefulness_status": "promoted",
+            "reviewer_employee_id": "pv",
+            "reason": "The recalled memory should be promoted as a reusable Asset.",
+        },
+    )
+    assert promoted.status_code == 200
+    asset_records_after_promotion = client.get("/api/v1/assets/records")
+    assert asset_records_after_promotion.status_code == 200
+    promoted_asset_record = next(item for item in asset_records_after_promotion.json() if item["id"] == candidate["id"])
+    assert promoted_asset_record["usefulness_stats"]["promoted_count"] == 1
+    assert promoted_asset_record["usefulness_stats"]["last_usefulness_status"] == "promoted"
+    assert promoted_asset_record["provenance"]["usage_summary"]["last_usefulness_status"] == "promoted"
     assert FakeGraphiti.instances[-1].searches[-1]["kwargs"]["group_ids"] == ["aiteamos-test"]
