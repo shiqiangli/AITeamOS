@@ -1,0 +1,48 @@
+[
+  {
+    "asset_id": "mem-fcc64fd22feb",
+    "asset_type": "lesson",
+    "content": "Old validation pitfall: retry validation without evidence.",
+    "content_ref": "memory_candidate://mem-fcc64fd22feb",
+    "created_at": "2026-06-21T03:51:35.972618+00:00",
+    "id": "asset-candidate-mem-fcc64fd22feb",
+    "owner_employee_id": "clara",
+    "provenance": {
+      "asset_status": "stale",
+      "latest_review": {
+        "actor_employee_id": "clara",
+        "reason": "Newer validation policy requires explicit evidence before retry.",
+        "reviewed_at": "2026-06-21T03:51:35.975050+00:00",
+        "status": "stale"
+      },
+      "not_applicable_at": "2026-06-21T03:51:35.975050+00:00",
+      "reviews": [
+        {
+          "actor_employee_id": "clara",
+          "reason": "Newer validation policy requires explicit evidence before retry.",
+          "reviewed_at": "2026-06-21T03:51:35.975050+00:00",
+          "status": "stale"
+        }
+      ],
+      "source_asset_candidate_id": "asset-candidate-mem-fcc64fd22feb",
+      "source_employee_id": "clara",
+      "source_memory_candidate_id": "mem-fcc64fd22feb",
+      "source_ref": "traces/run-stale-provenance",
+      "source_run_id": "run-stale-provenance",
+      "source_ticket_id": "rd-asset-provenance"
+    },
+    "provider": "local_file",
+    "provider_ref": ".aiteamos/assets/candidates.json#asset-candidate-mem-fcc64fd22feb",
+    "relationships": [],
+    "review_state": "stale",
+    "scope_kind": "ticket",
+    "scope_ref": "rd-asset-provenance",
+    "source_candidate_id": "mem-fcc64fd22feb",
+    "source_kind": "ticket_summary",
+    "source_ref": "traces/run-stale-provenance",
+    "status": "stale",
+    "title": "Old validation pitfall: retry validation without evidence.",
+    "updated_at": "2026-06-21T03:51:35.975050+00:00",
+    "usefulness_stats": {}
+  }
+]

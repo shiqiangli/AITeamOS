@@ -1,0 +1,52 @@
+{
+  "backend": {
+    "backend": "graphiti",
+    "configured": true,
+    "detail": "Graphiti is configured with ChatGPT / OpenAI API; approved memory ingestion is available, with durable asset projection as the next extension.",
+    "enabled": true,
+    "graph_configured": true,
+    "graph_database": "neo4j",
+    "group_id": "aiteamos-test",
+    "llm_ai_engine": "openai",
+    "llm_ai_engine_name": "ChatGPT / OpenAI API",
+    "llm_api_key_configured": true,
+    "llm_api_key_env": "OPENAI_API_KEY",
+    "llm_configured": true,
+    "package_installed": true,
+    "password_configured": true,
+    "password_env": "AITEAMOS_GRAPHITI_PASSWORD",
+    "password_env_conflict": true,
+    "password_env_conflict_detail": "Local Graphiti / Neo4j password env mismatch: AITEAMOS_GRAPHITI_PASSWORD, AITEAMOS_NEO4J_PASSWORD are set but do not match. Align them to one local Neo4j password, or unset the stale Graphiti-specific env var so AITEAMOS_NEO4J_PASSWORD can be used for the local compose Neo4j.",
+    "status": "ready",
+    "uri": "bolt://localhost:7687",
+    "user": "neo4j"
+  },
+  "last_approved_at": "2026-06-21T03:51:35.973052+00:00",
+  "last_candidate_id": "mem-fcc64fd22feb",
+  "last_graphiti_status": {
+    "detail": "Approved memory was ingested into Graphiti.",
+    "episode_id": "episode-mem-fcc64fd22feb",
+    "episode_schema_version": "aiteamos.graphiti.episode.v1",
+    "provenance": {
+      "asset_id": "mem-fcc64fd22feb",
+      "asset_status": "approved",
+      "asset_type": "memory:lesson",
+      "content_hash": "sha256:307be37201cbf7ec3a4c29ad7338b1a9e73fc5bc4bff00598642ba0c89962b22",
+      "evidence_id": "",
+      "provider_refs": [],
+      "schema_version": "aiteamos.graphiti.episode.v1",
+      "scope": {
+        "kind": "ticket",
+        "ref": "rd-asset-provenance"
+      },
+      "source_employee_id": "clara",
+      "source_kind": "ticket_summary",
+      "source_ref": "traces/run-stale-provenance",
+      "source_report_id": "",
+      "source_run_id": "run-stale-provenance",
+      "source_ticket_id": "rd-asset-provenance",
+      "version": "sha256:307be37201cbf7ec3a4c29ad7338b1a9e73fc5bc4bff00598642ba0c89962b22"
+    },
+    "status": "ingested"
+  }
+}

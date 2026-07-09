@@ -1,0 +1,131 @@
+{
+  "assistant_id": "aiteamos_workbench",
+  "command": [
+    "langgraph",
+    "dev",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "44817",
+    "--config",
+    "/home/shiqiangli/projects/AITeamOS/langgraph.json",
+    "--no-reload",
+    "--no-browser"
+  ],
+  "generated_at": "2026-06-21T02:48:52.932779+00:00",
+  "schema": "aiteamos.langgraph_agent_server_ci_smoke.v1",
+  "server_log": "/tmp/aiteamos-langgraph-agent-server-7f438og2.log",
+  "smoke": {
+    "agent_thread_id": "019ee814-b4a4-7060-b2d8-a478fd89c144",
+    "assistant_id": "aiteamos_workbench",
+    "business_thread_id": "agent-server-ci-smoke-clara",
+    "checks": [
+      {
+        "actual": "completed",
+        "expected": "completed",
+        "name": "runtime_status.status",
+        "passed": true
+      },
+      {
+        "actual": "final_response",
+        "expected": "final_response",
+        "name": "runtime_status.current_node",
+        "passed": true
+      },
+      {
+        "actual": "langgraph_context_node",
+        "expected": "langgraph_context_node",
+        "name": "context_bundle.source",
+        "passed": true
+      },
+      {
+        "actual": "chat_visible_response.v1",
+        "expected": "chat_visible_response.v1",
+        "name": "visible_response.version",
+        "passed": true
+      },
+      {
+        "actual": "completed",
+        "expected": "completed",
+        "name": "visible_response.display_state",
+        "passed": true
+      }
+    ],
+    "generated_at": "2026-06-21T02:48:52.932699+00:00",
+    "schema": "aiteamos.langgraph_agent_server_smoke.v1",
+    "status": "passed",
+    "summary": {
+      "action": "list_employees",
+      "active_ticket": null,
+      "approval_ref": "",
+      "approval_request_count": 0,
+      "asset_candidate_count": 0,
+      "employee_id": "clara",
+      "handoff_decision": {
+        "reason": "Handoff policy did not apply to this graph turn.",
+        "should_handoff": false,
+        "source": "handoff_node"
+      },
+      "handoff_summary": {
+        "confidence": null,
+        "durable_write": false,
+        "from_employee_id": "clara",
+        "lane": "",
+        "node": "maybe_handoff_employee",
+        "status": "not_applicable",
+        "ticket_id": "",
+        "to_employee_id": "",
+        "to_role": ""
+      },
+      "linked_asset_count": 0,
+      "provider_blocker_count": 0,
+      "provider_blocker_reasons": [],
+      "runtime_run_id": "",
+      "runtime_status": {
+        "approval_ref": "",
+        "approval_resume_status": "",
+        "blocked_reason": "",
+        "checkpoint_ref": "local:run-18d5ec99eba1",
+        "context_source": "execution_context_service",
+        "current_node": "final_response",
+        "display_state": "completed",
+        "employee_id": "clara",
+        "evidence_id": "",
+        "executor": "langgraph",
+        "executor_id": "local_tool",
+        "executor_session_ref": "local-run-18d5ec99eba1",
+        "graph": "aiteamos_workbench",
+        "graphiti_recall_count": 0,
+        "handoff_status": "not_applicable",
+        "planned_action": "list_employees",
+        "planning_confidence": 0.7,
+        "planning_source": "clara_action_planning_service",
+        "request_id": "run-18d5ec99eba1",
+        "retry_cause": "",
+        "run_id": "run-18d5ec99eba1",
+        "selected_ai_engine": "deepseek",
+        "setup_blocker_count": 0,
+        "status": "completed",
+        "ticket_keys": [],
+        "ticket_loop_action": "not_applicable",
+        "ticket_report_id": ""
+      },
+      "ticket_handoff_ref_count": 0,
+      "ticket_handoff_refs": [],
+      "visible_response": {
+        "asset_ref_count": 0,
+        "assistant_message": "我找到了 3 个成员。\n\n- Alex (alex)；role=AI RD / Implementer\n- Clara (clara)；role=AI Team OS Manager\n- Peter (peter)；role=AI PV\n\n入口：\n- Employees: #/employees",
+        "display_state": "completed",
+        "memory_ref_count": 0,
+        "provider_blocker_count": 0,
+        "ticket_ref_count": 0,
+        "version": "chat_visible_response.v1"
+      }
+    },
+    "url": "http://127.0.0.1:44817",
+    "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+  },
+  "status": "passed",
+  "url": "http://127.0.0.1:44817",
+  "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+}

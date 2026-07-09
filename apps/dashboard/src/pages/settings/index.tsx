@@ -1,7 +1,9 @@
 import { FormEvent, type Dispatch, type ReactNode, type SetStateAction, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  Check,
   ClipboardList,
+  Copy,
   Database,
   FolderGit2,
   GitBranch,
@@ -24,8 +26,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { ErrorState, LoadingState, Status } from "../../components/shared";
+import { ErrorState, LoadingState, Status, navigateTo } from "../../components/shared";
 import { ResizableDetailLayout } from "../../components/resizable-layout";
+import { RuntimeSessionReplayDetail } from "../../components/runtimeReplay";
 import {
   getChatAiEngines,
   updateChatAiEngine,
@@ -59,15 +62,34 @@ import {
   type CodeRepositoryStatus,
 } from "../../api/repositories";
 import {
+  discoverTicketBackendPlaneScope,
   getTicketBackendSettings,
   getTicketBackendStatus,
   updateTicketBackendSettings,
+  type TicketBackendPlaneScopeDiscovery,
   type TicketBackendSettings,
   type TicketBackendStatus,
 } from "../../api/tickets";
+import {
+  getRuntimeExecutionSessionReplay,
+  listRuntimeApprovals,
+  listRuntimeExecutionSessions,
+  listRuntimeExecutorConfigs,
+  listRuntimeExecutors,
+  reviewRuntimeExecutorApproval,
+  runRuntimeExecutorApproval,
+  updateRuntimeExecutorConfig,
+  type RuntimeApprovalRecord,
+  type RuntimeExecutionReplayResponse,
+  type RuntimeExecutionSessionRecord,
+  type RuntimeExecutorConfigListResponse,
+  type RuntimeExecutorConfigRecord,
+  type RuntimeExecutorRegistryItem,
+  type RuntimeExecutorRegistryResponse,
+} from "../../api/runtimeExecutors";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "ai-engines" | "tool-connectors" | "code-repositories" | "ticket-backend" | "memory-backend";
+type SettingsSection = "ai-engines" | "runtime-executors" | "tool-connectors" | "code-repositories" | "ticket-backend" | "memory-backend";
 
 type AiEngineForm = {
   activeEngine: string;
@@ -97,6 +119,15 @@ type GraphitiForm = {
 type TicketBackendForm = {
   mode: string;
   localFilePath: string;
+  planeApiBaseUrl: string;
+  planeWebBaseUrl: string;
+  planeWorkspaceSlug: string;
+  planeProjectId: string;
+  planeApiKeyEnv: string;
+  planeNamespaceStrategy: string;
+  planeNamespaceLabelIds: string;
+  planeStateIds: string;
+  planeEmployeeAssigneeIds: string;
 };
 
 type RepositoryForm = {
@@ -110,6 +141,19 @@ type RepositoryForm = {
   enabled: boolean;
 };
 
+type RuntimeExecutorForm = {
+  enabled: boolean;
+  binary_path: string;
+  working_dir: string;
+  command_template: string;
+  model: string;
+  api_base_url: string;
+  api_key_env: string;
+  http_endpoint_path: string;
+  mode: string;
+  timeout_seconds: string;
+};
+
 interface SettingsGroup {
   key: SettingsSection;
   label: string;
@@ -118,6 +162,7 @@ interface SettingsGroup {
 
 const SECTION_GROUPS: SettingsGroup[] = [
   { key: "ai-engines", label: "AI Engines", icon: SlidersHorizontal },
+  { key: "runtime-executors", label: "Runtime Executors", icon: GitBranch },
   { key: "tool-connectors", label: "Tool Connectors", icon: Plug },
   { key: "code-repositories", label: "Code Repositories", icon: FolderGit2 },
   { key: "ticket-backend", label: "Ticket Backend", icon: ClipboardList },
@@ -126,11 +171,16 @@ const SECTION_GROUPS: SettingsGroup[] = [
 
 const SECTION_DESCRIPTIONS: Record<SettingsSection, string> = {
   "ai-engines": "Model and agent backends that Clara and Employees use to think and execute.",
+  "runtime-executors": "Agent runtime adapters used through ExecutionRequest and ExecutionResult governance boundaries.",
   "tool-connectors": "External tool sources, including MCP servers and adapter-backed integrations.",
   "code-repositories": "Product and regression repositories that ground code-aware work.",
   "ticket-backend": "Ticket source of truth and adapter targets for work ledgers.",
   "memory-backend": "Long-term memory backend configuration for approved memory assets.",
 };
+
+const LIVE_PROVIDER_READINESS_SMOKE_COMMAND = "python scripts/live_provider_readiness_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-live-provider-readiness-smoke.json";
+const PLANE_ACTION_SMOKE_COMMAND = "python scripts/plane_ticket_action_smoke.py --workspace-dir . --source-run-id plan-v8-plane-action-smoke --output .aiteamos/artifacts/plan_v8/track-c-plane-ticket-action-smoke.json";
+const LIVE_DOGFOOD_SOAK_COMMAND = "AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 python scripts/live_provider_dogfood.py --execute --start-agent-server --profile core-loop --output .aiteamos/artifacts/plan_v8/track-c-live-soak-completed.json";
 
 function sectionFromRoute(value?: string | null): SettingsSection {
   return SECTION_GROUPS.some((g) => g.key === value) ? (value as SettingsSection) : "ai-engines";
@@ -202,7 +252,33 @@ function ticketBackendToForm(settings: TicketBackendSettings): TicketBackendForm
   return {
     mode: settings.mode,
     localFilePath: settings.local_file_path,
+    planeApiBaseUrl: settings.plane_api_base_url || "https://api.plane.so",
+    planeWebBaseUrl: settings.plane_web_base_url || "https://app.plane.so",
+    planeWorkspaceSlug: settings.plane_workspace_slug || "",
+    planeProjectId: settings.plane_project_id || "",
+    planeApiKeyEnv: settings.plane_api_key_env || "PLANE_API_KEY",
+    planeNamespaceStrategy: settings.plane_namespace_strategy || "label",
+    planeNamespaceLabelIds: JSON.stringify(settings.plane_namespace_label_ids ?? {}, null, 2),
+    planeStateIds: JSON.stringify(settings.plane_state_ids ?? {}, null, 2),
+    planeEmployeeAssigneeIds: JSON.stringify(settings.plane_employee_assignee_ids ?? {}, null, 2),
   };
+}
+
+function parseRecordDraft(value: string, label: string): Record<string, string> {
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error(`${label} must be valid JSON.`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+  return Object.fromEntries(
+    Object.entries(parsed).map(([key, entry]) => [key, String(entry)]).filter(([key, entry]) => key && entry),
+  );
 }
 
 function emptyRepositoryForm(): RepositoryForm {
@@ -231,11 +307,41 @@ function repositoryToForm(repository: CodeRepository): RepositoryForm {
   };
 }
 
+function runtimeExecutorToForm(record?: RuntimeExecutorConfigRecord | null): RuntimeExecutorForm {
+  return {
+    enabled: record?.enabled ?? true,
+    binary_path: record?.binary_path ?? "",
+    working_dir: record?.working_dir ?? "",
+    command_template: record?.command_template ?? "",
+    model: record?.model ?? "",
+    api_base_url: record?.api_base_url ?? "",
+    api_key_env: record?.api_key_env ?? "",
+    http_endpoint_path: record?.http_endpoint_path ?? "",
+    mode: record?.mode ?? "",
+    timeout_seconds: record?.timeout_seconds ? String(record.timeout_seconds) : "",
+  };
+}
+
+function runtimeExecutorPayload(form: RuntimeExecutorForm) {
+  return {
+    enabled: form.enabled,
+    binary_path: form.binary_path,
+    working_dir: form.working_dir,
+    command_template: form.command_template,
+    model: form.model,
+    api_base_url: form.api_base_url,
+    api_key_env: form.api_key_env,
+    http_endpoint_path: form.http_endpoint_path,
+    mode: form.mode,
+    timeout_seconds: form.timeout_seconds ? Number(form.timeout_seconds) : null,
+  };
+}
+
 function statusVariant(status: string): "default" | "secondary" | "warning" | "success" | "danger" | "outline" {
   if (status === "ready" || status === "configured" || status === "active" || status === "available" || status === "local") {
     return "success";
   }
-  if (status === "planned" || status === "held") return "warning";
+  if (status === "planned" || status === "held" || status === "setup_blocked" || status === "incomplete") return "warning";
   if (status === "missing" || status === "missing_secret" || status === "failed" || status === "invalid") return "danger";
   return "secondary";
 }
@@ -246,6 +352,58 @@ function compactStatus(status?: string | null): string {
   if (status === "not_configured") return "missing";
   if (status === "package_missing") return "pkg missing";
   return status;
+}
+
+function shortRef(value?: string | null, fallback = "-"): string {
+  const text = String(value ?? "").trim();
+  if (!text) return fallback;
+  return text.length > 44 ? `${text.slice(0, 20)}...${text.slice(-18)}` : text;
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(asRecord).filter((item) => Object.keys(item).length > 0) : [];
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function runtimeRefCount(session: RuntimeExecutionSessionRecord): string {
+  return [
+    `${session.ticket_refs.length} ticket`,
+    `${session.memory_refs.length} memory`,
+    `${session.context_refs.length} context`,
+    `${session.approval_refs.length} approval`,
+  ].join(" / ");
+}
+
+function runtimeToolEventLabel(event: Record<string, unknown>): string {
+  return String(event.tool_name || event.event || "tool_event");
 }
 
 function ConfigRow({
@@ -276,6 +434,35 @@ function ConfigRow({
         </div>
       </div>
       {children && <div className="mt-3">{children}</div>}
+    </div>
+  );
+}
+
+function SettingsCommandRow({
+  command,
+  copied,
+  label,
+  onCopy,
+}: {
+  command: string;
+  copied: boolean;
+  label: string;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-md border bg-background px-3 py-2">
+      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs" title={command}>{command}</code>
+      <Button
+        type="button"
+        size="icon"
+        variant="outline"
+        className="h-7 w-7 shrink-0"
+        aria-label={copied ? `${label} command copied` : `Copy ${label} command`}
+        title="Copy command"
+        onClick={onCopy}
+      >
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      </Button>
     </div>
   );
 }
@@ -705,12 +892,395 @@ function AiEnginesSection({
   );
 }
 
+function RuntimeExecutorsSection({
+  approvals,
+  configs,
+  executors,
+  form,
+  sessions,
+  saving,
+  selectedId,
+  setForm,
+  onSelect,
+  onReviewApproval,
+  onRunApproval,
+  onSubmit,
+}: {
+  approvals: RuntimeApprovalRecord[];
+  configs: RuntimeExecutorConfigListResponse | null;
+  executors: RuntimeExecutorRegistryResponse | null;
+  form: RuntimeExecutorForm;
+  sessions: RuntimeExecutionSessionRecord[];
+  saving: boolean;
+  selectedId: string;
+  setForm: Dispatch<SetStateAction<RuntimeExecutorForm>>;
+  onSelect: (executorId: string) => void;
+  onReviewApproval: (approval: RuntimeApprovalRecord, status: "approved" | "rejected") => void;
+  onRunApproval: (approval: RuntimeApprovalRecord) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const items = executors?.executors ?? [];
+  const selected = items.find((item) => item.executor_id === selectedId) ?? items[0] ?? null;
+  const readyCount = items.filter((item) => item.status === "ready").length;
+  const blockedCount = executors?.blockers?.length ?? items.filter((item) => item.status === "setup_blocked").length;
+  const savedPaths = configs?.saved_paths ?? {};
+  const selectedApprovals = selected ? approvals.filter((approval) => approval.executor_id === selected.executor_id).slice(0, 6) : [];
+  const selectedSessions = selected ? sessions.filter((session) => session.executor_id === selected.executor_id).slice(0, 6) : [];
+  const pendingApprovalCount = approvals.filter((approval) => approval.status === "requested").length;
+  const [sessionReplay, setSessionReplay] = useState<RuntimeExecutionReplayResponse | null>(null);
+  const [sessionReplayKey, setSessionReplayKey] = useState("");
+  const [sessionReplayLoading, setSessionReplayLoading] = useState(false);
+  const [sessionReplayError, setSessionReplayError] = useState("");
+
+  useEffect(() => {
+    setSessionReplay(null);
+    setSessionReplayKey("");
+    setSessionReplayError("");
+  }, [selected?.executor_id]);
+
+  async function openSessionReplay(sessionKey: string) {
+    if (!sessionKey || sessionReplayLoading) return;
+    setSessionReplayKey(sessionKey);
+    setSessionReplayLoading(true);
+    setSessionReplayError("");
+    try {
+      const replay = await getRuntimeExecutionSessionReplay(sessionKey);
+      setSessionReplay(replay);
+    } catch (err) {
+      setSessionReplay(null);
+      setSessionReplayError(err instanceof Error ? err.message : "Failed to load execution replay");
+    } finally {
+      setSessionReplayLoading(false);
+    }
+  }
+
+  return (
+    <div className="grid min-h-[28rem] gap-3 xl:h-[calc(100vh-20rem)] xl:grid-cols-[minmax(20rem,0.9fr)_minmax(26rem,1.1fr)]">
+      <section className="flex min-h-0 min-w-0 flex-col rounded-md border bg-background">
+        <div className="grid gap-2 border-b p-3 sm:grid-cols-4">
+          <SummaryMetric label="Executors" value={items.length} />
+          <SummaryMetric label="Ready" value={readyCount} tone={readyCount > 0 ? "ok" : "warn"} />
+          <SummaryMetric label="Blockers" value={blockedCount} tone={blockedCount === 0 ? "ok" : "warn"} />
+          <SummaryMetric label="Approvals" value={pendingApprovalCount} tone={pendingApprovalCount === 0 ? "ok" : "warn"} />
+        </div>
+        <div className="min-h-0 flex-1 divide-y overflow-y-auto">
+          {items.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">No runtime executors are registered.</div>
+          ) : items.map((executor) => {
+            const selectedRow = selected?.executor_id === executor.executor_id;
+            return (
+              <button
+                key={executor.executor_id}
+                type="button"
+                onClick={() => onSelect(executor.executor_id)}
+                className={cn(
+                  "grid w-full gap-2 px-3 py-2.5 text-left transition-colors",
+                  selectedRow ? "bg-primary/10" : "hover:bg-muted/60",
+                )}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{executor.display_name}</div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">{executor.detail || executor.executor_id}</div>
+                  </div>
+                  <Badge variant={statusVariant(executor.status)}>{executor.status.replace(/_/g, " ")}</Badge>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {executor.capabilities.slice(0, 4).map((capability) => (
+                    <Badge key={`${executor.executor_id}-${capability}`} variant="secondary">{capability}</Badge>
+                  ))}
+                  {executor.capabilities.length > 4 && <Badge variant="secondary">+{executor.capabilities.length - 4}</Badge>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <aside className="min-h-0 min-w-0 space-y-3 overflow-y-auto pr-1">
+        <DetailPanel title="Runtime Executor Config" icon={GitBranch}>
+          {selected ? (
+            <form onSubmit={onSubmit} className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold">{selected.display_name}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">{selected.executor_id}</p>
+                </div>
+                <Badge variant={statusVariant(selected.status)}>{selected.status.replace(/_/g, " ")}</Badge>
+              </div>
+              <label className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm">
+                <span>Enabled</span>
+                <input
+                  aria-label="Runtime executor enabled"
+                  type="checkbox"
+                  checked={form.enabled}
+                  onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))}
+                  className="h-4 w-4"
+                />
+              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase text-muted-foreground">Binary path</span>
+                  <input
+                    aria-label="Runtime binary path"
+                    value={form.binary_path}
+                    onChange={(event) => setForm((current) => ({ ...current, binary_path: event.target.value }))}
+                    placeholder="/usr/local/bin/claude-code-compatible"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase text-muted-foreground">Working dir</span>
+                  <input
+                    aria-label="Runtime working dir"
+                    value={form.working_dir}
+                    onChange={(event) => setForm((current) => ({ ...current, working_dir: event.target.value }))}
+                    placeholder="/home/me/project"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase text-muted-foreground">Model</span>
+                  <input
+                    aria-label="Runtime model"
+                    value={form.model}
+                    onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))}
+                    placeholder="deepseek-chat or gpt-5-nano"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase text-muted-foreground">API base URL</span>
+                  <input
+                    aria-label="Runtime API base URL"
+                    value={form.api_base_url}
+                    onChange={(event) => setForm((current) => ({ ...current, api_base_url: event.target.value }))}
+                    placeholder="https://api.deepseek.com"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase text-muted-foreground">API key env</span>
+                  <input
+                    aria-label="Runtime API key env"
+                    value={form.api_key_env}
+                    onChange={(event) => setForm((current) => ({ ...current, api_key_env: event.target.value }))}
+                    placeholder="DEEPSEEK_API_KEY"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase text-muted-foreground">HTTP endpoint path</span>
+                  <input
+                    aria-label="Runtime HTTP endpoint path"
+                    value={form.http_endpoint_path}
+                    onChange={(event) => setForm((current) => ({ ...current, http_endpoint_path: event.target.value }))}
+                    placeholder="/agent/inspect"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
+                <label className="block space-y-1 md:col-span-2">
+                  <span className="text-xs uppercase text-muted-foreground">Command template</span>
+                  <input
+                    aria-label="Runtime command template"
+                    value={form.command_template}
+                    onChange={(event) => setForm((current) => ({ ...current, command_template: event.target.value }))}
+                    placeholder="{binary}"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase text-muted-foreground">Mode</span>
+                  <input
+                    aria-label="Runtime mode"
+                    value={form.mode}
+                    onChange={(event) => setForm((current) => ({ ...current, mode: event.target.value }))}
+                    placeholder="non_destructive_inspect_and_report"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase text-muted-foreground">Timeout seconds</span>
+                  <input
+                    aria-label="Runtime timeout seconds"
+                    type="number"
+                    value={form.timeout_seconds}
+                    onChange={(event) => setForm((current) => ({ ...current, timeout_seconds: event.target.value }))}
+                    placeholder="120"
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
+              </div>
+              <Button type="submit" disabled={saving}>
+                <Save className="h-4 w-4" />
+                {saving ? "Saving" : "Save runtime executor"}
+              </Button>
+            </form>
+          ) : (
+            <EmptyDetail>Select a runtime executor to configure.</EmptyDetail>
+          )}
+        </DetailPanel>
+
+        <DetailPanel title="Governance Boundary" icon={Activity}>
+          {selected ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {selected.setup_required.length ? selected.setup_required.map((item) => (
+                  <Badge key={`${selected.executor_id}-setup-${item}`} variant="warning">{item}</Badge>
+                )) : <Badge variant="success">setup clear</Badge>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selected.capabilities.map((capability) => (
+                  <Badge key={`${selected.executor_id}-cap-${capability}`} variant="outline">{capability}</Badge>
+                ))}
+              </div>
+              <DetailPaths paths={savedPaths} />
+            </div>
+          ) : (
+            <EmptyDetail>No runtime executor selected.</EmptyDetail>
+          )}
+        </DetailPanel>
+
+        <DetailPanel title="Review Queue" icon={KeyRound}>
+          {selected ? (
+            <div className="space-y-3">
+              {selectedApprovals.length === 0 ? (
+                <EmptyDetail>No approval records for this executor.</EmptyDetail>
+              ) : (
+                <div className="divide-y rounded-md border">
+                  {selectedApprovals.map((approval) => (
+                    <div key={approval.id} className="space-y-2 px-3 py-2 text-sm">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                        <span className="truncate font-medium" title={approval.id}>{approval.id}</span>
+                        <Badge variant={statusVariant(approval.status)}>{approval.status}</Badge>
+                      </div>
+                      <div className="grid gap-1 text-xs text-muted-foreground">
+                        <span className="truncate">Ticket: {approval.ticket_id || "-"}</span>
+                        <span className="truncate">Capability: {approval.required_capability || "-"}</span>
+                        <span className="truncate">Risk: {approval.risk_level || "-"}</span>
+                        <span className="truncate" title={approval.checkpoint_ref}>Checkpoint: {shortRef(approval.checkpoint_ref)}</span>
+                        <span className="truncate" title={approval.source_state_ref}>State: {shortRef(approval.source_state_ref)}</span>
+                        <span className="line-clamp-2">Reason: {approval.reason || "-"}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span>Last run: {approval.last_run_status || "-"}</span>
+                        <span>Runs: {approval.run_history.length}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {approval.status === "requested" && (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={saving}
+                              onClick={() => onReviewApproval(approval, "approved")}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={saving}
+                              onClick={() => onReviewApproval(approval, "rejected")}
+                            >
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                        {approval.status === "approved" && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={saving}
+                            onClick={() => onRunApproval(approval)}
+                          >
+                            Resume
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <EmptyDetail>No runtime executor selected.</EmptyDetail>
+          )}
+        </DetailPanel>
+
+        <DetailPanel title="Execution Sessions" icon={Database}>
+          {selected ? (
+            <div className="space-y-3">
+              {selectedSessions.length === 0 ? (
+                <EmptyDetail>No execution sessions recorded for this executor.</EmptyDetail>
+              ) : (
+                <div className="divide-y rounded-md border">
+                  {selectedSessions.map((session) => (
+                    <div key={session.session_key} className="space-y-2 px-3 py-2 text-sm">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                        <span className="truncate font-medium" title={session.last_request_id}>{session.last_request_id || session.session_key}</span>
+                        <Badge variant={statusVariant(session.status)}>{session.status || "unknown"}</Badge>
+                      </div>
+                      <div className="grid gap-1 text-xs text-muted-foreground">
+                        <span className="truncate" title={session.checkpoint_ref}>Checkpoint: {shortRef(session.checkpoint_ref)}</span>
+                        <span className="truncate" title={session.trace_ref}>Trace: {shortRef(session.trace_ref)}</span>
+                        <span className="truncate">Ticket: {session.ticket_id || "-"}</span>
+                        <span>{runtimeRefCount(session)}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">{session.tool_event_count} tool events</Badge>
+                        <Badge variant="secondary">{session.employee_id || "employee"} / {session.thread_id || "runtime"}</Badge>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={sessionReplayLoading && sessionReplayKey === session.session_key}
+                          onClick={() => void openSessionReplay(session.session_key)}
+                        >
+                          <Activity className="h-4 w-4" />
+                          Replay
+                        </Button>
+                      </div>
+                      {session.tool_events.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {session.tool_events.slice(0, 4).map((event, index) => (
+                            <Badge key={`${session.session_key}-event-${index}`} variant="outline">
+                              {runtimeToolEventLabel(event)}
+                            </Badge>
+                          ))}
+                          {session.tool_events.length > 4 && <Badge variant="secondary">+{session.tool_events.length - 4}</Badge>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(sessionReplay || sessionReplayLoading || sessionReplayError) && (
+                <RuntimeSessionReplayDetail
+                  error={sessionReplayError}
+                  loading={sessionReplayLoading}
+                  replay={sessionReplay}
+                />
+              )}
+            </div>
+          ) : (
+            <EmptyDetail>No runtime executor selected.</EmptyDetail>
+          )}
+        </DetailPanel>
+      </aside>
+    </div>
+  );
+}
+
 function TicketBackendSection({
   form,
   saving,
   settings,
   status,
   setForm,
+  onApplyRepositoryScope,
+  onConfigureRepositoryScope,
   onSubmit,
 }: {
   form: TicketBackendForm;
@@ -718,16 +1288,50 @@ function TicketBackendSection({
   settings: TicketBackendSettings | null;
   status: TicketBackendStatus | null;
   setForm: Dispatch<SetStateAction<TicketBackendForm>>;
+  onApplyRepositoryScope: (candidate: Record<string, unknown>) => void;
+  onConfigureRepositoryScope: (repositoryId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const supportedModes = settings?.supported_modes ?? status?.supported_modes ?? [
     {
-      id: "local_file",
-      label: "Local file",
+      id: "plane",
+      label: "Plane",
       status: "ready",
-      description: "File-backed Tickets for fast local dogfooding.",
+      description: "Plane-backed Ticket fact source.",
     },
   ];
+  const planeSetup = asRecord(status?.plane_setup);
+  const releaseTarget = asRecord(status?.release_target);
+  const releaseTargetBlockers = Array.isArray(releaseTarget.blockers) ? releaseTarget.blockers.map(String).filter(Boolean) : [];
+  const releaseTargetSetupRequired = Array.isArray(releaseTarget.setup_required) ? releaseTarget.setup_required.map(String).filter(Boolean) : [];
+  const setupRequired = Array.isArray(planeSetup.setup_required) ? planeSetup.setup_required.map(String).filter(Boolean) : [];
+  const planeScopeCandidates = asRecordArray(planeSetup.code_repository_scope_candidates);
+  const planeScopeMissing = asRecordArray(planeSetup.code_repository_scope_missing);
+  const planeScopeCandidateCount = numberValue(planeSetup.code_repository_scope_candidate_count, planeScopeCandidates.length);
+  const planeScopeMissingCount = numberValue(planeSetup.code_repository_scope_missing_count, planeScopeMissing.length);
+  const planeScopeTotal = planeScopeCandidateCount + planeScopeMissingCount;
+  const planeSelected = Boolean(planeSetup.selected);
+  const planeWorkspaceConfigured = Boolean(planeSetup.workspace_configured);
+  const planeProjectConfigured = Boolean(planeSetup.project_configured);
+  const planeApiKeyConfigured = Boolean(planeSetup.api_key_configured);
+  const [copiedCommandKey, setCopiedCommandKey] = useState("");
+
+  function applyRepositoryScope(candidate: Record<string, unknown>) {
+    const workspace = stringValue(candidate.plane_workspace_slug);
+    const project = stringValue(candidate.plane_project_id);
+    if (!workspace || !project) return;
+    setForm((current) => ({
+      ...current,
+      mode: "plane",
+      planeWorkspaceSlug: workspace,
+      planeProjectId: project,
+    }));
+  }
+
+  async function handleCopyCommand(key: string, command: string) {
+    await copyTextToClipboard(command);
+    setCopiedCommandKey(key);
+  }
 
   return (
     <section className="rounded-md border bg-background">
@@ -755,13 +1359,251 @@ function TicketBackendSection({
               </Select>
             </label>
             <label className="block space-y-1">
-              <span className="text-xs uppercase text-muted-foreground">Local Ticket file</span>
+              <span className="text-xs uppercase text-muted-foreground">Legacy projection file</span>
               <input
-                aria-label="Local Ticket file"
+                aria-label="Legacy projection file"
                 value={form.localFilePath}
                 onChange={(event) => setForm((current) => ({ ...current, localFilePath: event.target.value }))}
                 placeholder=".aiteamos/tickets/index.json"
                 className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+          </div>
+
+          {Object.keys(releaseTarget).length ? (
+            <div className="rounded-md border bg-muted/20 px-3 py-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-medium uppercase text-muted-foreground">Plan v8 release target</div>
+                <Badge variant={stringValue(releaseTarget.status) === "ready" ? "success" : "warning"}>
+                  {compactStatus(stringValue(releaseTarget.status))}
+                </Badge>
+              </div>
+              <div className="text-xs leading-5 text-muted-foreground">
+                {stringValue(releaseTarget.detail)}
+              </div>
+              {releaseTargetBlockers.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {releaseTargetBlockers.slice(0, 8).map((blocker) => (
+                    <Badge key={`ticket-backend-release-target-${blocker}`} variant="outline">
+                      {blocker}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
+              {releaseTargetSetupRequired.length ? (
+                <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                  Setup required: {releaseTargetSetupRequired.slice(0, 6).join(", ")}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="rounded-md border bg-muted/20 px-3 py-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-medium uppercase text-muted-foreground">Plane setup preflight</div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={statusVariant(stringValue(planeSetup.status))}>{compactStatus(stringValue(planeSetup.status))}</Badge>
+                <Badge variant={planeScopeCandidateCount ? "success" : statusVariant(stringValue(planeSetup.code_repository_scope_status))}>
+                  scope {compactStatus(stringValue(planeSetup.code_repository_scope_status))}
+                </Badge>
+                {planeScopeTotal ? <Badge variant="outline">{planeScopeCandidateCount}/{planeScopeTotal} scope candidates</Badge> : null}
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <SummaryMetric label="Mode" value={stringValue(planeSetup.active_mode) || form.mode} tone={planeSelected ? "ok" : "warn"} />
+              <SummaryMetric label="Workspace" value={planeWorkspaceConfigured ? "set" : "missing"} tone={planeWorkspaceConfigured ? "ok" : "warn"} />
+              <SummaryMetric label="Project" value={planeProjectConfigured ? "set" : "missing"} tone={planeProjectConfigured ? "ok" : "warn"} />
+              <SummaryMetric label="API key" value={planeApiKeyConfigured ? "set" : "missing"} tone={planeApiKeyConfigured ? "ok" : "warn"} />
+            </div>
+
+            {setupRequired.length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {setupRequired.slice(0, 6).map((item) => (
+                  <Badge key={`ticket-backend-plane-setup-${item}`} variant="outline">{item}</Badge>
+                ))}
+              </div>
+            ) : null}
+
+            {planeScopeCandidates.length ? (
+              <div className="mt-3 grid gap-2">
+                {planeScopeCandidates.slice(0, 3).map((candidate) => {
+                  const repositoryId = stringValue(candidate.repository_id) || stringValue(candidate.repository_name);
+                  return (
+                    <div key={`ticket-backend-plane-candidate-${repositoryId}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">{stringValue(candidate.repository_name) || repositoryId}</div>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          <Badge variant="outline">{stringValue(candidate.plane_workspace_slug)}</Badge>
+                          <Badge variant="outline">{stringValue(candidate.plane_project_id)}</Badge>
+                          <Badge variant={statusVariant(stringValue(candidate.status))}>{compactStatus(stringValue(candidate.status))}</Badge>
+                        </div>
+                      </div>
+                      <Button type="button" size="sm" variant="outline" onClick={() => applyRepositoryScope(candidate)}>
+                        Use scope
+                      </Button>
+                      <Button type="button" size="sm" disabled={saving} onClick={() => onApplyRepositoryScope(candidate)}>
+                        <Save className="h-4 w-4" />
+                        Apply scope
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : planeScopeMissing.length ? (
+              <div className="mt-3 grid gap-2">
+                {planeScopeMissing.slice(0, 3).map((candidate) => {
+                  const repositoryId = stringValue(candidate.repository_id) || stringValue(candidate.repository_name);
+                  const workspaceConfigured = Boolean(candidate.workspace_configured);
+                  const projectConfigured = Boolean(candidate.project_configured);
+                  return (
+                    <div key={`ticket-backend-plane-missing-${repositoryId}`} className="rounded-md border bg-background px-3 py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-medium">{stringValue(candidate.repository_name) || repositoryId}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="warning">scope incomplete</Badge>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={!repositoryId}
+                            onClick={() => onConfigureRepositoryScope(repositoryId)}
+                          >
+                            <Settings className="h-4 w-4" />
+                            Edit scope
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Badge variant={workspaceConfigured ? "success" : "warning"}>workspace {workspaceConfigured ? "set" : "missing"}</Badge>
+                        <Badge variant={projectConfigured ? "success" : "warning"}>project {projectConfigured ? "set" : "missing"}</Badge>
+                        <Badge variant={statusVariant(stringValue(candidate.status))}>{compactStatus(stringValue(candidate.status))}</Badge>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            <div className="mt-3 border-t pt-3">
+              <div className="mb-2 text-[10px] font-medium uppercase text-muted-foreground">Provider readiness smoke</div>
+              <SettingsCommandRow
+                command={LIVE_PROVIDER_READINESS_SMOKE_COMMAND}
+                copied={copiedCommandKey === "live-provider-readiness-smoke"}
+                label="Provider readiness smoke"
+                onCopy={() => void handleCopyCommand("live-provider-readiness-smoke", LIVE_PROVIDER_READINESS_SMOKE_COMMAND)}
+              />
+            </div>
+            <div className="mt-3 border-t pt-3">
+              <div className="mb-2 text-[10px] font-medium uppercase text-muted-foreground">Plane action smoke</div>
+              <SettingsCommandRow
+                command={PLANE_ACTION_SMOKE_COMMAND}
+                copied={copiedCommandKey === "plane-action-smoke"}
+                label="Plane action smoke"
+                onCopy={() => void handleCopyCommand("plane-action-smoke", PLANE_ACTION_SMOKE_COMMAND)}
+              />
+            </div>
+            <div className="mt-3 border-t pt-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[10px] font-medium uppercase text-muted-foreground">Live dogfood gate</div>
+                <Badge variant="warning">mutation gate</Badge>
+              </div>
+              <SettingsCommandRow
+                command={LIVE_DOGFOOD_SOAK_COMMAND}
+                copied={copiedCommandKey === "live-dogfood-soak"}
+                label="Live dogfood soak"
+                onCopy={() => void handleCopyCommand("live-dogfood-soak", LIVE_DOGFOOD_SOAK_COMMAND)}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane API base URL</span>
+              <input
+                aria-label="Plane API base URL"
+                value={form.planeApiBaseUrl}
+                onChange={(event) => setForm((current) => ({ ...current, planeApiBaseUrl: event.target.value }))}
+                placeholder="https://api.plane.so"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane web base URL</span>
+              <input
+                aria-label="Plane web base URL"
+                value={form.planeWebBaseUrl}
+                onChange={(event) => setForm((current) => ({ ...current, planeWebBaseUrl: event.target.value }))}
+                placeholder="https://app.plane.so"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane workspace slug</span>
+              <input
+                aria-label="Plane workspace slug"
+                value={form.planeWorkspaceSlug}
+                onChange={(event) => setForm((current) => ({ ...current, planeWorkspaceSlug: event.target.value }))}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane project id</span>
+              <input
+                aria-label="Plane project id"
+                value={form.planeProjectId}
+                onChange={(event) => setForm((current) => ({ ...current, planeProjectId: event.target.value }))}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane API key env</span>
+              <input
+                aria-label="Plane API key env"
+                value={form.planeApiKeyEnv}
+                onChange={(event) => setForm((current) => ({ ...current, planeApiKeyEnv: event.target.value }))}
+                placeholder="PLANE_API_KEY"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Plane namespace strategy</span>
+              <Select
+                aria-label="Plane namespace strategy"
+                value={form.planeNamespaceStrategy}
+                onChange={(event) => setForm((current) => ({ ...current, planeNamespaceStrategy: event.target.value }))}
+              >
+                <option value="label">Label</option>
+              </Select>
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Namespace labels</span>
+              <textarea
+                aria-label="Plane namespace label mapping"
+                value={form.planeNamespaceLabelIds}
+                onChange={(event) => setForm((current) => ({ ...current, planeNamespaceLabelIds: event.target.value }))}
+                className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">State mapping</span>
+              <textarea
+                aria-label="Plane state mapping"
+                value={form.planeStateIds}
+                onChange={(event) => setForm((current) => ({ ...current, planeStateIds: event.target.value }))}
+                className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs uppercase text-muted-foreground">Employee assignees</span>
+              <textarea
+                aria-label="Plane Employee assignee mapping"
+                value={form.planeEmployeeAssigneeIds}
+                onChange={(event) => setForm((current) => ({ ...current, planeEmployeeAssigneeIds: event.target.value }))}
+                className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </label>
           </div>
@@ -792,6 +1634,8 @@ function TicketBackendSection({
 function CodeRepositoriesSection({
   dialogOpen,
   form,
+  planeScopeDiscovery,
+  planeScopeDiscoveryLoading,
   repositories,
   repositoryStatus,
   saving,
@@ -799,12 +1643,16 @@ function CodeRepositoriesSection({
   setDialogOpen,
   setForm,
   onDelete,
+  onDiscoverPlaneScope,
   onNew,
+  onOpenTicketBackend,
   onSelect,
   onSubmit,
 }: {
   dialogOpen: boolean;
   form: RepositoryForm;
+  planeScopeDiscovery: TicketBackendPlaneScopeDiscovery | null;
+  planeScopeDiscoveryLoading: boolean;
   repositories: CodeRepository[];
   repositoryStatus: CodeRepositoryStatus | null;
   saving: boolean;
@@ -812,7 +1660,9 @@ function CodeRepositoriesSection({
   setDialogOpen: Dispatch<SetStateAction<boolean>>;
   setForm: Dispatch<SetStateAction<RepositoryForm>>;
   onDelete: (repoId: string) => void;
+  onDiscoverPlaneScope: () => void;
   onNew: () => void;
+  onOpenTicketBackend: () => void;
   onSelect: (repository: CodeRepository) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -821,6 +1671,42 @@ function CodeRepositoriesSection({
   const readyCount = repositoryStatus?.ready_count ?? repositories.filter((repository) => repository.status === "ready").length;
   const localCount = repositoryStatus?.local_count ?? repositories.filter((repository) => repository.provider === "local").length;
   const remoteCount = repositoryStatus?.remote_count ?? Math.max(repositories.length - localCount, 0);
+  const enabledRepositories = repositories.filter((repository) => repository.enabled);
+  const fallbackPlaneScopeCandidates = enabledRepositories.filter((repository) => repository.plane_workspace_slug && repository.plane_project_id);
+  const fallbackPlaneScopeMissing = enabledRepositories.filter((repository) => !repository.plane_workspace_slug || !repository.plane_project_id);
+  const hasPlaneScopeContract = Boolean(repositoryStatus?.plane_scope_status);
+  const planeScopeCandidates: Record<string, unknown>[] = hasPlaneScopeContract
+    ? asRecordArray(repositoryStatus?.plane_scope_candidates)
+    : fallbackPlaneScopeCandidates.map((repository) => ({
+      repository_id: repository.id,
+      repository_name: repository.name,
+      provider: repository.provider,
+      status: repository.status,
+      plane_workspace_slug: repository.plane_workspace_slug,
+      plane_project_id: repository.plane_project_id,
+    }));
+  const planeScopeMissing: Record<string, unknown>[] = hasPlaneScopeContract
+    ? asRecordArray(repositoryStatus?.plane_scope_missing)
+    : fallbackPlaneScopeMissing.map((repository) => ({
+      repository_id: repository.id,
+      repository_name: repository.name,
+      provider: repository.provider,
+      status: repository.status,
+      workspace_configured: Boolean(repository.plane_workspace_slug),
+      project_configured: Boolean(repository.plane_project_id),
+    }));
+  const planeScopeSuggestions = asRecordArray(repositoryStatus?.plane_scope_suggestions);
+  const primaryPlaneScopeSuggestion = planeScopeSuggestions[0] ?? null;
+  const discoveredPlaneScopeSuggestions = asRecordArray(planeScopeDiscovery?.suggestions);
+  const primaryDiscoveredPlaneScopeSuggestion = discoveredPlaneScopeSuggestions[0] ?? null;
+  const primaryPrefillScopeSuggestion = primaryPlaneScopeSuggestion ?? primaryDiscoveredPlaneScopeSuggestion;
+  const primaryPrefillScopeLabel = primaryPlaneScopeSuggestion ? "Ticket Backend scope" : "Plane discovery scope";
+  const planeScopeCandidateCount = repositoryStatus?.plane_scope_candidate_count ?? fallbackPlaneScopeCandidates.length;
+  const planeScopeMissingCount = repositoryStatus?.plane_scope_missing_count ?? fallbackPlaneScopeMissing.length;
+  const planeScopeStatus = repositoryStatus?.plane_scope_status || (fallbackPlaneScopeCandidates.length ? "available" : fallbackPlaneScopeMissing.length ? "incomplete" : "missing");
+  const planeScopeDetail = repositoryStatus?.plane_scope_detail || "Plane workspace/project scope decides whether the Ticket Backend can be switched to Plane safely.";
+  const planeScopeTotal = planeScopeCandidateCount + planeScopeMissingCount || enabledRepositories.length;
+  const planeScopeRows = planeScopeCandidates.length ? planeScopeCandidates : planeScopeMissing;
 
   function openNewRepository() {
     onNew();
@@ -829,6 +1715,24 @@ function CodeRepositoriesSection({
 
   function openRepositoryConfig(repository: CodeRepository) {
     onSelect(repository);
+    setDialogOpen(true);
+  }
+
+  function usePlaneScopeSuggestion(suggestion: Record<string, unknown>, repository?: CodeRepository | null) {
+    const workspace = stringValue(suggestion.plane_workspace_slug);
+    const project = stringValue(suggestion.plane_project_id);
+    if (!workspace || !project) return;
+    const target = repository ?? selectedRepository ?? repositories.find((item) => item.enabled) ?? null;
+    if (target) {
+      onSelect(target);
+    } else {
+      onNew();
+    }
+    setForm((current) => ({
+      ...current,
+      planeWorkspaceSlug: workspace,
+      planeProjectId: project,
+    }));
     setDialogOpen(true);
   }
 
@@ -848,6 +1752,105 @@ function CodeRepositoriesSection({
               <Plus className="h-4 w-4" />
               Add
             </Button>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-md border bg-background">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">Plane Scope Preflight</h3>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">{planeScopeDetail}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={planeScopeCandidateCount ? "success" : planeScopeMissingCount ? "warning" : "danger"}>
+                scope {compactStatus(planeScopeStatus)}
+              </Badge>
+              <Badge variant="outline">{planeScopeCandidateCount}/{planeScopeTotal} scope candidates</Badge>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={planeScopeDiscoveryLoading} onClick={onDiscoverPlaneScope}>
+                <RefreshCw className="h-4 w-4" />
+                {planeScopeDiscoveryLoading ? "Discovering" : "Discover Plane scope"}
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={onOpenTicketBackend}>
+                <ClipboardList className="h-4 w-4" />
+                Ticket Backend
+              </Button>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-3 p-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+          <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+            <SummaryMetric label="Scope" value={compactStatus(planeScopeStatus)} tone={planeScopeCandidateCount ? "ok" : "warn"} />
+            <SummaryMetric label="Ready Scope" value={planeScopeCandidateCount} tone={planeScopeCandidateCount ? "ok" : "warn"} />
+            <SummaryMetric label="Missing Scope" value={planeScopeMissingCount} tone={planeScopeMissingCount ? "warn" : "ok"} />
+          </div>
+          <div className="grid gap-2">
+            {primaryPrefillScopeSuggestion && !planeScopeCandidateCount ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{primaryPrefillScopeLabel}</div>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    <Badge variant="outline">Workspace: {stringValue(primaryPrefillScopeSuggestion.plane_workspace_slug)}</Badge>
+                    <Badge variant="outline">Project: {stringValue(primaryPrefillScopeSuggestion.plane_project_id)}</Badge>
+                    <Badge variant={statusVariant(stringValue(primaryPrefillScopeSuggestion.status))}>
+                      {compactStatus(stringValue(primaryPrefillScopeSuggestion.status))}
+                    </Badge>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => usePlaneScopeSuggestion(primaryPrefillScopeSuggestion)}
+                >
+                  <Settings className="h-4 w-4" />
+                  {primaryPlaneScopeSuggestion ? "Use Ticket Backend scope" : "Use discovered scope"}
+                </Button>
+              </div>
+            ) : null}
+            {planeScopeDiscovery && !primaryDiscoveredPlaneScopeSuggestion ? (
+              <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                Plane discovery {compactStatus(planeScopeDiscovery.status)}: {planeScopeDiscovery.detail}
+              </div>
+            ) : null}
+            {planeScopeRows.length ? (
+              planeScopeRows.slice(0, 4).map((row) => {
+                const repositoryId = stringValue(row.repository_id) || stringValue(row.id);
+                const repository = repositories.find((item) => item.id === repositoryId);
+                const workspace = stringValue(row.plane_workspace_slug) || repository?.plane_workspace_slug || "";
+                const project = stringValue(row.plane_project_id) || repository?.plane_project_id || "";
+                const workspaceConfigured = "workspace_configured" in row ? Boolean(row.workspace_configured) : Boolean(workspace);
+                const projectConfigured = "project_configured" in row ? Boolean(row.project_configured) : Boolean(project);
+                const repositoryName = stringValue(row.repository_name) || repository?.name || repositoryId || "Repository";
+                const repositoryStatusValue = stringValue(row.status) || repository?.status || "unknown";
+                return (
+                  <div key={`plane-scope-preflight-${repositoryId || repositoryName}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">{repositoryName}</div>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        <Badge variant={workspaceConfigured ? "success" : "warning"}>
+                          Workspace: {workspace || "missing"}
+                        </Badge>
+                        <Badge variant={projectConfigured ? "success" : "warning"}>
+                          Project: {project || "missing"}
+                        </Badge>
+                        <Badge variant={statusVariant(repositoryStatusValue)}>{compactStatus(repositoryStatusValue)}</Badge>
+                      </div>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" disabled={!repository} onClick={() => repository && openRepositoryConfig(repository)}>
+                      <Settings className="h-4 w-4" />
+                      Edit scope
+                    </Button>
+                  </div>
+                );
+              })
+            ) : (
+              <EmptyDetail>No enabled repositories are available for Plane scope.</EmptyDetail>
+            )}
           </div>
         </div>
       </section>
@@ -984,6 +1987,27 @@ function CodeRepositoriesSection({
               />
             </label>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              {primaryPrefillScopeSuggestion ? (
+                <div className="rounded-md border bg-muted/20 px-3 py-2 sm:col-span-2 xl:col-span-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium uppercase text-muted-foreground">{primaryPrefillScopeLabel}</div>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        <Badge variant="outline">Workspace: {stringValue(primaryPrefillScopeSuggestion.plane_workspace_slug)}</Badge>
+                        <Badge variant="outline">Project: {stringValue(primaryPrefillScopeSuggestion.plane_project_id)}</Badge>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => usePlaneScopeSuggestion(primaryPrefillScopeSuggestion, selectedRepository)}
+                    >
+                      {primaryPlaneScopeSuggestion ? "Use Ticket Backend scope" : "Use discovered scope"}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               <label className="block space-y-1">
                 <span className="text-xs uppercase text-muted-foreground">Plane workspace</span>
                 <input
@@ -1193,6 +2217,12 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
   });
   const [selectedAiEngineId, setSelectedAiEngineId] = useState("deepseek");
   const [aiEngineDrafts, setAiEngineDrafts] = useState<Record<string, AiEngineDraft>>({});
+  const [runtimeExecutors, setRuntimeExecutors] = useState<RuntimeExecutorRegistryResponse | null>(null);
+  const [runtimeExecutorConfigs, setRuntimeExecutorConfigs] = useState<RuntimeExecutorConfigListResponse | null>(null);
+  const [runtimeApprovals, setRuntimeApprovals] = useState<RuntimeApprovalRecord[]>([]);
+  const [runtimeExecutionSessions, setRuntimeExecutionSessions] = useState<RuntimeExecutionSessionRecord[]>([]);
+  const [selectedRuntimeExecutorId, setSelectedRuntimeExecutorId] = useState("claude_code");
+  const [runtimeExecutorForm, setRuntimeExecutorForm] = useState<RuntimeExecutorForm>(runtimeExecutorToForm(null));
   const [graphitiForm, setGraphitiForm] = useState<GraphitiForm>({
     enabled: false,
     graphDatabase: "neo4j",
@@ -1202,12 +2232,23 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     llmAiEngine: "openai",
   });
   const [ticketBackendForm, setTicketBackendForm] = useState<TicketBackendForm>({
-    mode: "local_file",
+    mode: "plane",
     localFilePath: ".aiteamos/tickets/index.json",
+    planeApiBaseUrl: "https://api.plane.so",
+    planeWebBaseUrl: "https://app.plane.so",
+    planeWorkspaceSlug: "",
+    planeProjectId: "",
+    planeApiKeyEnv: "PLANE_API_KEY",
+    planeNamespaceStrategy: "label",
+    planeNamespaceLabelIds: "{}",
+    planeStateIds: "{}",
+    planeEmployeeAssigneeIds: "{}",
   });
   const [repositoryForm, setRepositoryForm] = useState<RepositoryForm>(emptyRepositoryForm);
   const [repositories, setRepositories] = useState<CodeRepository[]>([]);
   const [repositoryStatus, setRepositoryStatus] = useState<CodeRepositoryStatus | null>(null);
+  const [planeScopeDiscovery, setPlaneScopeDiscovery] = useState<TicketBackendPlaneScopeDiscovery | null>(null);
+  const [planeScopeDiscoveryLoading, setPlaneScopeDiscoveryLoading] = useState(false);
   const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
   const [memory, setMemory] = useState<MemoryStatusResponse | null>(null);
@@ -1256,6 +2297,10 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         loadedRepositoryStatus,
         loadedToolConnectors,
         loadedToolConnectorStatus,
+        loadedRuntimeExecutors,
+        loadedRuntimeExecutorConfigs,
+        loadedRuntimeApprovals,
+        loadedRuntimeExecutionSessions,
       ] = await Promise.all([
         getChatAiEngines(),
         getMemoryStatus(),
@@ -1266,6 +2311,10 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         getCodeRepositoryStatus(),
         listToolConnectors(),
         getToolConnectorStatus(),
+        listRuntimeExecutors(),
+        listRuntimeExecutorConfigs(),
+        listRuntimeApprovals(),
+        listRuntimeExecutionSessions(),
       ]);
       setAiEngines(loadedAiEngines);
       setForm(aiEnginesToForm(loadedAiEngines));
@@ -1290,6 +2339,15 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       const selectedConnector = loadedToolConnectors.find((connector) => connector.id === selectedConnectorId) ?? loadedToolConnectors[0] ?? null;
       setSelectedConnectorId(selectedConnector?.id ?? "");
       setToolConnectorStatus(loadedToolConnectorStatus);
+      setRuntimeExecutors(loadedRuntimeExecutors);
+      setRuntimeExecutorConfigs(loadedRuntimeExecutorConfigs);
+      setRuntimeApprovals(loadedRuntimeApprovals);
+      setRuntimeExecutionSessions(loadedRuntimeExecutionSessions);
+      setSelectedRuntimeExecutorId((current) => {
+        const selected = loadedRuntimeExecutors.executors.find((executor) => executor.executor_id === current) ?? loadedRuntimeExecutors.executors[0] ?? null;
+        setRuntimeExecutorForm(runtimeExecutorToForm(selected ? loadedRuntimeExecutorConfigs.executors[selected.executor_id] : null));
+        return selected?.executor_id ?? "";
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings");
     } finally {
@@ -1377,6 +2435,15 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       const updated = await updateTicketBackendSettings({
         mode: ticketBackendForm.mode,
         local_file_path: ticketBackendForm.localFilePath,
+        plane_api_base_url: ticketBackendForm.planeApiBaseUrl,
+        plane_web_base_url: ticketBackendForm.planeWebBaseUrl,
+        plane_workspace_slug: ticketBackendForm.planeWorkspaceSlug,
+        plane_project_id: ticketBackendForm.planeProjectId,
+        plane_api_key_env: ticketBackendForm.planeApiKeyEnv,
+        plane_namespace_strategy: ticketBackendForm.planeNamespaceStrategy,
+        plane_namespace_label_ids: parseRecordDraft(ticketBackendForm.planeNamespaceLabelIds, "Plane namespace labels"),
+        plane_state_ids: parseRecordDraft(ticketBackendForm.planeStateIds, "Plane state mapping"),
+        plane_employee_assignee_ids: parseRecordDraft(ticketBackendForm.planeEmployeeAssigneeIds, "Plane Employee assignee mapping"),
       });
       const updatedStatus = await getTicketBackendStatus();
       setTicketBackend(updated);
@@ -1384,6 +2451,44 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
       setTicketBackendStatus(updatedStatus);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save Ticket backend settings");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleApplyTicketBackendScope(candidate: Record<string, unknown>) {
+    if (saving) return;
+    const workspace = stringValue(candidate.plane_workspace_slug);
+    const project = stringValue(candidate.plane_project_id);
+    if (!workspace || !project) return;
+    setSaving(true);
+    setError(null);
+    const nextForm: TicketBackendForm = {
+      ...ticketBackendForm,
+      mode: "plane",
+      planeWorkspaceSlug: workspace,
+      planeProjectId: project,
+    };
+    try {
+      const updated = await updateTicketBackendSettings({
+        mode: nextForm.mode,
+        local_file_path: nextForm.localFilePath,
+        plane_api_base_url: nextForm.planeApiBaseUrl,
+        plane_web_base_url: nextForm.planeWebBaseUrl,
+        plane_workspace_slug: nextForm.planeWorkspaceSlug,
+        plane_project_id: nextForm.planeProjectId,
+        plane_api_key_env: nextForm.planeApiKeyEnv,
+        plane_namespace_strategy: nextForm.planeNamespaceStrategy,
+        plane_namespace_label_ids: parseRecordDraft(nextForm.planeNamespaceLabelIds, "Plane namespace labels"),
+        plane_state_ids: parseRecordDraft(nextForm.planeStateIds, "Plane state mapping"),
+        plane_employee_assignee_ids: parseRecordDraft(nextForm.planeEmployeeAssigneeIds, "Plane Employee assignee mapping"),
+      });
+      const updatedStatus = await getTicketBackendStatus();
+      setTicketBackend(updated);
+      setTicketBackendForm(ticketBackendToForm(updated));
+      setTicketBackendStatus(updatedStatus);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to apply repository Plane scope");
     } finally {
       setSaving(false);
     }
@@ -1399,6 +2504,34 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     const selected = loadedRepositories.find((repository) => repository.id === nextSelectedId) ?? null;
     setSelectedRepositoryId(selected?.id ?? "");
     setRepositoryForm(selected ? repositoryToForm(selected) : emptyRepositoryForm());
+  }
+
+  async function handleDiscoverPlaneScope() {
+    if (planeScopeDiscoveryLoading) return;
+    setPlaneScopeDiscoveryLoading(true);
+    setError(null);
+    try {
+      setPlaneScopeDiscovery(await discoverTicketBackendPlaneScope());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to discover Plane scope");
+    } finally {
+      setPlaneScopeDiscoveryLoading(false);
+    }
+  }
+
+  function openRepositoryScopeConfig(repositoryId: string) {
+    setSection("code-repositories");
+    navigateTo("settings", "code-repositories");
+    const repository = repositories.find((item) => item.id === repositoryId) ?? null;
+    if (!repository) {
+      setSelectedRepositoryId("");
+      setRepositoryForm(emptyRepositoryForm());
+      setRepositoryDialogOpen(false);
+      return;
+    }
+    setSelectedRepositoryId(repository.id);
+    setRepositoryForm(repositoryToForm(repository));
+    setRepositoryDialogOpen(true);
   }
 
   function repositoryPayload() {
@@ -1424,6 +2557,7 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         ? await updateCodeRepository(selectedRepositoryId, repositoryPayload())
         : await createCodeRepository(repositoryPayload());
       await reloadRepositories(updated.id);
+      setTicketBackendStatus(await getTicketBackendStatus());
       setRepositoryDialogOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save code repository");
@@ -1440,8 +2574,77 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     try {
       await deleteCodeRepository(repoId);
       await reloadRepositories("");
+      setTicketBackendStatus(await getTicketBackendStatus());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete code repository");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reloadRuntimeExecutors(nextSelectedId = selectedRuntimeExecutorId) {
+    const [loadedExecutors, loadedConfigs, loadedApprovals, loadedSessions] = await Promise.all([
+      listRuntimeExecutors(),
+      listRuntimeExecutorConfigs(),
+      listRuntimeApprovals(),
+      listRuntimeExecutionSessions(),
+    ]);
+    setRuntimeExecutors(loadedExecutors);
+    setRuntimeExecutorConfigs(loadedConfigs);
+    setRuntimeApprovals(loadedApprovals);
+    setRuntimeExecutionSessions(loadedSessions);
+    const selected = loadedExecutors.executors.find((executor) => executor.executor_id === nextSelectedId) ?? loadedExecutors.executors[0] ?? null;
+    setSelectedRuntimeExecutorId(selected?.executor_id ?? "");
+    setRuntimeExecutorForm(runtimeExecutorToForm(selected ? loadedConfigs.executors[selected.executor_id] : null));
+  }
+
+  function selectRuntimeExecutor(executorId: string) {
+    setSelectedRuntimeExecutorId(executorId);
+    setRuntimeExecutorForm(runtimeExecutorToForm(runtimeExecutorConfigs?.executors?.[executorId] ?? null));
+  }
+
+  async function handleRuntimeExecutorSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving || !selectedRuntimeExecutorId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await updateRuntimeExecutorConfig(selectedRuntimeExecutorId, runtimeExecutorPayload(runtimeExecutorForm));
+      await reloadRuntimeExecutors(selectedRuntimeExecutorId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save RuntimeExecutor settings");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRuntimeApprovalReview(approval: RuntimeApprovalRecord, status: "approved" | "rejected") {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await reviewRuntimeExecutorApproval(approval.executor_id, approval.id, {
+        status,
+        reviewer_employee_id: "clara",
+        reason: status === "approved" ? "Approved from Runtime Review Queue." : "Rejected from Runtime Review Queue.",
+      });
+      await reloadRuntimeExecutors(selectedRuntimeExecutorId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to ${status} runtime approval`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRuntimeApprovalRun(approval: RuntimeApprovalRecord) {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await runRuntimeExecutorApproval(approval.executor_id, approval.id, { ingest_result: true });
+      await reloadRuntimeExecutors(selectedRuntimeExecutorId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resume runtime approval");
     } finally {
       setSaving(false);
     }
@@ -1612,6 +2815,13 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
     }
 
     if (section === "ticket-backend") {
+      const ticketReleaseTarget = asRecord(ticketBackendStatus?.release_target);
+      const ticketReleaseTargetBlockers = Array.isArray(ticketReleaseTarget.blockers) ? ticketReleaseTarget.blockers.map(String).filter(Boolean) : [];
+      const projectionPath =
+        ticketBackendStatus?.saved_paths?.plane_projection
+        ?? ticketBackend?.saved_paths?.plane_projection
+        ?? ticketBackendStatus?.local_file_path
+        ?? ticketBackend?.local_file_path;
       return (
         <aside className="space-y-4">
           <DetailPanel title="Ticket Backend Status" icon={ClipboardList}>
@@ -1619,14 +2829,46 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
               <Status label="Mode" value={ticketBackendStatus?.mode ?? ticketBackend?.mode ?? "-"} />
               <Status label="Status" value={compactStatus(ticketBackendStatus?.status)} tone={ticketBackendStatus?.status === "ready" ? "ok" : "warn"} />
               <Status label="Tickets" value={ticketBackendStatus?.ticket_count ?? 0} />
+              <Status label="Provider" value={ticketBackendStatus?.provider || "-"} />
+              <Status label="Provider refs" value={ticketBackendStatus?.provider_ref_count ?? 0} />
+              {Object.keys(ticketReleaseTarget).length ? (
+                <Status
+                  label="Release target"
+                  value={compactStatus(stringValue(ticketReleaseTarget.status))}
+                  tone={stringValue(ticketReleaseTarget.status) === "ready" ? "ok" : "warn"}
+                />
+              ) : null}
               <div className="min-w-0">
-                <div className="text-xs uppercase text-muted-foreground">Local file</div>
-                <div className="truncate text-sm font-medium" title={ticketBackendStatus?.local_file_path ?? ticketBackend?.local_file_path}>
-                  {ticketBackendStatus?.local_file_path ?? ticketBackend?.local_file_path ?? "-"}
+                <div className="text-xs uppercase text-muted-foreground">Projection mirror</div>
+                <div className="truncate text-sm font-medium" title={projectionPath}>
+                  {projectionPath ?? "-"}
                 </div>
               </div>
+              {ticketBackendStatus?.setup_required?.length ? (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                  Missing setup: {ticketBackendStatus.setup_required.join(", ")}
+                </div>
+              ) : null}
+              {ticketReleaseTargetBlockers.length ? (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                  Release blockers: {ticketReleaseTargetBlockers.join(", ")}
+                </div>
+              ) : null}
+              {ticketBackendStatus?.mapping && Object.keys(ticketBackendStatus.mapping).length ? (
+                <div className="space-y-1">
+                  <div className="text-xs uppercase text-muted-foreground">Plane mapping</div>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    {Object.entries(ticketBackendStatus.mapping).map(([key, value]) => (
+                      <div key={key} className="flex min-w-0 justify-between gap-3 rounded-md bg-muted px-2 py-1">
+                        <span className="font-medium text-foreground">{key}</span>
+                        <span className="truncate" title={value}>{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
-                {ticketBackendStatus?.detail ?? "Local file is the active P0 backend. Plane/Jira are adapter targets, not separate product models."}
+                {ticketBackendStatus?.detail ?? "Plane is the target Ticket Backend. AITeamOS keeps only configuration, trace, and audit projection locally."}
               </div>
             </div>
           </DetailPanel>
@@ -1716,6 +2958,8 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
         <CodeRepositoriesSection
           dialogOpen={repositoryDialogOpen}
           form={repositoryForm}
+          planeScopeDiscovery={planeScopeDiscovery}
+          planeScopeDiscoveryLoading={planeScopeDiscoveryLoading}
           repositories={repositories}
           repositoryStatus={repositoryStatus}
           saving={saving}
@@ -1723,15 +2967,63 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
           setDialogOpen={setRepositoryDialogOpen}
           setForm={setRepositoryForm}
           onDelete={(repoId) => void handleRepositoryDelete(repoId)}
+          onDiscoverPlaneScope={() => void handleDiscoverPlaneScope()}
           onNew={() => {
             setSelectedRepositoryId("");
             setRepositoryForm(emptyRepositoryForm());
+          }}
+          onOpenTicketBackend={() => {
+            setSection("ticket-backend");
+            navigateTo("settings", "ticket-backend");
           }}
           onSelect={(repository) => {
             setSelectedRepositoryId(repository.id);
             setRepositoryForm(repositoryToForm(repository));
           }}
           onSubmit={(event) => void handleRepositorySubmit(event)}
+        />
+      </section>
+    );
+  }
+
+  if (section === "runtime-executors") {
+    return (
+      <section className="space-y-3">
+        <div className="rounded-md border bg-background">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <ActiveIcon className="h-4 w-4 text-muted-foreground" />
+                <h3 className="text-sm font-semibold">{activeGroup.label}</h3>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">{SECTION_DESCRIPTIONS[section]}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loadSettings()}>
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
+
+          {error && (
+            <div className="border-t p-4">
+              <ErrorState message={error} onRetry={loadSettings} />
+            </div>
+          )}
+        </div>
+
+        <RuntimeExecutorsSection
+          approvals={runtimeApprovals}
+          configs={runtimeExecutorConfigs}
+          executors={runtimeExecutors}
+          form={runtimeExecutorForm}
+          sessions={runtimeExecutionSessions}
+          saving={saving}
+          selectedId={selectedRuntimeExecutorId}
+          setForm={setRuntimeExecutorForm}
+          onSelect={selectRuntimeExecutor}
+          onReviewApproval={(approval, status) => void handleRuntimeApprovalReview(approval, status)}
+          onRunApproval={(approval) => void handleRuntimeApprovalRun(approval)}
+          onSubmit={(event) => void handleRuntimeExecutorSubmit(event)}
         />
       </section>
     );
@@ -1809,6 +3101,8 @@ export function SettingsPage({ selectedSection }: { selectedSection?: string | n
             settings={ticketBackend}
             status={ticketBackendStatus}
             setForm={setTicketBackendForm}
+            onApplyRepositoryScope={(candidate) => void handleApplyTicketBackendScope(candidate)}
+            onConfigureRepositoryScope={openRepositoryScopeConfig}
             onSubmit={(event) => void handleTicketBackendSubmit(event)}
           />
         )}

@@ -7,6 +7,14 @@ export interface ChatEmployeeSummary {
   role: string;
   summary: string;
   skills: string[];
+  skill_refs: string[];
+  capability_tags: string[];
+  personality_tags: string[];
+  memory_scopes: string[];
+  preferred_runtime: string;
+  permission_policy: Record<string, unknown>;
+  handoff_policy: Record<string, unknown>;
+  current_load: Record<string, unknown>;
   ai_engine_mode: string;
   default_ai_engine: string;
   preserve_engine_thread: boolean;
@@ -21,6 +29,14 @@ export interface ChatSkillSummary {
   assigned_employees: string[];
   resources: string[];
   saved_path: string;
+  source?: string;
+  usage_count: number;
+  last_used_at: string;
+  last_used_by_employee_id: string;
+  last_used_run_id: string;
+  last_used_ticket_id: string;
+  usefulness_stats: Record<string, unknown>;
+  usage_history: Record<string, unknown>[];
 }
 
 export interface ChatTraceEvent {
@@ -34,6 +50,8 @@ export interface ChatMessageRequest {
   target_employee_id?: string;
   thread_id?: string;
   ticket_key?: string;
+  approval_ref?: string;
+  runtime_config?: Record<string, unknown>;
 }
 
 export interface ChatMessageResponse {

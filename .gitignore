@@ -22,6 +22,8 @@ yarn-error.log*
 
 # Build outputs (Dashboard)
 apps/dashboard/dist/
+apps/dashboard/playwright-report/
+apps/dashboard/test-results/
 
 # IDE & Editor
 .idea/
@@ -60,16 +62,29 @@ htmlcov/
 .aiteamos/indexes/
 .aiteamos/artifacts/blob/
 .aiteamos/artifacts/cache/
+.aiteamos/artifacts/plan_v7/
 .aiteamos/artifacts/worktrees/
 .aiteamos/runs/*/artifacts/
 .aiteamos/runs/*/raw-ai-engine-response*
 .aiteamos/runs/*/*.log
 .aiteamos/runs/*/*.tmp
+.aiteamos/assets/
 .aiteamos/conversations/
+.aiteamos/live-dogfood/
 .aiteamos/traces/
 .aiteamos/threads/
 .aiteamos/langgraph/
 .aiteamos/memory/
+.aiteamos/execution_approvals.json
+.aiteamos/execution_artifacts.json
+.aiteamos/execution_ingestions.json
+.aiteamos/execution_sessions.json
+.aiteamos/execution_state_snapshots/
+execution_approvals.json
+execution_artifacts.json
+execution_ingestions.json
+execution_sessions.json
+execution_state_snapshots/
 .aiteamos/knowledge/
 .aiteamos/connectors/
 .aiteamos/plane/
@@ -80,3 +95,4 @@ htmlcov/
 .aiteamos/code_repositories.json
 .aiteamos/graphiti.json
 .aiteamos/secrets.local.json
+.langgraph_api/

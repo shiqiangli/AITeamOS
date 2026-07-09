@@ -1,7 +1,7 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Archive, BookOpen, Brain, Check, ClipboardCheck, Layers3,
-  FileText, RefreshCw, Search,
+  Archive, BookOpen, Brain, Check, ClipboardCheck, Layers3, Link2,
+  FileText, RefreshCw, Search, Sparkles,
   Wrench, X,
 } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
@@ -12,10 +12,21 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "../../components/ui/table";
+import { Input } from "../../components/ui/input";
+import { Select } from "../../components/ui/select";
 import { Textarea } from "../../components/ui/textarea";
 import { ErrorState, EmptyState, Status, navigateTo } from "../../components/shared";
 import { Skeleton } from "../../components/ui/skeleton";
-import { listAssets, type AssetRecord } from "../../api/assets";
+import {
+  listAssetCandidates,
+  listAssets,
+  projectAssetRecordRelationshipsToGraphiti,
+  projectAssetRecordToGraphiti,
+  reviewAssetCandidate,
+  reviewAssetCandidatesBatch,
+  type AssetCandidateRecord,
+  type AssetRecord,
+} from "../../api/assets";
 import {
   getKnowledgeStatus, listKnowledgeDocs, listKnowledgeDecisions,
   listKnowledgeReviewQueue,
@@ -24,11 +35,18 @@ import {
 } from "../../api/knowledge";
 import {
   approveMemoryCandidate, listApprovedMemory, type MemoryCandidate,
+  reviewMemoryCandidate, reviewMemoryRecallUsage,
 } from "../../api/memory";
+import {
+  listRuntimeExecutorApprovals, reviewRuntimeExecutorApproval, runRuntimeExecutorApproval,
+  type RuntimeApprovalRecord,
+} from "../../api/runtimeExecutors";
+import { getSystemStatus, type PlanV8ArtifactSummary } from "../../api/systemStatus";
 import {
   getCapabilities, type CapabilityRecord, type CapabilityRegistryResponse,
 } from "../../api/capabilities";
 import { listChatSkills, type ChatSkillSummary } from "../../api/chat";
+import { applyEmployeeImprovementAsset } from "../../api/employees";
 import { cn } from "@/lib/utils";
 
 /* ── types & constants ─────────────────────────────────────────────────────── */
@@ -37,6 +55,7 @@ type AssetArea = "knowledge" | "capabilities" | "review";
 type KnowledgeTab = "docs" | "memories" | "decisions";
 type CapabilityTab = "skills" | "kernel-commands" | "mcp-tools";
 type ReviewTab = "memories" | "decisions" | "skills" | "tools";
+type AssetCandidateReviewStatus = "approved" | "rejected" | "merged" | "linked";
 
 const AREA_TABS: Array<{ key: AssetArea; label: string; icon: typeof Brain }> = [
   { key: "knowledge", label: "Knowledge", icon: Brain },
@@ -49,12 +68,15 @@ const KNOWLEDGE_TABS: Array<{ key: KnowledgeTab; label: string }> = [
   { key: "memories", label: "Memories" },
   { key: "decisions", label: "Decisions" },
 ];
+const KNOWLEDGE_TAB_KEYS = new Set<string>(KNOWLEDGE_TABS.map((tab) => tab.key));
 
 const CAPABILITY_TABS: Array<{ key: CapabilityTab; label: string }> = [
   { key: "skills", label: "Skills" },
   { key: "kernel-commands", label: "Kernel Commands" },
   { key: "mcp-tools", label: "MCP Tools" },
 ];
+const CAPABILITY_TAB_KEYS = new Set<string>(CAPABILITY_TABS.map((tab) => tab.key));
+const REVIEW_TAB_KEYS = new Set<string>(["memories", "decisions", "skills", "tools"]);
 
 /* ── helpers ───────────────────────────────────────────────────────────────── */
 
@@ -64,6 +86,35 @@ function areaFromRoute(v?: string | null): AssetArea | null {
   return AREA_TABS.some((t) => t.key === v) ? (v as AssetArea) : null;
 }
 
+function routeTargetFromDetail(area: AssetArea | null, selectedArea?: string | null, selectedDetail?: string | null): string {
+  const rawArea = selectedArea?.trim() ?? "";
+  const detail = selectedDetail?.trim() ?? "";
+  if (rawArea === "asset") return detail;
+  if (!detail || !area) return "";
+  if (area === "knowledge" && KNOWLEDGE_TAB_KEYS.has(detail)) return "";
+  if (area === "capabilities" && CAPABILITY_TAB_KEYS.has(detail)) return "";
+  if (area === "review" && REVIEW_TAB_KEYS.has(detail)) return "";
+  return detail;
+}
+
+function stripRoutePrefix(value: string, prefix: string): string {
+  return value.startsWith(`${prefix}:`) ? value.slice(prefix.length + 1) : value;
+}
+
+function knowledgeTabFromRouteTarget(target: string): KnowledgeTab {
+  if (target.startsWith("doc:")) return "docs";
+  if (target.startsWith("decision:")) return "decisions";
+  return "memories";
+}
+
+function routeTargetId(target: string): string {
+  let value = target.trim();
+  for (const prefix of ["asset", "memory", "doc", "decision", "candidate", "approval", "skill"]) {
+    value = stripRoutePrefix(value, prefix);
+  }
+  return value;
+}
+
 function fmtTime(v?: string | null): string {
   if (!v) return "-";
   const d = new Date(v);
@@ -71,9 +122,10 @@ function fmtTime(v?: string | null): string {
 }
 
 function statusVar(s: string): "default" | "secondary" | "warning" | "success" | "danger" | "outline" {
-  if (["approved", "accepted", "ready", "configured", "active", "local", "available"].includes(s)) return "success";
-  if (["proposed", "candidate", "planned", "pending", "held"].includes(s)) return "warning";
-  if (["failed", "blocked", "invalid", "missing"].includes(s)) return "danger";
+  if (["approved", "accepted", "ready", "configured", "active", "local", "available", "used", "promoted", "passed"].includes(s)) return "success";
+  if (["proposed", "candidate", "planned", "pending", "held", "warning"].includes(s)) return "warning";
+  if (["failed", "blocked", "invalid", "missing", "harmful"].includes(s)) return "danger";
+  if (["irrelevant", "unreviewed"].includes(s)) return "outline";
   return "secondary";
 }
 
@@ -106,6 +158,141 @@ function prettyJson(value: unknown): string {
 function metadataBlock(metadata: Record<string, unknown>): string {
   const entries = Object.entries(metadata).filter(([key]) => !["asset_domain", "asset_type", "content", "description"].includes(key));
   return entries.length ? JSON.stringify(Object.fromEntries(entries), null, 2) : "";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function summaryList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+}
+
+function provenanceText(provenance: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = provenance[key];
+    if (value === undefined || value === null || value === "") continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    } else if (Array.isArray(value)) {
+      const text = value.map((item) => typeof item === "string" ? item : prettyJson(item)).filter(Boolean).join(", ");
+      if (text) return text;
+    } else {
+      const text = prettyJson(value);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function graphitiStatusText(mem: MemoryCandidate): string {
+  const status = mem.graphiti_status?.status;
+  if (typeof status === "string" && status.trim()) return status.trim();
+  return prettyJson(mem.graphiti_status) || "-";
+}
+
+function assetRegistryId(asset: AssetRecord): string {
+  return metaStr(asset, "asset_registry_id");
+}
+
+function assetGraphitiStatus(asset: AssetRecord): { status: string; episodeId: string } {
+  const provenance = asRecord(asset.metadata.provenance);
+  const graphiti = asRecord(provenance?.graphiti_status);
+  return {
+    status: typeof graphiti?.status === "string" ? graphiti.status : "",
+    episodeId: typeof graphiti?.episode_id === "string" ? graphiti.episode_id : "",
+  };
+}
+
+function assetRelationships(asset: AssetRecord): Record<string, unknown>[] {
+  const relationships = asset.metadata.relationships;
+  if (!Array.isArray(relationships)) return [];
+  return relationships.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+}
+
+function assetGraphitiRelationshipStatus(asset: AssetRecord): { status: string; projected: number; total: number; relationshipIds: string[] } {
+  const relationships = assetRelationships(asset);
+  const provenance = asRecord(asset.metadata.provenance);
+  const projected = Array.isArray(provenance?.graphiti_relationships)
+    ? provenance.graphiti_relationships.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
+    : [];
+  const projectedIds = projected
+    .map((item) => provenanceText(item, ["relationship_id", "asset_id"]))
+    .filter(Boolean);
+  const ingestedCount = projected.filter((item) => provenanceText(item, ["status"]) === "ingested").length;
+  const status = relationships.length === 0
+    ? "no relationships"
+    : projected.length >= relationships.length
+      ? "projected"
+      : projected.length > 0
+        ? "partial"
+        : "not projected";
+  return { status, projected: projected.length || ingestedCount, total: relationships.length, relationshipIds: projectedIds };
+}
+
+function employeeImprovementTarget(asset: AssetRecord): string {
+  if (asset.kind !== "employee_improvement") return "";
+  if (asset.source_employee) return asset.source_employee;
+  const employeeScope = asset.scopes.find((scope) => scope.startsWith("employee:"));
+  return employeeScope ? employeeScope.replace(/^employee:/, "") : "";
+}
+
+function employeeImprovementApplicationStatus(asset: AssetRecord): string {
+  const provenance = asRecord(asset.metadata.provenance);
+  const application = asRecord(provenance?.employee_improvement_application);
+  return typeof application?.status === "string" ? application.status : "";
+}
+
+function ProvenanceRow({ children, label, title }: { children: ReactNode; label: string; title?: string }) {
+  return (
+    <div className="grid gap-1 text-xs sm:grid-cols-[7rem_minmax(0,1fr)]">
+      <div className="font-medium uppercase text-muted-foreground">{label}</div>
+      <div className="min-w-0 truncate font-medium text-foreground" title={title}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function memoryUsageSummary(mem: MemoryCandidate): Record<string, unknown> | null {
+  return asRecord(mem.provenance.usage_summary);
+}
+
+function memoryUsageHistory(mem: MemoryCandidate): Record<string, unknown>[] {
+  const history = mem.provenance.usage_history;
+  if (!Array.isArray(history)) return [];
+  return history.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+}
+
+function latestMemoryUsage(mem: MemoryCandidate): Record<string, unknown> | null {
+  const history = memoryUsageHistory(mem);
+  return history[history.length - 1] ?? null;
+}
+
+function memoryRelatedTicketIds(mem: MemoryCandidate): string[] {
+  const ids = new Set<string>();
+  const sourceTicketId = typeof mem.provenance.source_ticket_id === "string" ? mem.provenance.source_ticket_id.trim() : "";
+  if (sourceTicketId) ids.add(sourceTicketId);
+  if (mem.scope_kind === "ticket" && mem.scope_ref.trim()) ids.add(mem.scope_ref.trim());
+  const usageSummary = memoryUsageSummary(mem);
+  const latestTicketId = typeof usageSummary?.last_recalled_ticket_id === "string" ? usageSummary.last_recalled_ticket_id.trim() : "";
+  if (latestTicketId) ids.add(latestTicketId);
+  for (const usage of memoryUsageHistory(mem)) {
+    for (const ticketId of asStringArray(usage.source_ticket_ids)) ids.add(ticketId);
+  }
+  return Array.from(ids);
 }
 
 function capabilitySourceForTab(tab: CapabilityTab | null): string | null {
@@ -152,6 +339,56 @@ function reviewText(item: ReviewQueueItem): string {
     item.content || "-",
     ...(metadata ? ["", "## Metadata", metadata] : []),
   ].join("\n");
+}
+
+function runtimeApprovalText(item: RuntimeApprovalRecord): string {
+  const runHistory = runtimeApprovalRunHistory(item);
+  return [
+    `# ${runtimeApprovalTitle(item)}`,
+    "",
+    `Status: ${item.status}`,
+    `Executor: ${item.executor_id}`,
+    `Ticket: ${item.ticket_id || "-"}`,
+    `Employee: ${item.employee_id || "-"}`,
+    `Required capability: ${item.required_capability || "-"}`,
+    `Created: ${item.created_at || "-"}`,
+    `Updated: ${item.updated_at || "-"}`,
+    item.reviewed_at ? `Reviewed: ${item.reviewed_at} by ${item.reviewer_employee_id || "-"}` : "",
+    item.last_run_request_id ? `Last run: ${item.last_run_request_id} (${item.last_run_status || "-"})` : "",
+    item.last_ingestion_blocker ? `Ingestion blocker: ${item.last_ingestion_blocker}` : "",
+    "",
+    "## Reason",
+    item.reason || "-",
+    "",
+    "## Approval Request",
+    prettyJson(item.approval_request) || "-",
+    "",
+    "## Run History",
+    ...(runHistory.length > 0
+      ? runHistory.flatMap((entry, index) => [
+          `### Attempt ${index + 1}`,
+          `Run request: ${String(entry.run_request_id ?? "-")}`,
+          `Status: ${String(entry.status ?? "-")}`,
+          `Ingested: ${String(entry.ingested ?? "-")}`,
+          `Executor session: ${String(entry.executor_session_ref ?? "-")}`,
+          `Checkpoint: ${String(entry.checkpoint_ref ?? "-")}`,
+          `Trace: ${String(entry.trace_ref ?? "-")}`,
+          `Approval refs: ${asStringArray(entry.approval_refs).join(", ") || "-"}`,
+          `Approved capabilities: ${asStringArray(entry.approved_capabilities).join(", ") || "-"}`,
+          `Artifacts: ${String(entry.artifact_count ?? 0)}`,
+          `Evidence: ${String(entry.evidence_count ?? 0)}`,
+          `Errors: ${String(entry.error_count ?? 0)}`,
+          entry.ingestion_blocker ? `Ingestion blocker: ${String(entry.ingestion_blocker)}` : "",
+          "",
+        ])
+      : ["-"]),
+    "",
+    "## Source Request",
+    prettyJson(item.source_request) || "-",
+    "",
+    "## Last Result",
+    prettyJson(item.last_result) || "-",
+  ].filter((line) => line !== "").join("\n");
 }
 
 function assetFullText(asset: AssetRecord): string {
@@ -214,14 +451,259 @@ function assetArea(a: AssetRecord): AssetArea {
   return "knowledge";
 }
 
-const REVIEW_TABS = new Set(["memories", "decisions", "skills", "tools"]);
+function runtimeApprovalDrawerId(item: RuntimeApprovalRecord): string {
+  return `runtime-approval:${item.executor_id}:${item.id}`;
+}
+
+function runtimeApprovalTitle(item: RuntimeApprovalRecord): string {
+  const action = typeof item.source_request?.action_plan === "object" && item.source_request.action_plan !== null
+    ? String((item.source_request.action_plan as Record<string, unknown>).action || "runtime action")
+    : "runtime action";
+  const ticket = item.ticket_id ? ` for ${item.ticket_id}` : "";
+  return `${item.executor_id} ${item.required_capability || "approval"}${ticket} · ${action}`;
+}
+
+function runtimeApprovalLastResultDetail(item: RuntimeApprovalRecord): string {
+  if (item.last_ingestion_blocker) return item.last_ingestion_blocker;
+  const result = asRecord(item.last_result);
+  if (!result) return "";
+  const status = typeof result.status === "string" ? result.status : "";
+  const report = typeof result.report === "string" ? result.report : "";
+  const errors = Array.isArray(result.errors) ? result.errors.map(prettyJson).filter(Boolean).join("; ") : "";
+  return [status, report || errors].filter(Boolean).join(" · ");
+}
+
+function runtimeApprovalRunHistory(item: RuntimeApprovalRecord): Record<string, unknown>[] {
+  return Array.isArray(item.run_history)
+    ? item.run_history.map(asRecord).filter((entry): entry is Record<string, unknown> => Boolean(entry))
+    : [];
+}
+
+function assetCandidateDrawerId(item: AssetCandidateRecord): string {
+  return `asset-candidate:${item.id}`;
+}
+
+function assetCandidateDrawerIdForTarget(target: string, candidates: AssetCandidateRecord[]): string {
+  if (target.startsWith("asset-candidate:")) return target;
+  const raw = stripRoutePrefix(target, "candidate");
+  const match = candidates.find((item) => item.id === raw || item.asset_id === raw || assetCandidateDrawerId(item) === target);
+  return match ? assetCandidateDrawerId(match) : "";
+}
+
+function runtimeApprovalDrawerIdForTarget(target: string, approvals: RuntimeApprovalRecord[]): string {
+  if (target.startsWith("runtime-approval:")) return target;
+  const raw = stripRoutePrefix(target, "approval");
+  const match = approvals.find((item) => item.id === raw || runtimeApprovalDrawerId(item) === target);
+  return match ? runtimeApprovalDrawerId(match) : "";
+}
+
+function resolveRouteDrawerId({
+  allAssets,
+  area,
+  assetCandidates,
+  decisions,
+  docs,
+  memories,
+  reviewItems,
+  runtimeApprovals,
+  selectedArea,
+  skills,
+  target,
+}: {
+  allAssets: AssetRecord[];
+  area: AssetArea | null;
+  assetCandidates: AssetCandidateRecord[];
+  decisions: DecisionRecord[];
+  docs: KnowledgeDocSummary[];
+  memories: MemoryCandidate[];
+  reviewItems: ReviewQueueItem[];
+  runtimeApprovals: RuntimeApprovalRecord[];
+  selectedArea?: string | null;
+  skills: ChatSkillSummary[];
+  target: string;
+}): string {
+  const normalized = target.trim();
+  if (!normalized) return "";
+  if (selectedArea?.trim() === "asset") {
+    const assetId = routeTargetId(normalized);
+    return allAssets.some((item) => item.id === assetId) ? assetId : "";
+  }
+  if (area === "knowledge") {
+    const id = routeTargetId(normalized);
+    if (normalized.startsWith("doc:")) return docs.some((item) => item.id === id) ? id : "";
+    if (normalized.startsWith("decision:")) return decisions.some((item) => item.id === id) ? id : "";
+    if (normalized.startsWith("memory:")) return memories.some((item) => item.id === id) ? id : "";
+    if (memories.some((item) => item.id === id)) return id;
+    if (docs.some((item) => item.id === id)) return id;
+    if (decisions.some((item) => item.id === id)) return id;
+    return "";
+  }
+  if (area === "review") {
+    const candidateId = assetCandidateDrawerIdForTarget(normalized, assetCandidates);
+    if (candidateId) return candidateId;
+    const approvalId = runtimeApprovalDrawerIdForTarget(normalized, runtimeApprovals);
+    if (approvalId) return approvalId;
+    const raw = routeTargetId(normalized);
+    return reviewItems.some((item) => item.id === raw) ? raw : "";
+  }
+  if (area === "capabilities") {
+    const id = routeTargetId(normalized);
+    return skills.some((item) => item.id === id) ? id : "";
+  }
+  const assetId = routeTargetId(normalized);
+  return allAssets.some((item) => item.id === assetId) ? assetId : "";
+}
+
+function assetCandidateTitle(item: AssetCandidateRecord): string {
+  return `${item.asset_type.replace(/_/g, " ")} · ${item.title || item.id}`;
+}
+
+function assetCandidateText(item: AssetCandidateRecord): string {
+  return [
+    `# ${assetCandidateTitle(item)}`,
+    "",
+    `Status: ${item.status}`,
+    `Review state: ${item.review_state}`,
+    `Scope: ${item.scope_kind}:${item.scope_ref}`,
+    `Owner: ${item.owner_employee_id || "-"}`,
+    `Source: ${item.source_kind}:${item.source_ref || "-"}`,
+    `Candidate: ${item.id}`,
+    `Asset ID: ${item.asset_id || "-"}`,
+    "",
+    "## Content",
+    item.content || "-",
+    "",
+    "## Provenance",
+    prettyJson(item.provenance) || "-",
+    "",
+    "## Relationships",
+    prettyJson(item.relationships) || "-",
+  ].join("\n");
+}
+
+function assetCandidateProvenanceValue(item: AssetCandidateRecord, key: string): string {
+  const value = item.provenance[key];
+  if (value === undefined || value === null || value === "") return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return prettyJson(value);
+}
+
+function ToolCallCandidateDetails({ item }: { item: AssetCandidateRecord }) {
+  if (item.asset_type !== "tool_call") return null;
+  return (
+    <div className="rounded-md border bg-muted/30 p-3">
+      <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Tool Call</div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Status label="Command" value={assetCandidateProvenanceValue(item, "command_id") || item.title} />
+        <Status label="Event" value={assetCandidateProvenanceValue(item, "tool_event_name") || "-"} />
+        <Status label="Run" value={assetCandidateProvenanceValue(item, "source_run_id") || "-"} />
+        <Status label="Trace" value={assetCandidateProvenanceValue(item, "source_trace_path") || item.source_ref || "-"} />
+        <Status label="Index" value={assetCandidateProvenanceValue(item, "tool_event_index") || "0"} />
+        <Status label="Executor" value={assetCandidateProvenanceValue(item, "executor_id") || "-"} />
+      </div>
+    </div>
+  );
+}
+
+function AssetRecallQualityEvidenceSection({ artifacts }: { artifacts: PlanV8ArtifactSummary | null }) {
+  const contextEval = artifacts?.latest_context_retrieval_eval ?? null;
+  const provenanceEval = artifacts?.latest_asset_provenance_eval ?? null;
+  const contextSummary = asRecord(contextEval?.summary) ?? {};
+  const provenanceSummary = asRecord(provenanceEval?.summary) ?? {};
+  const evidenceGaps = artifacts?.evidence_gaps ?? [];
+  const activeAssetIds = summaryList(contextSummary.active_asset_ids);
+  const recalledMemoryIds = summaryList(contextSummary.recalled_memory_ids);
+  const staleHintAssetIds = summaryList(contextSummary.stale_hint_asset_ids);
+  const excludedAssetIds = summaryList(contextSummary.excluded_asset_ids);
+  const wrongTicketFiltered = contextSummary.wrong_ticket_filtered === true;
+  const staleActiveFiltered = provenanceSummary.stale_active_filtered === true;
+
+  return (
+    <section className="rounded-md border bg-background p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Recall Quality Evidence</h3>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant={statusVar(artifacts?.status ?? "")}>{artifacts?.status || "missing"}</Badge>
+          <Badge variant={(artifacts?.context_retrieval_eval_count ?? 0) ? "success" : "warning"}>
+            {artifacts?.context_retrieval_eval_count ?? 0} retrieval
+          </Badge>
+          <Badge variant={(artifacts?.asset_provenance_eval_count ?? 0) ? "success" : "warning"}>
+            {artifacts?.asset_provenance_eval_count ?? 0} provenance
+          </Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold">Scoped Retrieval</h4>
+            <Badge variant={statusVar(contextEval?.status ?? "")}>{contextEval?.status || "missing"}</Badge>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Status label="Active recall" value={String(numberValue(contextSummary.graphiti_result_count))} />
+            <Status label="Memory recall" value={String(recalledMemoryIds.length)} />
+            <Status label="Excluded hints" value={String(numberValue(contextSummary.graphiti_excluded_result_count))} />
+            <Status label="Work recall" value={`${Math.round(numberValue(contextSummary.work_history_eval_recall) * 100)}%`} />
+            <Status label="Wrong ticket" value={wrongTicketFiltered ? "filtered" : "not proven"} />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {activeAssetIds.slice(0, 3).map((id) => <Badge key={`active-${id}`} variant="success" className="text-[10px]">{id}</Badge>)}
+            {recalledMemoryIds.slice(0, 3).map((id) => <Badge key={`memory-${id}`} variant="secondary" className="text-[10px]">{id}</Badge>)}
+            {staleHintAssetIds.slice(0, 3).map((id) => <Badge key={`stale-${id}`} variant="warning" className="text-[10px]">{id}</Badge>)}
+            {excludedAssetIds.slice(0, 3).map((id) => <Badge key={`excluded-${id}`} variant="outline" className="text-[10px]">{id}</Badge>)}
+          </div>
+          {contextEval?.name ? <div className="mt-3 truncate text-xs text-muted-foreground" title={contextEval.name}>{contextEval.name}</div> : null}
+        </div>
+
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold">Provenance Exclusion</h4>
+            <Badge variant={statusVar(provenanceEval?.status ?? "")}>{provenanceEval?.status || "missing"}</Badge>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Status label="Relationship" value={String(provenanceSummary.relationship_projection_status || "-")} />
+            <Status label="Projected" value={String(numberValue(provenanceSummary.relationship_ingested_count))} />
+            <Status label="Recall hits" value={String(numberValue(provenanceSummary.relationship_search_result_count))} />
+            <Status label="Stale cleanup" value={staleActiveFiltered ? "filtered" : "not proven"} />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {String(provenanceSummary.source_asset_id || "") && (
+              <Badge variant="success" className="text-[10px]">{String(provenanceSummary.source_asset_id)}</Badge>
+            )}
+            {String(provenanceSummary.target_asset_id || "") && (
+              <Badge variant="outline" className="text-[10px]">{String(provenanceSummary.target_asset_id)}</Badge>
+            )}
+            {String(provenanceSummary.stale_memory_id || "") && (
+              <Badge variant="warning" className="text-[10px]">{String(provenanceSummary.stale_memory_id)}</Badge>
+            )}
+          </div>
+          {provenanceEval?.name ? <div className="mt-3 truncate text-xs text-muted-foreground" title={provenanceEval.name}>{provenanceEval.name}</div> : null}
+        </div>
+      </div>
+
+      {evidenceGaps.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {evidenceGaps.slice(0, 4).map((gap) => <Badge key={gap} variant="warning" className="text-[10px]">{gap}</Badge>)}
+          <Button type="button" size="sm" variant="outline" onClick={() => navigateTo("system-status")}>
+            <Link2 className="h-3.5 w-3.5" />
+            System Status
+          </Button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
 
 function AssetOverview({
-  allAssets, knowledgeStatus, reviewItems, skills, capRegistry,
+  allAssets, assetCandidates, knowledgeStatus, reviewItems, runtimeApprovals, skills, capRegistry, planV8Artifacts,
 }: {
-  allAssets: AssetRecord[]; knowledgeStatus: KnowledgeStatusResponse | null;
-  reviewItems: ReviewQueueItem[]; skills: ChatSkillSummary[];
-  capRegistry: CapabilityRegistryResponse | null;
+  allAssets: AssetRecord[]; assetCandidates: AssetCandidateRecord[]; knowledgeStatus: KnowledgeStatusResponse | null;
+  reviewItems: ReviewQueueItem[]; runtimeApprovals: RuntimeApprovalRecord[]; skills: ChatSkillSummary[];
+  capRegistry: CapabilityRegistryResponse | null; planV8Artifacts: PlanV8ArtifactSummary | null;
 }) {
   const docs = knowledgeStatus?.docs_count ?? 0;
   const memories = knowledgeStatus?.memories_count ?? 0;
@@ -236,7 +718,25 @@ function AssetOverview({
   const revMemories = reviewItems.filter((i) => i.kind === "memory").length;
   const revDecisions = reviewItems.filter((i) => i.kind === "decision").length;
   const revSkills = reviewItems.filter((i) => i.kind === "skill").length;
-  const revTools = reviewItems.filter((i) => i.kind === "tool" || i.kind === "capability").length;
+  const revAssetCandidates = assetCandidates.length;
+  const revTools = reviewItems.filter((i) => i.kind === "tool" || i.kind === "capability").length + runtimeApprovals.length;
+  const pendingReviewItems = [
+    ...reviewItems.map((item) => ({ id: item.id, title: item.title, kind: item.kind, content: item.content, target: REVIEW_TAB_KEYS.has(item.kind) ? item.kind : undefined })),
+    ...assetCandidates.map((item) => ({
+      id: assetCandidateDrawerId(item),
+      title: assetCandidateTitle(item),
+      kind: "asset",
+      content: item.content,
+      target: item.asset_type === "skill" ? "skills" : item.asset_type === "decision" ? "decisions" : item.asset_type === "memory" ? "memories" : undefined,
+    })),
+    ...runtimeApprovals.map((item) => ({
+      id: runtimeApprovalDrawerId(item),
+      title: runtimeApprovalTitle(item),
+      kind: "runtime",
+      content: item.reason || runtimeApprovalLastResultDetail(item) || item.required_capability,
+      target: "tools",
+    })),
+  ];
 
   const recentAssets = useMemo(() =>
     [...allAssets].sort((a, b) => {
@@ -264,12 +764,13 @@ function AssetOverview({
       ],
     },
     {
-      area: "review" as AssetArea, total: reviewItems.length,
+      area: "review" as AssetArea, total: reviewItems.length + runtimeApprovals.length + assetCandidates.length,
       subs: [
         { label: "Memories", count: revMemories, detail: "memories" },
         { label: "Decisions", count: revDecisions, detail: "decisions" },
         { label: "Skills", count: revSkills, detail: "skills" },
         { label: "Tools", count: revTools, detail: "tools" },
+        { label: "Assets", count: revAssetCandidates, detail: "assets" },
       ],
     },
   ];
@@ -335,16 +836,16 @@ function AssetOverview({
         </section>
 
         {/* Pending Review — each item clickable */}
-        {reviewItems.length > 0 && (
+        {pendingReviewItems.length > 0 && (
           <section className="rounded-md border bg-background p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold">Pending Review</h3>
               <Button variant="outline" size="sm" onClick={() => navigateTo("assets", "review")}>View all</Button>
             </div>
             <div className="space-y-2">
-              {reviewItems.slice(0, 3).map((item) => (
+              {pendingReviewItems.slice(0, 3).map((item) => (
                 <button key={item.id} type="button"
-                  onClick={() => navigateTo("assets", "review", REVIEW_TABS.has(item.kind) ? item.kind : undefined)}
+                  onClick={() => navigateTo("assets", "review", item.target)}
                   className="w-full rounded-md border bg-muted/20 px-3 py-2 text-left text-sm transition-colors hover:bg-muted">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate font-medium">{item.title}</span>
@@ -356,6 +857,10 @@ function AssetOverview({
             </div>
           </section>
         )}
+      </div>
+
+      <div className="xl:col-span-2">
+        <AssetRecallQualityEvidenceSection artifacts={planV8Artifacts} />
       </div>
     </div>
   );
@@ -443,11 +948,12 @@ function SkillsTableView({ skills, selectedId, onSelect }: { skills: ChatSkillSu
   );
   return (
     <Table>
-      <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Employees</TableHead><TableHead className="text-right">Files</TableHead></TableRow></TableHeader>
+      <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Description</TableHead><TableHead className="text-right">Uses</TableHead><TableHead className="text-right">Employees</TableHead><TableHead className="text-right">Files</TableHead></TableRow></TableHeader>
       <TableBody>{skills.map((skill) => (
         <TableRow key={skill.id} className={cn("cursor-pointer", selectedId === skill.id && "bg-muted/60")} onClick={() => onSelect(skill.id)}>
           <TableCell><div className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-muted-foreground" /><div><div className="font-medium">{skill.title}</div><div className="text-xs text-muted-foreground">{skill.id}</div></div></div></TableCell>
           <TableCell className="max-w-[32rem] truncate text-muted-foreground">{skill.description || "No description configured."}</TableCell>
+          <TableCell className="text-right">{skill.usage_count ?? 0}</TableCell>
           <TableCell className="text-right">{skill.assigned_employees.length}</TableCell>
           <TableCell className="text-right">{skill.resources.length + 1}</TableCell>
         </TableRow>
@@ -538,10 +1044,15 @@ function CapabilitiesGroupedView({
 /* ── Review Queue View ─────────────────────────────────────────────────────── */
 
 function ReviewQueueList({
-  items, selectedId, onSelect, onApprove, approving, tab,
+  assetCandidates, items, runtimeApprovals, selectedId, onSelect, onApprove, onAssetCandidateReview, onAssetCandidateBatchReview, onRuntimeReview, onRuntimeRun, approving, tab,
 }: {
-  items: ReviewQueueItem[]; selectedId: string; onSelect: (id: string) => void;
-  onApprove: (id: string) => void; approving: boolean; tab: ReviewTab | null;
+  assetCandidates: AssetCandidateRecord[]; items: ReviewQueueItem[]; runtimeApprovals: RuntimeApprovalRecord[]; selectedId: string; onSelect: (id: string) => void;
+  onApprove: (id: string) => void;
+  onAssetCandidateReview: (item: AssetCandidateRecord, status: AssetCandidateReviewStatus) => void;
+  onAssetCandidateBatchReview: (items: AssetCandidateRecord[], status: "approved" | "rejected") => void;
+  onRuntimeReview: (item: RuntimeApprovalRecord, status: "approved" | "rejected") => void;
+  onRuntimeRun: (item: RuntimeApprovalRecord) => void;
+  approving: boolean; tab: ReviewTab | null;
 }) {
   const filtered = tab ? items.filter((i) => {
     if (tab === "memories") return i.kind === "memory";
@@ -550,8 +1061,29 @@ function ReviewQueueList({
     if (tab === "tools") return i.kind === "tool" || i.kind === "capability";
     return true;
   }) : items;
-  if (filtered.length === 0) return <EmptyState title="No review items" description={tab ? `No pending ${tab} reviews. Items will appear here when candidates are proposed.` : "Review queue is clear. Proposed memories, decisions, skills, and tool changes will appear here for approval."} />;
-  return <div>{filtered.map((item) => (
+  const filteredAssetCandidates = tab ? assetCandidates.filter((item) => {
+    if (tab === "memories") return item.asset_type === "memory";
+    if (tab === "decisions") return item.asset_type === "decision";
+    if (tab === "skills") return item.asset_type === "skill";
+    if (tab === "tools") return !["memory", "decision", "skill"].includes(item.asset_type);
+    return true;
+  }) : assetCandidates;
+  const filteredRuntimeApprovals = tab && tab !== "tools" ? [] : runtimeApprovals;
+  const batchableAssetCandidates = filteredAssetCandidates.filter((item) => item.status === "proposed");
+  if (filtered.length === 0 && filteredAssetCandidates.length === 0 && filteredRuntimeApprovals.length === 0) return <EmptyState title="No review items" description={tab ? `No pending ${tab} reviews. Items will appear here when candidates are proposed.` : "Review queue is clear. Proposed memories, decisions, skills, tool changes, and runtime approvals will appear here for approval."} />;
+  return <div>
+  {batchableAssetCandidates.length > 1 && (
+    <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-2">
+      <Badge variant="secondary" className="text-[10px]">{batchableAssetCandidates.length} asset candidates</Badge>
+      <Button size="sm" variant="outline" className="ml-auto h-7 px-2 text-[11px]" disabled={approving} onClick={() => onAssetCandidateBatchReview(batchableAssetCandidates, "approved")}>
+        <Check className="h-3 w-3" />Approve All
+      </Button>
+      <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" disabled={approving} onClick={() => onAssetCandidateBatchReview(batchableAssetCandidates, "rejected")}>
+        <X className="h-3 w-3" />Reject All
+      </Button>
+    </div>
+  )}
+  {filtered.map((item) => (
     <div key={item.id} className={cn(
       "grid w-full gap-1.5 border-b px-4 py-3 text-left text-sm transition-colors last:border-b-0",
       selectedId === item.id ? "bg-primary/10" : "hover:bg-muted/60",
@@ -573,7 +1105,83 @@ function ReviewQueueList({
         )}
       </div>
     </div>
-  ))}</div>;
+  ))}
+  {filteredAssetCandidates.map((item) => {
+    const selected = selectedId === assetCandidateDrawerId(item);
+    return (
+      <div key={assetCandidateDrawerId(item)} className={cn(
+        "grid w-full gap-1.5 border-b px-4 py-3 text-left text-sm transition-colors last:border-b-0",
+        selected ? "bg-primary/10" : "hover:bg-muted/60",
+      )}>
+        <button type="button" onClick={() => onSelect(assetCandidateDrawerId(item))} className="min-w-0 text-left">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="line-clamp-2 font-medium leading-5">{assetCandidateTitle(item)}</div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">asset candidate · {item.scope_kind}:{item.scope_ref}</div>
+            </div>
+            <Badge variant={statusVar(item.status)}>{item.status}</Badge>
+          </div>
+          <div className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.content}</div>
+        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">{fmtTime(item.updated_at)}</span>
+          <Badge variant="secondary" className="text-[10px]">{item.asset_type}</Badge>
+          {item.status === "proposed" && (
+            <>
+              <Button size="sm" variant="outline" className="ml-auto h-6 px-2 text-[10px]" disabled={approving} onClick={() => onAssetCandidateReview(item, "approved")}>
+                <Check className="h-3 w-3" />Approve
+              </Button>
+              <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" disabled={approving} onClick={() => onAssetCandidateReview(item, "rejected")}>
+                <X className="h-3 w-3" />Reject
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  })}
+  {filteredRuntimeApprovals.map((item) => {
+    const selected = selectedId === runtimeApprovalDrawerId(item);
+    const lastResult = runtimeApprovalLastResultDetail(item);
+    return (
+      <div key={runtimeApprovalDrawerId(item)} className={cn(
+        "grid w-full gap-1.5 border-b px-4 py-3 text-left text-sm transition-colors last:border-b-0",
+        selected ? "bg-primary/10" : "hover:bg-muted/60",
+      )}>
+        <button type="button" onClick={() => onSelect(runtimeApprovalDrawerId(item))} className="min-w-0 text-left">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="line-clamp-2 font-medium leading-5">{runtimeApprovalTitle(item)}</div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">runtime approval · {item.executor_id} · {item.id}</div>
+            </div>
+            <Badge variant={statusVar(item.status)}>{item.status}</Badge>
+          </div>
+          <div className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.reason || lastResult || item.required_capability}</div>
+        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">{fmtTime(item.updated_at)}</span>
+          {item.ticket_id && <Badge variant="outline" className="text-[10px]">{item.ticket_id}</Badge>}
+          <Badge variant="secondary" className="text-[10px]">{item.required_capability || "approval"}</Badge>
+          {item.status === "requested" && (
+            <>
+              <Button size="sm" variant="outline" className="ml-auto h-6 px-2 text-[10px]" disabled={approving} onClick={() => onRuntimeReview(item, "approved")}>
+                <Check className="h-3 w-3" />Approve
+              </Button>
+              <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" disabled={approving} onClick={() => onRuntimeReview(item, "rejected")}>
+                <X className="h-3 w-3" />Reject
+              </Button>
+            </>
+          )}
+          {item.status === "approved" && (
+            <Button size="sm" variant="outline" className="ml-auto h-6 px-2 text-[10px]" disabled={approving} onClick={() => onRuntimeRun(item)}>
+              <Check className="h-3 w-3" />Run
+            </Button>
+          )}
+        </div>
+        {lastResult && <div className="line-clamp-2 rounded-md bg-muted/40 px-2 py-1 text-xs text-muted-foreground">{lastResult}</div>}
+      </div>
+    );
+  })}</div>;
 }
 
 /* ── Main Page ─────────────────────────────────────────────────────────────── */
@@ -590,17 +1198,23 @@ function ContentSkeleton() {
 
 export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: string | null; selectedDetail?: string | null }) {
   const area = areaFromRoute(selectedArea);
+  const routeTarget = routeTargetFromDetail(area, selectedArea, selectedDetail);
   const [allAssets, setAllAssets] = useState<AssetRecord[]>([]);
   const [knowledgeStatus, setKnowledgeStatus] = useState<KnowledgeStatusResponse | null>(null);
   const [docs, setDocs] = useState<KnowledgeDocSummary[]>([]);
   const [memories, setMemories] = useState<MemoryCandidate[]>([]);
   const [decisions, setDecisions] = useState<DecisionRecord[]>([]);
   const [reviewItems, setReviewItems] = useState<ReviewQueueItem[]>([]);
+  const [assetCandidates, setAssetCandidates] = useState<AssetCandidateRecord[]>([]);
+  const [runtimeApprovals, setRuntimeApprovals] = useState<RuntimeApprovalRecord[]>([]);
+  const [planV8Artifacts, setPlanV8Artifacts] = useState<PlanV8ArtifactSummary | null>(null);
   const [skills, setSkills] = useState<ChatSkillSummary[]>([]);
   const [capRegistry, setCapRegistry] = useState<CapabilityRegistryResponse | null>(null);
   const [drawerId, setDrawerId] = useState("");
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
+  const [assetReviewTargetId, setAssetReviewTargetId] = useState("");
+  const [assetReviewRelationshipType, setAssetReviewRelationshipType] = useState("derived_from");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
@@ -610,21 +1224,23 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
 
   // Sub-tab for knowledge & capabilities (auto-select first when entering area)
   const kTab: KnowledgeTab | null = area === "knowledge"
-    ? (selectedDetail && ["docs", "memories", "decisions"].includes(selectedDetail) ? selectedDetail as KnowledgeTab : "docs")
+    ? (selectedDetail && KNOWLEDGE_TAB_KEYS.has(selectedDetail) ? selectedDetail as KnowledgeTab : routeTarget ? knowledgeTabFromRouteTarget(routeTarget) : "docs")
     : null;
   const cTab: CapabilityTab | null = area === "capabilities"
-    ? (selectedDetail && ["skills", "kernel-commands", "mcp-tools"].includes(selectedDetail) ? selectedDetail as CapabilityTab : "skills")
+    ? (selectedDetail && CAPABILITY_TAB_KEYS.has(selectedDetail) ? selectedDetail as CapabilityTab : "skills")
     : null;
   const rTab: ReviewTab | null = area === "review"
-    ? (selectedDetail && ["memories", "decisions", "skills", "tools"].includes(selectedDetail) ? selectedDetail as ReviewTab : null)
+    ? (selectedDetail && REVIEW_TAB_KEYS.has(selectedDetail) ? selectedDetail as ReviewTab : null)
     : null;
+  const assetListDetail = area === "knowledge" ? kTab : area === "capabilities" ? cTab : area === "review" ? rTab : null;
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
       const assetQuery = submittedQuery.trim();
-      const [a, ks, d, m, dec, rev, sk, cap] = await Promise.all([
-        listAssets(assetQuery ? null : area, assetQuery ? null : selectedDetail, assetQuery).catch(() => []),
+      const [a, ac, ks, d, m, dec, rev, sk, cap, system] = await Promise.all([
+        listAssets(assetQuery ? null : area, assetQuery ? null : assetListDetail, assetQuery).catch(() => []),
+        listAssetCandidates({ status: "proposed" }).catch(() => []),
         getKnowledgeStatus().catch(() => null),
         listKnowledgeDocs().catch(() => []),
         listApprovedMemory().catch(() => []),
@@ -632,12 +1248,23 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
         listKnowledgeReviewQueue().catch(() => []),
         listChatSkills().catch(() => []),
         getCapabilities().catch(() => null),
+        getSystemStatus().catch(() => null),
       ]);
-      setAllAssets(a); setKnowledgeStatus(ks); setDocs(d); setMemories(m);
-      setDecisions(dec); setReviewItems(rev); setSkills(sk); setCapRegistry(cap);
+      const executorIds = Array.from(new Set((system?.runtime_executors ?? []).map((executor) => executor.executor_id).filter(Boolean)));
+      const approvalLists = await Promise.all(
+        executorIds.map((executorId) => listRuntimeExecutorApprovals(executorId).catch(() => [])),
+      );
+      const approvals = approvalLists.flat().sort((left, right) => {
+        const dl = new Date(left.updated_at || left.created_at).getTime();
+        const dr = new Date(right.updated_at || right.created_at).getTime();
+        return dr - dl;
+      });
+      setAllAssets(a); setAssetCandidates(ac); setKnowledgeStatus(ks); setDocs(d); setMemories(m);
+      setDecisions(dec); setReviewItems(rev); setRuntimeApprovals(approvals); setSkills(sk); setCapRegistry(cap);
+      setPlanV8Artifacts(system?.plan_v8_artifacts ?? null);
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to load assets"); }
     finally { setLoading(false); }
-  }, [area, selectedDetail, submittedQuery]);
+  }, [area, assetListDetail, submittedQuery]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -647,6 +1274,42 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
     setFullText(null);
   }, [area, selectedDetail, submittedQuery]);
 
+  useEffect(() => {
+    if (!routeTarget || loading) return;
+    const resolved = resolveRouteDrawerId({
+      allAssets,
+      area,
+      assetCandidates,
+      decisions,
+      docs,
+      memories,
+      reviewItems,
+      runtimeApprovals,
+      selectedArea,
+      skills,
+      target: routeTarget,
+    });
+    if (resolved) setDrawerId(resolved);
+  }, [
+    allAssets,
+    area,
+    assetCandidates,
+    decisions,
+    docs,
+    loading,
+    memories,
+    reviewItems,
+    routeTarget,
+    runtimeApprovals,
+    selectedArea,
+    skills,
+  ]);
+
+  useEffect(() => {
+    setAssetReviewTargetId("");
+    setAssetReviewRelationshipType("derived_from");
+  }, [drawerId]);
+
   function submitSearch(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setSubmittedQuery(query.trim());
   }
@@ -654,6 +1317,163 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
   function handleApprove(id: string) {
     setApproving(true);
     approveMemoryCandidate(id).then(() => load()).catch((err) => setError(err.message)).finally(() => setApproving(false));
+  }
+
+  function handleReview(id: string, status: "rejected" | "stale", reason: string) {
+    setApproving(true);
+    reviewMemoryCandidate(id, { status, reason, actor_employee_id: "clara" })
+      .then(() => {
+        setDrawerId("");
+        return load();
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
+  }
+
+  function handleUsageReview(id: string, usageId: string, usefulnessStatus: "used" | "irrelevant" | "harmful" | "promoted", reason: string) {
+    setApproving(true);
+    reviewMemoryRecallUsage(id, usageId, { usefulness_status: usefulnessStatus, reviewer_employee_id: "clara", reason })
+      .then(() => load())
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
+  }
+
+  function handleAssetCandidateReview(
+    item: AssetCandidateRecord,
+    status: AssetCandidateReviewStatus,
+    options: { targetAssetId?: string; relationshipType?: string } = {},
+  ) {
+    const targetAssetId = (options.targetAssetId ?? "").trim();
+    const relationshipType = (options.relationshipType ?? "derived_from").trim() || "derived_from";
+    if ((status === "merged" || status === "linked") && !targetAssetId) {
+      setError("Target Asset ID is required to merge or link an Asset candidate.");
+      return;
+    }
+    setApproving(true);
+    reviewAssetCandidate(item.id, {
+      status,
+      reviewer_employee_id: "clara",
+      reason: `${status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : status === "merged" ? "Merged" : "Linked"} from Assets review queue.`,
+      merge_target_asset_id: status === "merged" || status === "linked" ? targetAssetId : "",
+      link_relationships: status === "approved" && targetAssetId ? [
+        {
+          type: relationshipType,
+          target_kind: "asset",
+          target_ref: targetAssetId,
+          reason: `Approved from Assets review queue with ${relationshipType} relationship.`,
+        },
+      ] : [],
+    })
+      .then((response) => {
+        setAssetCandidates((current) => current.map((candidate) => candidate.id === response.candidate.id ? response.candidate : candidate));
+        setDrawerId(assetCandidateDrawerId(response.candidate));
+        setAssetReviewTargetId("");
+        setAssetReviewRelationshipType("derived_from");
+        return load();
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
+  }
+
+  function handleAssetCandidateBatchReview(
+    items: AssetCandidateRecord[],
+    status: "approved" | "rejected",
+  ) {
+    const candidateIds = items.filter((item) => item.status === "proposed").map((item) => item.id);
+    if (!candidateIds.length) return;
+    setApproving(true);
+    reviewAssetCandidatesBatch({
+      candidate_ids: candidateIds,
+      status,
+      reviewer_employee_id: "clara",
+      reason: `Batch ${status === "approved" ? "approved" : "rejected"} from Assets review queue.`,
+    })
+      .then((response) => {
+        const reviewed = response.results
+          .map((item) => item.response?.candidate)
+          .filter((candidate): candidate is AssetCandidateRecord => Boolean(candidate));
+        setAssetCandidates((current) => current.map((candidate) => reviewed.find((item) => item.id === candidate.id) ?? candidate));
+        if (response.failed_count > 0) {
+          setError(`${response.failed_count} Asset candidate batch review item failed.`);
+        } else {
+          setError(null);
+        }
+        return load();
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
+  }
+
+  function handleRuntimeApprovalReview(item: RuntimeApprovalRecord, status: "approved" | "rejected") {
+    setApproving(true);
+    reviewRuntimeExecutorApproval(item.executor_id, item.id, {
+      status,
+      reviewer_employee_id: "clara",
+      reason: `${status === "approved" ? "Approved" : "Rejected"} from Assets review queue.`,
+    })
+      .then((updated) => {
+        setRuntimeApprovals((current) => current.map((candidate) => candidate.id === updated.id ? updated : candidate));
+        setDrawerId(runtimeApprovalDrawerId(updated));
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
+  }
+
+  function handleRuntimeApprovalRun(item: RuntimeApprovalRecord) {
+    setApproving(true);
+    runRuntimeExecutorApproval(item.executor_id, item.id, { employee_id: item.employee_id || "clara", ingest_result: true })
+      .then((response) => {
+        const updated = asRecord(response.approval) as RuntimeApprovalRecord | null;
+        if (updated?.id) {
+          setRuntimeApprovals((current) => current.map((candidate) => candidate.id === updated.id ? updated : candidate));
+          setDrawerId(runtimeApprovalDrawerId(updated));
+        }
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
+  }
+
+  function handleProjectAssetToGraphiti(asset: AssetRecord) {
+    const registryId = assetRegistryId(asset);
+    if (!registryId) {
+      setError("Asset registry ID is required to project an Asset to Graphiti.");
+      return;
+    }
+    setApproving(true);
+    projectAssetRecordToGraphiti(registryId)
+      .then(() => load())
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
+  }
+
+  function handleProjectAssetRelationshipsToGraphiti(asset: AssetRecord) {
+    const registryId = assetRegistryId(asset);
+    if (!registryId) {
+      setError("Asset registry ID is required to project Asset relationships to Graphiti.");
+      return;
+    }
+    setApproving(true);
+    projectAssetRecordRelationshipsToGraphiti(registryId)
+      .then(() => load())
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
+  }
+
+  function handleApplyEmployeeImprovement(asset: AssetRecord) {
+    const registryId = assetRegistryId(asset);
+    const employeeId = employeeImprovementTarget(asset);
+    if (!registryId || !employeeId) {
+      setError("Approved Employee improvement Asset and target Employee are required.");
+      return;
+    }
+    setApproving(true);
+    applyEmployeeImprovementAsset(employeeId, registryId, {
+      actor_employee_id: "clara",
+      reason: "Applied from Assets approved Employee improvement drawer.",
+    })
+      .then(() => load())
+      .catch((err) => setError(err.message))
+      .finally(() => setApproving(false));
   }
 
   // Breadcrumb
@@ -675,22 +1495,79 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
   if (drawerOpen) {
     if (searching) {
       const asset = allAssets.find((a) => a.id === drawerId);
-      if (asset) drawerContent = (
-        <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0"><h3 className="truncate text-lg font-semibold">{asset.title}</h3><div className="mt-1 flex flex-wrap gap-1.5"><Badge variant="outline">{asset.kind}</Badge><Badge variant={statusVar(asset.status)}>{asset.status}</Badge></div></div>
-            <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
+      if (asset) {
+        const registryId = assetRegistryId(asset);
+        const graphiti = assetGraphitiStatus(asset);
+        const relationships = assetRelationships(asset);
+        const relationshipGraphiti = assetGraphitiRelationshipStatus(asset);
+        const improvementTarget = employeeImprovementTarget(asset);
+        const improvementStatus = employeeImprovementApplicationStatus(asset);
+        drawerContent = (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0"><h3 className="truncate text-lg font-semibold">{asset.title}</h3><div className="mt-1 flex flex-wrap gap-1.5"><Badge variant="outline">{asset.kind}</Badge><Badge variant={statusVar(asset.status)}>{asset.status}</Badge></div></div>
+              <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
+            </div>
+            {metaStr(asset, "description") && <p className="text-sm leading-6 text-muted-foreground">{metaStr(asset, "description")}</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => setFullText({ title: asset.title, source: metaStr(asset, "saved_path") || asset.source_ticket || asset.id, content: assetFullText(asset) })}>
+                <FileText className="h-4 w-4" />Open Full Text
+              </Button>
+              {registryId && asset.status === "approved" && (
+                <Button variant="outline" size="sm" disabled={approving || graphiti.status === "ingested"} onClick={() => handleProjectAssetToGraphiti(asset)}>
+                  <Link2 className="h-4 w-4" />Project Graphiti
+                </Button>
+              )}
+              {registryId && asset.status === "approved" && relationships.length > 0 && (
+                <Button variant="outline" size="sm" disabled={approving || relationshipGraphiti.status === "projected"} onClick={() => handleProjectAssetRelationshipsToGraphiti(asset)}>
+                  <Link2 className="h-4 w-4" />Project Relationships
+                </Button>
+              )}
+              {registryId && improvementTarget && asset.status === "approved" && (
+                <Button variant="outline" size="sm" disabled={approving || improvementStatus === "applied"} onClick={() => handleApplyEmployeeImprovement(asset)}>
+                  <Sparkles className="h-4 w-4" />Apply Improvement
+                </Button>
+              )}
+            </div>
+            <div className="rounded-md border bg-muted/30 p-3">
+              <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Provenance</div>
+              <div className="space-y-3"><Status label="Domain" value={assetDomain(asset) || "-"} /><Status label="Source" value={asset.source_ticket || "-"} /><Status label="Employee" value={asset.source_employee || "-"} /><Status label="Updated" value={fmtTime(asset.updated_at)} /></div>
+            </div>
+            {registryId && (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Provider Projection</div>
+                <div className="space-y-3">
+                  <Status label="Asset" value={registryId} />
+                  <Status label="Graphiti" value={graphiti.status || "not projected"} />
+                  <Status label="Episode" value={graphiti.episodeId || "-"} />
+                  <Status label="Relationships" value={`${relationshipGraphiti.projected}/${relationshipGraphiti.total} ${relationshipGraphiti.status}`} />
+                </div>
+                {relationships.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {relationships.slice(0, 4).map((relationship, index) => (
+                      <Badge key={`asset-relationship-${index}`} variant="outline" className="text-[10px]">
+                        {provenanceText(relationship, ["type", "relationship_type"]) || "relationship"}:{provenanceText(relationship, ["target_ref", "target_asset_id"]) || "-"}
+                      </Badge>
+                    ))}
+                    {relationshipGraphiti.relationshipIds.slice(0, 3).map((id) => (
+                      <Badge key={`asset-graphiti-relationship-${id}`} variant="secondary" className="text-[10px]">{id}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {registryId && improvementTarget && (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Employee Improvement</div>
+                <div className="space-y-3">
+                  <Status label="Employee" value={improvementTarget} />
+                  <Status label="Application" value={improvementStatus || "not applied"} />
+                </div>
+              </div>
+            )}
           </div>
-          {metaStr(asset, "description") && <p className="text-sm leading-6 text-muted-foreground">{metaStr(asset, "description")}</p>}
-          <Button variant="outline" size="sm" onClick={() => setFullText({ title: asset.title, source: metaStr(asset, "saved_path") || asset.source_ticket || asset.id, content: assetFullText(asset) })}>
-            <FileText className="h-4 w-4" />Open Full Text
-          </Button>
-          <div className="rounded-md border bg-muted/30 p-3">
-            <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Provenance</div>
-            <div className="space-y-3"><Status label="Domain" value={assetDomain(asset) || "-"} /><Status label="Source" value={asset.source_ticket || "-"} /><Status label="Employee" value={asset.source_employee || "-"} /><Status label="Updated" value={fmtTime(asset.updated_at)} /></div>
-          </div>
-        </div>
-      );
+        );
+      }
     } else if (area === "knowledge") {
       const doc = docs.find((d) => d.id === drawerId);
       const mem = memories.find((m) => m.id === drawerId);
@@ -709,20 +1586,134 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
           <Status label="Updated" value={fmtTime(doc.updated_at)} />
         </div>
       );
-      else if (mem) drawerContent = (
-        <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0"><h3 className="truncate text-lg font-semibold">{mem.scope_kind}:{mem.scope_ref}</h3><p className="truncate text-xs text-muted-foreground">{mem.source_kind}:{mem.source_ref || "-"}</p></div>
-            <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
+      else if (mem) {
+        const usageSummary = memoryUsageSummary(mem);
+        const usageHistory = memoryUsageHistory(mem);
+        const latestUsage = latestMemoryUsage(mem);
+        const latestUsageId = typeof latestUsage?.usage_id === "string" ? latestUsage.usage_id : "";
+        const latestUsefulness = typeof latestUsage?.usefulness_status === "string" ? latestUsage.usefulness_status : "";
+        const relatedTicketIds = memoryRelatedTicketIds(mem);
+        const sourceTicketId = provenanceText(mem.provenance, ["source_ticket_id"]) || (mem.scope_kind === "ticket" ? mem.scope_ref : "");
+        const sourceRunId = provenanceText(mem.provenance, ["source_run_id"]) || provenanceText(asRecord(mem.provenance.usage_summary) ?? {}, ["last_recalled_run_id"]);
+        const sourceReportId = provenanceText(mem.provenance, ["source_report_id"]);
+        const evidenceId = provenanceText(mem.provenance, ["evidence_id"]);
+        const versionHash = provenanceText(mem.provenance, ["version_hash", "content_hash", "hash", "version"]);
+        const providerRefs = provenanceText(mem.provenance, ["provider_refs", "provider_ref"]);
+        drawerContent = (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0"><h3 className="truncate text-lg font-semibold">{mem.scope_kind}:{mem.scope_ref}</h3><p className="truncate text-xs text-muted-foreground">{mem.source_kind}:{mem.source_ref || "-"}</p></div>
+              <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
+            </div>
+            <div className="flex flex-wrap gap-2"><Badge variant={statusVar(mem.status)}>{mem.status}</Badge>{mem.tags.map((t) => <Badge key={t} variant="outline">{t}</Badge>)}</div>
+            <p className="text-sm leading-6">{mem.content}</p>
+            <div className="rounded-md border bg-muted/30 p-3">
+              <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Graphiti Provenance</div>
+              <div className="space-y-2">
+                <ProvenanceRow label="Episode" title={mem.graphiti_episode_id || "-"}>{mem.graphiti_episode_id || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Status" title={graphitiStatusText(mem)}>{graphitiStatusText(mem)}</ProvenanceRow>
+                <ProvenanceRow label="Asset" title={`${mem.id} / ${mem.memory_type}`}>{mem.id} / {mem.memory_type}</ProvenanceRow>
+                <ProvenanceRow label="Scope" title={`${mem.scope_kind}:${mem.scope_ref}`}>{mem.scope_kind}:{mem.scope_ref}</ProvenanceRow>
+                <ProvenanceRow label="Ticket" title={sourceTicketId || "-"}>{sourceTicketId ? (
+                  <button type="button" onClick={() => navigateTo("tickets", sourceTicketId)} className="text-primary hover:underline">{sourceTicketId}</button>
+                ) : "-"}</ProvenanceRow>
+                <ProvenanceRow label="Employee" title={mem.employee_ids.join(", ") || "-"}>{mem.employee_ids.join(", ") || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Run" title={sourceRunId || "-"}>{sourceRunId || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Report" title={sourceReportId || "-"}>{sourceReportId || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Evidence" title={evidenceId || "-"}>{evidenceId || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Version" title={versionHash || "-"}>{versionHash || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Provider" title={providerRefs || "-"}>{providerRefs || "-"}</ProvenanceRow>
+                <ProvenanceRow label="Source" title={`${mem.source_kind}:${mem.source_ref || "-"}`}>{mem.source_kind}:{mem.source_ref || "-"}</ProvenanceRow>
+              </div>
+            </div>
+            {usageSummary && (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Usage</div>
+                <div className="space-y-3">
+                  <Status label="Recall count" value={String(usageSummary.recall_count ?? 0)} />
+                  <Status label="Used" value={String(usageSummary.used_count ?? usageSummary.useful_count ?? 0)} />
+                  <Status label="Irrelevant" value={String(usageSummary.irrelevant_count ?? usageSummary.not_useful_count ?? 0)} />
+                  <Status label="Harmful" value={String(usageSummary.harmful_count ?? 0)} />
+                  <Status label="Promoted" value={String(usageSummary.promoted_count ?? 0)} />
+                  <Status label="Latest status" value={String((usageSummary.last_usefulness_status ?? latestUsefulness) || "-")} />
+                  <Status label="Last recalled" value={fmtTime(typeof usageSummary.last_recalled_at === "string" ? usageSummary.last_recalled_at : "")} />
+                </div>
+              </div>
+            )}
+            {relatedTicketIds.length > 0 && (
+              <div>
+                <h4 className="mb-2 text-sm font-semibold">Related Tickets</h4>
+                <div className="flex flex-wrap gap-2">
+                  {relatedTicketIds.map((ticketId) => (
+                    <button key={ticketId} type="button" onClick={() => navigateTo("tickets", ticketId)}>
+                      <Badge variant="secondary">{ticketId}</Badge>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {usageHistory.length > 0 && (
+              <div>
+                <h4 className="mb-2 text-sm font-semibold">Usage History</h4>
+                <div className="space-y-2">
+                  {usageHistory.slice().reverse().slice(0, 5).map((usage, index) => {
+                    const usageId = typeof usage.usage_id === "string" ? usage.usage_id : `usage-${index + 1}`;
+                    const usageTickets = asStringArray(usage.source_ticket_ids);
+                    const sourceRunId = typeof usage.source_run_id === "string" ? usage.source_run_id : "";
+                    const sourceTracePath = typeof usage.source_trace_path === "string" ? usage.source_trace_path : "";
+                    const usefulnessStatus = typeof usage.usefulness_status === "string" ? usage.usefulness_status : "unreviewed";
+                    return (
+                      <div key={`${usageId}-${index}`} className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-medium text-foreground">{usageId}</span>
+                          <Badge variant={statusVar(usefulnessStatus)} className="text-[10px]">{usefulnessStatus}</Badge>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {usageTickets.map((ticketId) => (
+                            <button key={ticketId} type="button" onClick={() => navigateTo("tickets", ticketId)}>
+                              <Badge variant="outline" className="text-[10px]">{ticketId}</Badge>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="mt-1 space-y-0.5 text-muted-foreground">
+                          <div>Run: {sourceRunId || "-"}</div>
+                          <div>Trace: {sourceTracePath || "-"}</div>
+                          <div>Recalled: {fmtTime(typeof usage.at === "string" ? usage.at : "")}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setFullText({ title: `${mem.scope_kind}:${mem.scope_ref}`, source: `${mem.source_kind}:${mem.source_ref || "-"}`, content: mem.content })}>
+              <FileText className="h-4 w-4" />Open Full Text
+            </Button>
+            {mem.status === "proposed" && <Button size="sm" variant="outline" disabled={approving} onClick={() => handleApprove(mem.id)}><Check className="h-3 w-3" />Approve</Button>}
+            {mem.status === "approved" && (
+              <Button size="sm" variant="outline" disabled={approving} onClick={() => handleReview(mem.id, "stale", "Marked stale from Assets memory detail.")}>
+                <Archive className="h-3 w-3" />Mark Stale
+              </Button>
+            )}
+            {mem.status === "approved" && latestUsageId && latestUsefulness === "unreviewed" && (
+              <>
+                <Button size="sm" variant="outline" disabled={approving} onClick={() => handleUsageReview(mem.id, latestUsageId, "used", "Marked used from Assets memory detail.")}>
+                  <Check className="h-3 w-3" />Mark Used
+                </Button>
+                <Button size="sm" variant="outline" disabled={approving} onClick={() => handleUsageReview(mem.id, latestUsageId, "irrelevant", "Marked irrelevant from Assets memory detail.")}>
+                  <X className="h-3 w-3" />Mark Irrelevant
+                </Button>
+                <Button size="sm" variant="outline" disabled={approving} onClick={() => handleUsageReview(mem.id, latestUsageId, "harmful", "Marked harmful from Assets memory detail.")}>
+                  <Archive className="h-3 w-3" />Mark Harmful
+                </Button>
+                <Button size="sm" variant="outline" disabled={approving} onClick={() => handleUsageReview(mem.id, latestUsageId, "promoted", "Promoted from Assets memory detail.")}>
+                  <Check className="h-3 w-3" />Promote
+                </Button>
+              </>
+            )}
           </div>
-          <div className="flex flex-wrap gap-2"><Badge variant={statusVar(mem.status)}>{mem.status}</Badge>{mem.tags.map((t) => <Badge key={t} variant="outline">{t}</Badge>)}</div>
-          <p className="text-sm leading-6">{mem.content}</p>
-          <Button variant="outline" size="sm" onClick={() => setFullText({ title: `${mem.scope_kind}:${mem.scope_ref}`, source: `${mem.source_kind}:${mem.source_ref || "-"}`, content: mem.content })}>
-            <FileText className="h-4 w-4" />Open Full Text
-          </Button>
-          {mem.status === "proposed" && <Button size="sm" variant="outline" disabled={approving} onClick={() => handleApprove(mem.id)}><Check className="h-3 w-3" />Approve</Button>}
-        </div>
-      );
+        );
+      }
       else if (dec) drawerContent = (
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-3">
@@ -745,7 +1736,21 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
             <div className="min-w-0"><h3 className="truncate text-lg font-semibold">{skill.title}</h3><p className="truncate text-xs text-muted-foreground">{skill.id}</p></div>
             <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
           </div>
-          <div className="space-y-3"><Status label="Employees" value={skill.assigned_employees.length} /><Status label="Files" value={skill.resources.length + 1} /></div>
+          <div className="space-y-3">
+            <Status label="Uses" value={skill.usage_count ?? 0} />
+            <Status label="Last used" value={fmtTime(skill.last_used_at)} />
+            <Status label="Last employee" value={skill.last_used_by_employee_id || "-"} />
+            <Status label="Latest ticket" value={skill.last_used_ticket_id || "-"} />
+            <Status label="Employees" value={skill.assigned_employees.length} />
+            <Status label="Files" value={skill.resources.length + 1} />
+          </div>
+          {Object.keys(asRecord(skill.usefulness_stats) ?? {}).length > 0 && (
+            <div><h4 className="mb-2 text-sm font-semibold">Usefulness</h4><div className="flex flex-wrap gap-2">
+              {Object.entries(asRecord(skill.usefulness_stats) ?? {}).map(([status, count]) => (
+                <Badge key={status} variant="outline">{status}: {String(count)}</Badge>
+              ))}
+            </div></div>
+          )}
           <div><h4 className="mb-2 text-sm font-semibold">Description</h4><p className="text-sm leading-6 text-muted-foreground">{skill.description || "No description configured."}</p></div>
           <Button variant="outline" size="sm" onClick={() => setFullText({ title: skill.title, source: skill.saved_path, content: skill.content || skill.description || "No SKILL.md content available." })}>
             <FileText className="h-4 w-4" />Open SKILL.md
@@ -782,27 +1787,253 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
           <Button variant="outline" size="sm" onClick={() => setFullText({ title: item.title, source: item.source_ref, content: reviewText(item) })}>
             <FileText className="h-4 w-4" />Open Full Text
           </Button>
-          {item.kind === "memory" && item.status === "proposed" && <Button size="sm" variant="outline" disabled={approving} onClick={() => handleApprove(item.id)}><Check className="h-3 w-3" />Approve</Button>}
+          {item.kind === "memory" && item.status === "proposed" && (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" disabled={approving} onClick={() => handleApprove(item.id)}><Check className="h-3 w-3" />Approve</Button>
+              <Button size="sm" variant="outline" disabled={approving} onClick={() => handleReview(item.id, "rejected", "Rejected from Assets review queue.")}><X className="h-3 w-3" />Reject</Button>
+            </div>
+          )}
         </div>
       );
+      else {
+        const assetCandidate = assetCandidates.find((candidate) => assetCandidateDrawerId(candidate) === drawerId);
+        if (assetCandidate) {
+          drawerContent = (
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="truncate text-lg font-semibold">{assetCandidateTitle(assetCandidate)}</h3>
+                  <p className="truncate text-xs text-muted-foreground">asset candidate · {assetCandidate.id}</p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
+              </div>
+              <div className="space-y-3">
+                <Status label="Status" value={assetCandidate.status} />
+                <Status label="Review state" value={assetCandidate.review_state} />
+                <Status label="Asset type" value={assetCandidate.asset_type} />
+                <Status label="Scope" value={`${assetCandidate.scope_kind}:${assetCandidate.scope_ref}`} />
+                <Status label="Owner" value={assetCandidate.owner_employee_id || "-"} />
+                <Status label="Source" value={`${assetCandidate.source_kind}:${assetCandidate.source_ref || "-"}`} />
+              </div>
+              <ToolCallCandidateDetails item={assetCandidate} />
+              <div><h4 className="mb-2 text-sm font-semibold">Content</h4><p className="whitespace-pre-wrap text-sm leading-6">{assetCandidate.content || "-"}</p></div>
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Provenance</div>
+                <pre className="max-h-48 overflow-auto text-xs leading-5">{prettyJson(assetCandidate.provenance) || "-"}</pre>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setFullText({ title: assetCandidateTitle(assetCandidate), source: assetCandidate.id, content: assetCandidateText(assetCandidate) })}>
+                <FileText className="h-4 w-4" />Open Full Text
+              </Button>
+              {assetCandidate.status === "proposed" && (
+                <>
+                  <div className="grid gap-3 rounded-md border bg-muted/30 p-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
+                    <label className="grid gap-1.5 text-xs font-medium uppercase text-muted-foreground">
+                      Target Asset ID
+                      <Input
+                        aria-label="Target Asset ID"
+                        value={assetReviewTargetId}
+                        onChange={(event) => setAssetReviewTargetId(event.target.value)}
+                        placeholder="asset-id"
+                      />
+                    </label>
+                    <label className="grid gap-1.5 text-xs font-medium uppercase text-muted-foreground">
+                      Relationship
+                      <Select
+                        aria-label="Relationship type"
+                        value={assetReviewRelationshipType}
+                        onChange={(event) => setAssetReviewRelationshipType(event.target.value)}
+                      >
+                        <option value="derived_from">derived_from</option>
+                        <option value="supersedes">supersedes</option>
+                        <option value="conflicts_with">conflicts_with</option>
+                        <option value="used_by">used_by</option>
+                        <option value="validated_by">validated_by</option>
+                      </Select>
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={approving}
+                      onClick={() => handleAssetCandidateReview(assetCandidate, "approved", {
+                        targetAssetId: assetReviewTargetId,
+                        relationshipType: assetReviewRelationshipType,
+                      })}
+                    >
+                      <Check className="h-3 w-3" />Approve
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={approving || !assetReviewTargetId.trim()} onClick={() => handleAssetCandidateReview(assetCandidate, "linked", { targetAssetId: assetReviewTargetId })}>
+                      <Link2 className="h-3 w-3" />Link
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={approving || !assetReviewTargetId.trim()} onClick={() => handleAssetCandidateReview(assetCandidate, "merged", { targetAssetId: assetReviewTargetId })}>
+                      <Layers3 className="h-3 w-3" />Merge
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={approving} onClick={() => handleAssetCandidateReview(assetCandidate, "rejected")}><X className="h-3 w-3" />Reject</Button>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        } else {
+        const approval = runtimeApprovals.find((candidate) => runtimeApprovalDrawerId(candidate) === drawerId);
+        if (approval) {
+          const lastResult = runtimeApprovalLastResultDetail(approval);
+          const result = asRecord(approval.last_result);
+          const lastRunReport = typeof result?.report === "string" ? result.report : "";
+          const runHistory = runtimeApprovalRunHistory(approval);
+          drawerContent = (
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="truncate text-lg font-semibold">{runtimeApprovalTitle(approval)}</h3>
+                  <p className="truncate text-xs text-muted-foreground">runtime approval · {approval.executor_id} · {approval.id}</p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
+              </div>
+              <div className="space-y-3">
+                <Status label="Status" value={approval.status} />
+                <Status label="Executor" value={approval.executor_id || "-"} />
+                <Status label="Capability" value={approval.required_capability || "-"} />
+                <Status label="Ticket" value={approval.ticket_id || "-"} />
+                <Status label="Employee" value={approval.employee_id || "-"} />
+                <Status label="Updated" value={fmtTime(approval.updated_at)} />
+                {approval.reviewed_at && <Status label="Reviewed" value={`${fmtTime(approval.reviewed_at)} by ${approval.reviewer_employee_id || "-"}`} />}
+                {approval.last_run_request_id && <Status label="Last run" value={`${approval.last_run_request_id} (${approval.last_run_status || "-"})`} />}
+                {approval.last_ingestion_blocker && <Status label="Ingestion blocker" value={approval.last_ingestion_blocker} />}
+              </div>
+              <div><h4 className="mb-2 text-sm font-semibold">Reason</h4><p className="whitespace-pre-wrap text-sm leading-6">{approval.reason || "-"}</p></div>
+              {approval.review_reason && <div><h4 className="mb-2 text-sm font-semibold">Review Reason</h4><p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{approval.review_reason}</p></div>}
+              {lastRunReport && <div><h4 className="mb-2 text-sm font-semibold">Last Result</h4><p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{lastRunReport}</p></div>}
+              {lastResult && !lastRunReport && <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">{lastResult}</div>}
+              {runHistory.length > 0 && (
+                <div>
+                  <h4 className="mb-2 text-sm font-semibold">Run History</h4>
+                  <div className="space-y-2">
+                    {runHistory.map((entry, index) => {
+                      const runRequestId = String(entry.run_request_id ?? `attempt-${index + 1}`);
+                      const traceRef = String(entry.trace_ref ?? "");
+                      const blocker = typeof entry.ingestion_blocker === "string" ? entry.ingestion_blocker : "";
+                      return (
+                        <div key={`${runRequestId}-${index}`} className="rounded-md border bg-muted/30 p-3 text-xs">
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <div className="min-w-0 font-medium">
+                              <span className="text-muted-foreground">Attempt {index + 1}</span>
+                              <span className="ml-2 break-all text-foreground">{runRequestId}</span>
+                            </div>
+                            <Badge variant={statusVar(String(entry.status ?? ""))}>{String(entry.status ?? "-")}</Badge>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <Status label="Ingested" value={String(entry.ingested ?? "-")} />
+                            <Status label="Trace" value={traceRef || "-"} />
+                            <Status label="Artifacts" value={String(entry.artifact_count ?? 0)} />
+                            <Status label="Evidence" value={String(entry.evidence_count ?? 0)} />
+                            <Status label="Errors" value={String(entry.error_count ?? 0)} />
+                            <Status label="Capabilities" value={asStringArray(entry.approved_capabilities).join(", ") || "-"} />
+                          </div>
+                          {blocker && <div className="mt-2 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-destructive">Ingestion blocker: {blocker}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Approval Request</div>
+                <pre className="max-h-48 overflow-auto text-xs leading-5">{prettyJson(approval.approval_request) || "-"}</pre>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setFullText({ title: runtimeApprovalTitle(approval), source: approval.id, content: runtimeApprovalText(approval) })}>
+                <FileText className="h-4 w-4" />Open Full Text
+              </Button>
+              {approval.status === "requested" && (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" disabled={approving} onClick={() => handleRuntimeApprovalReview(approval, "approved")}><Check className="h-3 w-3" />Approve</Button>
+                  <Button size="sm" variant="outline" disabled={approving} onClick={() => handleRuntimeApprovalReview(approval, "rejected")}><X className="h-3 w-3" />Reject</Button>
+                </div>
+              )}
+              {approval.status === "approved" && (
+                <Button size="sm" variant="outline" disabled={approving} onClick={() => handleRuntimeApprovalRun(approval)}><Check className="h-3 w-3" />Run</Button>
+              )}
+            </div>
+          );
+        }
+        }
+      }
     } else {
       const asset = allAssets.find((a) => a.id === drawerId);
-      if (asset) drawerContent = (
-        <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0"><h3 className="truncate text-lg font-semibold">{asset.title}</h3><div className="mt-1 flex flex-wrap gap-1.5"><Badge variant="outline">{asset.kind}</Badge><Badge variant={statusVar(asset.status)}>{asset.status}</Badge></div></div>
-            <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
+      if (asset) {
+        const registryId = assetRegistryId(asset);
+        const graphiti = assetGraphitiStatus(asset);
+        const relationships = assetRelationships(asset);
+        const relationshipGraphiti = assetGraphitiRelationshipStatus(asset);
+        const improvementTarget = employeeImprovementTarget(asset);
+        const improvementStatus = employeeImprovementApplicationStatus(asset);
+        drawerContent = (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0"><h3 className="truncate text-lg font-semibold">{asset.title}</h3><div className="mt-1 flex flex-wrap gap-1.5"><Badge variant="outline">{asset.kind}</Badge><Badge variant={statusVar(asset.status)}>{asset.status}</Badge></div></div>
+              <Button variant="ghost" size="icon" onClick={() => setDrawerId("")}><X className="h-4 w-4" /></Button>
+            </div>
+            {metaStr(asset, "description") && <p className="text-sm leading-6 text-muted-foreground">{metaStr(asset, "description")}</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => setFullText({ title: asset.title, source: metaStr(asset, "saved_path") || asset.source_ticket || asset.id, content: assetFullText(asset) })}>
+                <FileText className="h-4 w-4" />Open Full Text
+              </Button>
+              {registryId && asset.status === "approved" && (
+                <Button variant="outline" size="sm" disabled={approving || graphiti.status === "ingested"} onClick={() => handleProjectAssetToGraphiti(asset)}>
+                  <Link2 className="h-4 w-4" />Project Graphiti
+                </Button>
+              )}
+              {registryId && asset.status === "approved" && relationships.length > 0 && (
+                <Button variant="outline" size="sm" disabled={approving || relationshipGraphiti.status === "projected"} onClick={() => handleProjectAssetRelationshipsToGraphiti(asset)}>
+                  <Link2 className="h-4 w-4" />Project Relationships
+                </Button>
+              )}
+              {registryId && improvementTarget && asset.status === "approved" && (
+                <Button variant="outline" size="sm" disabled={approving || improvementStatus === "applied"} onClick={() => handleApplyEmployeeImprovement(asset)}>
+                  <Sparkles className="h-4 w-4" />Apply Improvement
+                </Button>
+              )}
+            </div>
+            <div className="rounded-md border bg-muted/30 p-3">
+              <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Provenance</div>
+              <div className="space-y-3"><Status label="Domain" value={assetDomain(asset) || "-"} /><Status label="Source" value={asset.source_ticket || "-"} /><Status label="Employee" value={asset.source_employee || "-"} /><Status label="Updated" value={fmtTime(asset.updated_at)} /></div>
+            </div>
+            {registryId && (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Provider Projection</div>
+                <div className="space-y-3">
+                  <Status label="Asset" value={registryId} />
+                  <Status label="Graphiti" value={graphiti.status || "not projected"} />
+                  <Status label="Episode" value={graphiti.episodeId || "-"} />
+                  <Status label="Relationships" value={`${relationshipGraphiti.projected}/${relationshipGraphiti.total} ${relationshipGraphiti.status}`} />
+                </div>
+                {relationships.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {relationships.slice(0, 4).map((relationship, index) => (
+                      <Badge key={`asset-relationship-${index}`} variant="outline" className="text-[10px]">
+                        {provenanceText(relationship, ["type", "relationship_type"]) || "relationship"}:{provenanceText(relationship, ["target_ref", "target_asset_id"]) || "-"}
+                      </Badge>
+                    ))}
+                    {relationshipGraphiti.relationshipIds.slice(0, 3).map((id) => (
+                      <Badge key={`asset-graphiti-relationship-${id}`} variant="secondary" className="text-[10px]">{id}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {registryId && improvementTarget && (
+              <div className="rounded-md border bg-muted/30 p-3">
+                <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Employee Improvement</div>
+                <div className="space-y-3">
+                  <Status label="Employee" value={improvementTarget} />
+                  <Status label="Application" value={improvementStatus || "not applied"} />
+                </div>
+              </div>
+            )}
           </div>
-          {metaStr(asset, "description") && <p className="text-sm leading-6 text-muted-foreground">{metaStr(asset, "description")}</p>}
-          <Button variant="outline" size="sm" onClick={() => setFullText({ title: asset.title, source: metaStr(asset, "saved_path") || asset.source_ticket || asset.id, content: assetFullText(asset) })}>
-            <FileText className="h-4 w-4" />Open Full Text
-          </Button>
-          <div className="rounded-md border bg-muted/30 p-3">
-            <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">Provenance</div>
-            <div className="space-y-3"><Status label="Domain" value={assetDomain(asset) || "-"} /><Status label="Source" value={asset.source_ticket || "-"} /><Status label="Employee" value={asset.source_employee || "-"} /><Status label="Updated" value={fmtTime(asset.updated_at)} /></div>
-          </div>
-        </div>
-      );
+        );
+      }
     }
   }
 
@@ -828,7 +2059,7 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
       </section>
     );
   } else if (!area) {
-    mainContent = <AssetOverview allAssets={allAssets} knowledgeStatus={knowledgeStatus} reviewItems={reviewItems} skills={skills} capRegistry={capRegistry} />;
+    mainContent = <AssetOverview allAssets={allAssets} assetCandidates={assetCandidates} knowledgeStatus={knowledgeStatus} reviewItems={reviewItems} runtimeApprovals={runtimeApprovals} skills={skills} capRegistry={capRegistry} planV8Artifacts={planV8Artifacts} />;
   } else if (area === "knowledge") {
     mainContent = (
       <section className="rounded-md border bg-background">
@@ -853,7 +2084,20 @@ export function AssetsPage({ selectedArea, selectedDetail }: { selectedArea?: st
   } else if (area === "review") {
     mainContent = (
       <section className="rounded-md border bg-background">
-        <ReviewQueueList items={reviewItems} selectedId={drawerId} onSelect={setDrawerId} onApprove={handleApprove} approving={approving} tab={rTab} />
+        <ReviewQueueList
+          assetCandidates={assetCandidates}
+          items={reviewItems}
+          runtimeApprovals={runtimeApprovals}
+          selectedId={drawerId}
+          onSelect={setDrawerId}
+          onApprove={handleApprove}
+          onAssetCandidateReview={handleAssetCandidateReview}
+          onAssetCandidateBatchReview={handleAssetCandidateBatchReview}
+          onRuntimeReview={handleRuntimeApprovalReview}
+          onRuntimeRun={handleRuntimeApprovalRun}
+          approving={approving}
+          tab={rTab}
+        />
       </section>
     );
   } else {

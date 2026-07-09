@@ -10,6 +10,13 @@ export interface CapabilityRecord {
   status: string;
   enabled: boolean;
   configured: boolean;
+  access: string;
+  destructive: boolean;
+  required_approval: string[];
+  provider: string;
+  schema: Record<string, unknown>;
+  output_asset_policy: Record<string, unknown>;
+  operation_policies: Record<string, Record<string, unknown>>;
   description: string;
   owner_scope: string;
   permissions: string[];

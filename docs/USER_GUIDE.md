@@ -14,6 +14,8 @@ http://localhost:5173
 
 Use Chat first. Clara is the default manager and can create Tickets, route work, ask Employees for reports, request validation, and summarize the current state.
 
+AITeamOS always calls the work object `Ticket`. Plane may use provider-native wording in external links or sync metadata, but inside AITeamOS the object remains a Ticket.
+
 ## 2. Navigation
 
 ```text
@@ -46,7 +48,7 @@ AI Engines
 Tool Connectors
 Code Repositories
 Ticket Backend
-Memory Backend
+Memory / Asset Graph Backend
 ```
 
 ## 3. Chat
@@ -60,6 +62,8 @@ Typical flow:
 3. The Employee reports progress or evidence.
 4. Clara requests PV validation when needed.
 5. Clara summarizes the result for the human.
+
+Ask Clara what AITeamOS learned from recent self-bootstrap runs to get a Kernel-fact summary of produced candidates, approved/recalled assets, useful Graphiti recalls, missing evidence, and the next batch action.
 
 Chat records:
 
@@ -78,12 +82,15 @@ Tickets are the accountability ledger.
 
 Use Tickets to inspect:
 
-- local Ticket records
+- Plane-backed Ticket records
 - status
 - assignee and validator
 - reports
 - evidence
+- evidence requirement checklist
 - event timeline
+- grouped Ticket Asset Graph edges
+- contribution and quality signals
 - backend status
 
 Ticket ids are namespaced. Examples:
@@ -96,6 +103,8 @@ Only matching roles can create their namespace. Clara can create all namespaces.
 
 Normal active Tickets have an assignee. If ownership changes, the assignee change is the work handoff.
 
+Docs, frontend, backend, integration, and model/prompt change Tickets must carry evidence before a validation pass can mark them validated. Failed validation records move the Ticket into a blocked rework path.
+
 ## 5. Employees
 
 Employees are workforce records.
@@ -106,6 +115,7 @@ Employee detail tabs:
 
 - Overview: mission, current focus, identity boundary, communication signal, high-level metrics.
 - Work Ledger: current Tickets, historical Tickets, reports, PV validations, blocked records, handoffs.
+- Analytics: assigned Tickets, completed Tickets, validation pass rate, produced candidates, recalled assets, and source counts.
 - Capabilities: assigned Skills, Kernel Commands, MCP Tools, other tool sources.
 - Governance: knowledge scope, project access, permissions, connector visibility.
 - AI Engine: effective engine, profile default, Settings active engine, default engine edit field.
@@ -119,6 +129,8 @@ Assets is the unified asset entry.
 Use the top search box to search across assets. Use the first-level tabs for Knowledge, Capabilities, and Review Queue.
 
 Selecting an asset opens a right-side detail panel. For docs, skills, review items, reports, and evidence, use the full-text action to open a read-only text dialog.
+
+Approved Memory details show recall usage history and related Tickets when that provenance is available.
 
 When you switch asset tabs, stale details close automatically.
 
@@ -144,17 +156,20 @@ Code Repositories:
 
 - add local or remote repository records
 - configure source kind, path or URL, branch, and enabled state
-- P0 local repo inspection can attach evidence to Ticket reports
+- local repository inspection can attach evidence to Ticket reports
 
 Ticket Backend:
 
-- select local file backend for 1.0
-- view planned Plane and Jira backend options
+- configure Plane as the Ticket Backend
+- map Plane provider-native records into AITeamOS Tickets
+- keep Plane configuration under Ticket Backend, not Tool Connectors
 
-Memory Backend:
+Memory / Asset Graph Backend:
 
-- configure local and Graphiti / Neo4j settings
+- configure Graphiti / Neo4j settings
 - select Graphiti LLM from compatible AI Engines
+- use Graphiti as the persistent asset knowledge graph projection for approved Memories, accepted Decisions, Docs, Skills, Capabilities, Tooling facts, validated Ticket summaries, and durable Employee facts
+- keep temporary traces, raw logs, approval state, permissions, and secrets in AITeamOS instead of Graphiti
 
 ## 8. System Status
 
@@ -193,7 +208,6 @@ Review assets:
 
 ## 10. Limits In 1.0
 
-- Graphiti-backed Memory is configured but not yet the default operating loop.
-- External Ticket Backends are modeled but local file is the implemented 1.0 backend.
+- Plane and Graphiti are required base integrations for the target 1.0 operating loop.
 - Agent platform engines are catalogued as planned unless a concrete adapter is implemented.
-- Remote repository records are configurable; local inspection is the implemented P0 evidence path.
+- Remote repository records are configurable; local inspection is the implemented evidence path.

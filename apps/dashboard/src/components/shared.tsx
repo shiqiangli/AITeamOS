@@ -264,6 +264,14 @@ export const NAV_ITEMS: NavItem[] = [
   },
   { key: "employees", label: "Employees", icon: Users },
   {
+    key: "runtime",
+    label: "Runtime",
+    icon: Activity,
+    children: [
+      { key: "sessions", label: "Replay" },
+    ],
+  },
+  {
     key: "assets",
     label: "Assets",
     icon: Archive,
@@ -279,6 +287,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Settings,
     children: [
       { key: "ai-engines", label: "AI Engines" },
+      { key: "runtime-executors", label: "Runtime Executors" },
       { key: "tool-connectors", label: "Tool Connectors" },
       { key: "code-repositories", label: "Code Repositories" },
       { key: "ticket-backend", label: "Ticket Backend" },

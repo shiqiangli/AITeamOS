@@ -1,0 +1,10 @@
+{
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "aiteamos_workbench": "./services/api/aiteamos_api/agents/aiteamos_workbench_graph.py:graph",
+    "aiteamos_workbench_approval_fixture": "./services/api/aiteamos_api/agents/workbench/approval_fixture_graph.py:approval_fixture_graph"
+  },
+  "env": ".env"
+}

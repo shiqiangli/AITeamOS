@@ -1,0 +1,98 @@
+{
+  "checks": [
+    {
+      "actual": "ingested",
+      "expected": "ingested",
+      "name": "relationship.status",
+      "passed": true
+    },
+    {
+      "actual": 1,
+      "expected": 1,
+      "name": "relationship.ingested_count",
+      "passed": true
+    },
+    {
+      "actual": "skipped",
+      "expected": "skipped",
+      "name": "relationship.repeated_status",
+      "passed": true
+    },
+    {
+      "actual": 1,
+      "expected": 1,
+      "name": "relationship.skipped_count",
+      "passed": true
+    },
+    {
+      "actual": "asset-relationship-supersedes-asset-provenance-new-guidance-asset-provenance-old-guidance-921e2f4005be",
+      "expected": "present",
+      "name": "relationship.id",
+      "passed": true
+    },
+    {
+      "actual": [
+        "durable_asset_relationship"
+      ],
+      "expected": "durable_asset_relationship",
+      "name": "relationship.search_results",
+      "passed": true
+    },
+    {
+      "actual": 1,
+      "expected": 1,
+      "name": "asset_record.graphiti_relationship_count",
+      "passed": true
+    },
+    {
+      "actual": [
+        "mem-feac7d5de79a",
+        "graphiti-mem-feac7d5de79a"
+      ],
+      "expected": "mem-feac7d5de79a",
+      "name": "stale.before_ids",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "expected": "absent:mem-feac7d5de79a",
+      "name": "stale.after_active_ids",
+      "passed": true
+    },
+    {
+      "actual": [
+        "mem-feac7d5de79a"
+      ],
+      "expected": "mem-feac7d5de79a",
+      "name": "stale.after_excluded_ids",
+      "passed": true
+    },
+    {
+      "actual": "stale",
+      "expected": "stale",
+      "name": "stale.status",
+      "passed": true
+    }
+  ],
+  "generated_at": "2026-06-23T04:33:46.082141+00:00",
+  "schema": "aiteamos.asset_provenance_eval_smoke.v1",
+  "status": "passed",
+  "summary": {
+    "asset_record_graphiti_relationship_count": 1,
+    "relationship_id": "asset-relationship-supersedes-asset-provenance-new-guidance-asset-provenance-old-guidance-921e2f4005be",
+    "relationship_ingested_count": 1,
+    "relationship_projection_status": "ingested",
+    "relationship_repeated_status": "skipped",
+    "relationship_search_result_count": 1,
+    "relationship_skipped_count": 1,
+    "source_asset_id": "asset-provenance-new-guidance",
+    "stale_active_filtered": true,
+    "stale_after_active_count": 0,
+    "stale_after_excluded_count": 1,
+    "stale_before_result_count": 2,
+    "stale_memory_id": "mem-feac7d5de79a",
+    "stale_review_status": "stale",
+    "target_asset_id": "asset-provenance-old-guidance"
+  },
+  "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+}

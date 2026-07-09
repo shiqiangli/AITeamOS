@@ -1,0 +1,75 @@
+[
+  {
+    "asset_type": "solution",
+    "content": "Old runtime guidance: retry provider work without checking stale Asset relationships.",
+    "content_ref": "",
+    "created_at": "2026-06-21T03:51:35.967457+00:00",
+    "id": "asset-provenance-old-guidance",
+    "owner_employee_id": "alex",
+    "provenance": {
+      "evidence_id": "evidence-asset-provenance-old",
+      "source_employee_id": "alex",
+      "source_report_id": "report-asset-provenance-old",
+      "source_run_id": "run-asset-provenance-old",
+      "source_ticket_id": "rd-asset-provenance"
+    },
+    "provider": "local_file",
+    "provider_ref": "",
+    "relationships": [],
+    "review_state": "approved",
+    "scope_kind": "ticket",
+    "scope_ref": "rd-asset-provenance",
+    "source_kind": "ticket_report",
+    "source_ref": "report-asset-provenance-old",
+    "status": "approved",
+    "title": "Old runtime guidance",
+    "updated_at": "2026-06-21T03:51:35.967457+00:00",
+    "usefulness_stats": {}
+  },
+  {
+    "asset_type": "solution",
+    "content": "New runtime guidance supersedes the old provider retry guidance with governed stale cleanup.",
+    "content_ref": "",
+    "created_at": "2026-06-21T03:51:35.967457+00:00",
+    "id": "asset-provenance-new-guidance",
+    "owner_employee_id": "alex",
+    "provenance": {
+      "evidence_id": "evidence-asset-provenance-new",
+      "graphiti_relationships": [
+        {
+          "episode_id": "episode-asset-relationship-supersedes-asset-provenance-new-guidance-asset-provenance-old-guidance-921e2f4005be",
+          "projected_at": "2026-06-21T03:51:35.970940+00:00",
+          "relationship_id": "asset-relationship-supersedes-asset-provenance-new-guidance-asset-provenance-old-guidance-921e2f4005be",
+          "relationship_type": "",
+          "source_asset_id": "asset-provenance-new-guidance",
+          "status": "skipped",
+          "target_asset_id": ""
+        }
+      ],
+      "graphiti_relationships_projected_at": "2026-06-21T03:51:35.970940+00:00",
+      "source_employee_id": "alex",
+      "source_report_id": "report-asset-provenance-new",
+      "source_run_id": "run-asset-provenance-new",
+      "source_ticket_id": "rd-asset-provenance"
+    },
+    "provider": "local_file",
+    "provider_ref": "",
+    "relationships": [
+      {
+        "confidence": 0.94,
+        "reason": "New guidance replaces older provider retry guidance.",
+        "target_asset_id": "asset-provenance-old-guidance",
+        "type": "supersedes"
+      }
+    ],
+    "review_state": "approved",
+    "scope_kind": "ticket",
+    "scope_ref": "rd-asset-provenance",
+    "source_kind": "ticket_report",
+    "source_ref": "report-asset-provenance-new",
+    "status": "approved",
+    "title": "New runtime guidance",
+    "updated_at": "2026-06-21T03:51:35.970940+00:00",
+    "usefulness_stats": {}
+  }
+]

@@ -1,28 +1,42 @@
-"""Graphiti-backed memory service with a local audit mirror.
+"""Graphiti-backed memory and persistent asset graph service.
 
-AITeamOS treats Graphiti as the long-term memory backend, while keeping local
-JSON files as the review queue, provenance record, and offline recall mirror.
+AITeamOS treats Graphiti as a durable asset knowledge graph projection, while
+keeping local JSON files as the review queue, approval source, provenance
+record, and ingestion audit mirror. The current implementation starts with
+approved memories; broader durable asset projection is the next extension.
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import inspect
 import json
+import math
 import os
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import yaml
 from pydantic import BaseModel, Field
 
+from .asset_candidate_service import upsert_asset_candidate_from_memory_candidate
 from .ai_engine_catalog import AI_ENGINE_CATALOG, GRAPHITI_AI_ENGINE_IDS
+from .ai_engine_runtime_config import AiEngineRuntimeConfig
+from .langchain_model_provider import LangChainModelProvider
 
 try:  # Optional so local development works before Neo4j is configured.
+    from graphiti_core.cross_encoder.client import CrossEncoderClient
+    from graphiti_core.embedder.client import EmbedderClient
     from graphiti_core import Graphiti
     from graphiti_core.nodes import EpisodeType
 except ImportError:  # pragma: no cover - depends on optional environment install.
+    CrossEncoderClient = object  # type: ignore[assignment]
+    EmbedderClient = object  # type: ignore[assignment]
     Graphiti = None  # type: ignore[assignment]
     EpisodeType = None  # type: ignore[assignment]
 
@@ -33,6 +47,107 @@ _MEMORY_SIGNAL_RE = re.compile(
     r"principle|coding style|architecture|postmortem|regression)\b",
     re.IGNORECASE,
 )
+
+GRAPHITI_EPISODE_SCHEMA_VERSION = "aiteamos.graphiti.episode.v1"
+GRAPHITI_MINIMAL_PROVENANCE_FIELDS = (
+    "asset_id",
+    "asset_type",
+    "asset_status",
+    "source_ticket_id",
+    "source_employee_id",
+    "source_run_id",
+    "source_report_id",
+    "evidence_id",
+    "scope",
+    "version",
+    "content_hash",
+    "provider_refs",
+    "source_ref",
+)
+GRAPHITI_NEO4J_PASSWORD_ENV_VARS = (
+    "AITEAMOS_GRAPHITI_PASSWORD",
+    "NEO4J_PASSWORD",
+    "AITEAMOS_NEO4J_PASSWORD",
+)
+GRAPHITI_NEO4J_PASSWORD_SETUP_LABEL = "AITEAMOS_GRAPHITI_PASSWORD, NEO4J_PASSWORD, or AITEAMOS_NEO4J_PASSWORD"
+RECALLABLE_MEMORY_STATUSES = {"approved"}
+RECALLABLE_DURABLE_ASSET_STATUSES = {"approved", "accepted", "validated"}
+MEMORY_REVIEW_STATUSES = {"rejected", "stale", "superseded"}
+MEMORY_RECALL_USEFULNESS_STATUSES = {"unreviewed", "used", "irrelevant", "harmful", "promoted"}
+MEMORY_RECALL_USEFULNESS_ALIASES = {
+    "useful": "used",
+    "not_useful": "irrelevant",
+    "not-useful": "irrelevant",
+    "not useful": "irrelevant",
+    "neutral": "used",
+    "promote": "promoted",
+}
+_DURABLE_TICKET_STATUSES = {"validated", "completed", "done", "closed"}
+_DURABLE_VALIDATION_REPORT_TYPES = {"validation", "validation_passed", "validation_pass", "passed"}
+_ACCEPTED_DECISION_STATUSES = {"accepted"}
+_NON_DURABLE_REPORT_TYPES = {
+    "validation_failed",
+    "validation_rejected",
+    "failed",
+    "failure",
+    "blocked",
+    "human_review",
+    "human_review_requested",
+    "request_human_review",
+    "ticket_closeout_candidates",
+    "ticket_closeout_blocked",
+}
+_DURABLE_ASSET_RELATIONSHIP_TYPES = {
+    "supersedes",
+    "conflicts_with",
+    "derived_from",
+    "used_by",
+    "validated_by",
+}
+
+
+class _AiteamosLocalEmbedder(EmbedderClient):  # type: ignore[misc, valid-type]
+    """Deterministic local embeddings for self-hosted Graphiti bootstrap."""
+
+    def __init__(self, dimension: int = 1024):
+        self.dimension = dimension
+
+    def _embed(self, value: str) -> list[float]:
+        vector = [0.0] * self.dimension
+        tokens = re.findall(r"[\w:-]+", value.lower())
+        for token in tokens or [value.lower()]:
+            digest = hashlib.sha256(token.encode("utf-8")).digest()
+            index = int.from_bytes(digest[:4], "big") % self.dimension
+            sign = 1.0 if digest[4] % 2 == 0 else -1.0
+            vector[index] += sign
+        norm = math.sqrt(sum(item * item for item in vector)) or 1.0
+        return [item / norm for item in vector]
+
+    async def create(self, input_data: Any) -> list[float]:
+        if isinstance(input_data, list):
+            text = " ".join(str(item) for item in input_data)
+        else:
+            text = str(input_data)
+        return self._embed(text)
+
+    async def create_batch(self, input_data_list: list[str]) -> list[list[float]]:
+        return [self._embed(item) for item in input_data_list]
+
+
+class _AiteamosLocalCrossEncoder(CrossEncoderClient):  # type: ignore[misc, valid-type]
+    async def rank(self, query: str, passages: list[str]) -> list[tuple[str, float]]:
+        if not passages:
+            return []
+        query_terms = set(re.findall(r"[\w:-]+", query.lower()))
+        ranked: list[tuple[str, float]] = []
+        for passage in passages:
+            passage_terms = set(re.findall(r"[\w:-]+", passage.lower()))
+            overlap = len(query_terms & passage_terms)
+            score = overlap / max(len(query_terms), 1)
+            if query.lower() in passage.lower():
+                score += 1.0
+            ranked.append((passage, score))
+        return sorted(ranked, key=lambda item: item[1], reverse=True)
 
 
 def _graphiti_package() -> tuple[Any, Any]:
@@ -65,6 +180,9 @@ class GraphitiBackendStatus(BaseModel):
     llm_ai_engine: str = "openai"
     llm_ai_engine_name: str = "ChatGPT / OpenAI API"
     llm_api_key_env: str = "OPENAI_API_KEY"
+    password_env: str = ""
+    password_env_conflict: bool = False
+    password_env_conflict_detail: str = ""
     password_configured: bool = False
     llm_api_key_configured: bool = False
 
@@ -126,6 +244,169 @@ class MemoryCandidateCreateRequest(BaseModel):
     provenance: dict[str, Any] = Field(default_factory=dict)
 
 
+class MemoryCandidateReviewRequest(BaseModel):
+    status: str = Field(min_length=1)
+    reason: str = ""
+    actor_employee_id: str = "clara"
+    superseded_by_candidate_id: str = ""
+
+
+class MemoryRecallUsefulnessReviewRequest(BaseModel):
+    usefulness_status: str = Field(min_length=1)
+    reviewer_employee_id: str = "clara"
+    reason: str = ""
+
+
+class DurableAssetIngestRequest(BaseModel):
+    asset_id: str = Field(min_length=1)
+    asset_type: str = Field(min_length=1)
+    asset_status: str = "validated"
+    content: str = Field(min_length=1)
+    source_ticket_id: str = ""
+    source_employee_id: str = ""
+    source_run_id: str = ""
+    source_report_id: str = ""
+    evidence_id: str = ""
+    scope: dict[str, Any] = Field(default_factory=dict)
+    version: str = ""
+    provider_refs: list[dict[str, Any]] = Field(default_factory=list)
+    source_ref: str = ""
+    source_kind: str = "validated_ticket_summary"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DurableAssetIngestResponse(BaseModel):
+    status: str
+    detail: str
+    episode_id: str | None = None
+    episode_schema_version: str = GRAPHITI_EPISODE_SCHEMA_VERSION
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class DurableAssetRelationshipIngestRequest(BaseModel):
+    source_asset_id: str = Field(min_length=1)
+    target_asset_id: str = Field(min_length=1)
+    relationship_type: str = Field(min_length=1)
+    asset_status: str = "validated"
+    reason: str = ""
+    source_ticket_id: str = ""
+    source_employee_id: str = ""
+    source_run_id: str = ""
+    source_report_id: str = ""
+    evidence_id: str = ""
+    scope: dict[str, Any] = Field(default_factory=dict)
+    provider_refs: list[dict[str, Any]] = Field(default_factory=list)
+    source_ref: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DurableAssetRelationshipIngestResponse(BaseModel):
+    relationship_id: str
+    relationship_type: str
+    source_asset_id: str
+    target_asset_id: str
+    status: str
+    detail: str
+    ingested_asset: DurableAssetIngestResponse | None = None
+    skipped_asset: dict[str, str] | None = None
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class TicketDurableAssetProjectionResponse(BaseModel):
+    ticket_id: str
+    status: str
+    detail: str
+    ingested_assets: list[DurableAssetIngestResponse] = Field(default_factory=list)
+    skipped_assets: list[dict[str, str]] = Field(default_factory=list)
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class DecisionDurableAssetProjectionResponse(BaseModel):
+    decision_id: str
+    status: str
+    detail: str
+    ingested_asset: DurableAssetIngestResponse | None = None
+    skipped_asset: dict[str, str] | None = None
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class DecisionDurableAssetBatchProjectionResponse(BaseModel):
+    status: str
+    detail: str
+    ingested_assets: list[DurableAssetIngestResponse] = Field(default_factory=list)
+    skipped_assets: list[dict[str, str]] = Field(default_factory=list)
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class SkillDurableAssetProjectionResponse(BaseModel):
+    skill_id: str
+    status: str
+    detail: str
+    ingested_asset: DurableAssetIngestResponse | None = None
+    skipped_asset: dict[str, str] | None = None
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class SkillDurableAssetBatchProjectionResponse(BaseModel):
+    status: str
+    detail: str
+    ingested_assets: list[DurableAssetIngestResponse] = Field(default_factory=list)
+    skipped_assets: list[dict[str, str]] = Field(default_factory=list)
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class DocDurableAssetProjectionResponse(BaseModel):
+    doc_id: str
+    status: str
+    detail: str
+    ingested_asset: DurableAssetIngestResponse | None = None
+    skipped_asset: dict[str, str] | None = None
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class DocDurableAssetBatchProjectionResponse(BaseModel):
+    status: str
+    detail: str
+    ingested_assets: list[DurableAssetIngestResponse] = Field(default_factory=list)
+    skipped_assets: list[dict[str, str]] = Field(default_factory=list)
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class EmployeeDurableAssetProjectionResponse(BaseModel):
+    employee_id: str
+    status: str
+    detail: str
+    ingested_asset: DurableAssetIngestResponse | None = None
+    skipped_asset: dict[str, str] | None = None
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class EmployeeDurableAssetBatchProjectionResponse(BaseModel):
+    status: str
+    detail: str
+    ingested_assets: list[DurableAssetIngestResponse] = Field(default_factory=list)
+    skipped_assets: list[dict[str, str]] = Field(default_factory=list)
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class CapabilityDurableAssetProjectionResponse(BaseModel):
+    capability_id: str
+    status: str
+    detail: str
+    ingested_asset: DurableAssetIngestResponse | None = None
+    skipped_asset: dict[str, str] | None = None
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
+class CapabilityDurableAssetBatchProjectionResponse(BaseModel):
+    status: str
+    detail: str
+    ingested_assets: list[DurableAssetIngestResponse] = Field(default_factory=list)
+    skipped_assets: list[dict[str, str]] = Field(default_factory=list)
+    saved_paths: dict[str, str] = Field(default_factory=dict)
+
+
 class MemoryStatusResponse(BaseModel):
     backend: GraphitiBackendStatus
     candidate_count: int
@@ -147,12 +428,14 @@ class MemorySearchResult(BaseModel):
     employee_ids: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     provenance: dict[str, Any] = Field(default_factory=dict)
+    graphiti_episode_id: str | None = None
 
 
 class MemorySearchResponse(BaseModel):
     query: str
     results: list[MemorySearchResult]
     backend: GraphitiBackendStatus
+    excluded_results: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _now() -> str:
@@ -160,16 +443,18 @@ def _now() -> str:
 
 
 def _workspace_root() -> Path:
-    return Path(os.environ.get("AITEAMOS_WORKSPACE_DIR", Path.cwd())).resolve()
+    configured = os.environ.get("AITEAMOS_WORKSPACE_DIR")
+    return Path(configured).resolve() if configured else Path.cwd().resolve()
 
 
 def _workspace_dir() -> Path:
     return _workspace_root() / ".aiteamos"
 
 
-def _memory_dir() -> Path:
+def _memory_dir(*, ensure: bool = False) -> Path:
     path = _workspace_dir() / "memory"
-    path.mkdir(parents=True, exist_ok=True)
+    if ensure:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -241,6 +526,13 @@ def _save_approved(approved: list[MemoryCandidate]) -> None:
     _write_json(_approved_path(), [candidate.model_dump(mode="json") for candidate in approved])
 
 
+def _sync_asset_candidate(candidate: MemoryCandidate) -> None:
+    try:
+        upsert_asset_candidate_from_memory_candidate(candidate)
+    except Exception:
+        return
+
+
 def _bool_setting(value: Any, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
@@ -300,6 +592,53 @@ def _ai_engine_config(engine_id: str) -> dict[str, str]:
     }
 
 
+def _first_configured_env(names: tuple[str, ...]) -> tuple[str, str]:
+    for name in names:
+        value = str(os.environ.get(name) or "")
+        if value:
+            return name, value
+    return "", ""
+
+
+def _is_local_neo4j_uri(uri: str) -> bool:
+    normalized = uri.strip().lower()
+    if not normalized:
+        return False
+    local_prefixes = (
+        "bolt://localhost",
+        "bolt://127.0.0.1",
+        "bolt://0.0.0.0",
+        "neo4j://localhost",
+        "neo4j://127.0.0.1",
+        "neo4j://0.0.0.0",
+    )
+    return normalized.startswith(local_prefixes)
+
+
+def _graphiti_password_env_conflict(config: dict[str, str]) -> tuple[bool, str]:
+    if not _is_local_neo4j_uri(config.get("uri", "")):
+        return False, ""
+    local_password = str(os.environ.get("AITEAMOS_NEO4J_PASSWORD") or "")
+    if not local_password:
+        return False, ""
+    conflicting_sources = [
+        name
+        for name in ("AITEAMOS_GRAPHITI_PASSWORD", "NEO4J_PASSWORD")
+        if os.environ.get(name) and os.environ.get(name) != local_password
+    ]
+    if not conflicting_sources:
+        return False, ""
+    joined = ", ".join([*conflicting_sources, "AITEAMOS_NEO4J_PASSWORD"])
+    return (
+        True,
+        (
+            f"Local Graphiti / Neo4j password env mismatch: {joined} are set but do not match. "
+            "Align them to one local Neo4j password, or unset the stale Graphiti-specific env var so "
+            "AITEAMOS_NEO4J_PASSWORD can be used for the local compose Neo4j."
+        ),
+    )
+
+
 def _graphiti_config() -> dict[str, str]:
     settings = _read_json_object(_graphiti_settings_path())
 
@@ -307,11 +646,7 @@ def _graphiti_config() -> dict[str, str]:
     backend = os.environ.get("AITEAMOS_MEMORY_BACKEND", "").strip().lower()
     uri = str(settings.get("uri") or os.environ.get("AITEAMOS_GRAPHITI_URI") or os.environ.get("NEO4J_URI") or "")
     user = str(settings.get("user") or os.environ.get("AITEAMOS_GRAPHITI_USER") or os.environ.get("NEO4J_USER") or "neo4j")
-    password = str(
-        os.environ.get("AITEAMOS_GRAPHITI_PASSWORD")
-        or os.environ.get("NEO4J_PASSWORD")
-        or ""
-    )
+    password_env, password = _first_configured_env(GRAPHITI_NEO4J_PASSWORD_ENV_VARS)
     group_id = str(settings.get("group_id") or os.environ.get("AITEAMOS_GRAPHITI_GROUP_ID") or "aiteamos")
     graph_database = str(settings.get("graph_database") or "neo4j").strip().lower() or "neo4j"
     llm_ai_engine = _normalize_graphiti_ai_engine(
@@ -320,11 +655,16 @@ def _graphiti_config() -> dict[str, str]:
         or "openai"
     )
     llm_engine = _ai_engine_config(llm_ai_engine)
+    llm_model = str(
+        settings.get("llm_model")
+        or os.environ.get("AITEAMOS_GRAPHITI_LLM_MODEL")
+        or llm_engine["model"]
+    )
     file_enabled = settings.get("enabled")
     enabled = (
         _bool_setting(file_enabled)
         if file_enabled is not None
-        else explicit_enabled in {"1", "true", "yes", "on"} or backend == "graphiti" or bool(uri)
+        else explicit_enabled in {"1", "true", "yes", "on"} or backend == "graphiti"
     )
     return {
         "uri": uri,
@@ -334,12 +674,158 @@ def _graphiti_config() -> dict[str, str]:
         "graph_database": graph_database,
         "llm_ai_engine": llm_ai_engine,
         "llm_ai_engine_name": llm_engine["display_name"],
-        "llm_model": llm_engine["model"],
+        "llm_model": llm_model,
         "llm_base_url": llm_engine["base_url"],
         "llm_api_key_env": llm_engine["api_key_env"],
         "llm_api_key": llm_engine["api_key"],
+        "password_env": password_env,
         "enabled": "true" if enabled else "false",
     }
+
+
+def _graphiti_constructor_kwargs(config: dict[str, str]) -> dict[str, Any]:
+    try:
+        from graphiti_core.llm_client.client import LLMClient
+        from graphiti_core.llm_client.config import LLMConfig
+    except ImportError:
+        return {}
+    llm_config = LLMConfig(
+        api_key=config["llm_api_key"],
+        model=config["llm_model"],
+        small_model=config["llm_model"],
+        base_url=config["llm_base_url"],
+        temperature=0,
+        max_tokens=8192,
+    )
+    runtime_config = _graphiti_langchain_runtime_config(config)
+    model_provider = LangChainModelProvider()
+
+    class _AiteamosLangChainGraphitiClient(LLMClient):
+        def __init__(self) -> None:
+            super().__init__(config=llm_config, cache=False)
+            self.runtime_config = runtime_config
+            self.model_provider = model_provider
+            self.selected_engine = config["llm_ai_engine"]
+
+        async def _generate_response(
+            self,
+            messages: list[Any],
+            response_model: type[Any] | None = None,
+            max_tokens: int = 8192,
+            model_size: Any = None,
+        ) -> dict[str, Any]:
+            result = await self.model_provider.ainvoke(
+                selected_engine=self.selected_engine,
+                runtime=self.runtime_config,
+                messages=_graphiti_langchain_messages(self, messages, response_model=response_model),
+                max_tokens=max_tokens or 8192,
+            )
+            return _parse_graphiti_json_response(result.content)
+
+        def _get_provider_type(self) -> str:
+            return f"langchain:{self.selected_engine}"
+
+    return {
+        "llm_client": _AiteamosLangChainGraphitiClient(),
+        "embedder": _AiteamosLocalEmbedder(),
+        "cross_encoder": _AiteamosLocalCrossEncoder(),
+    }
+
+
+def _graphiti_langchain_runtime_config(config: dict[str, str]) -> AiEngineRuntimeConfig:
+    engine = _normalize_graphiti_ai_engine(config.get("llm_ai_engine"))
+    openai_catalog = AI_ENGINE_CATALOG.get("openai", {})
+    deepseek_catalog = AI_ENGINE_CATALOG.get("deepseek", {})
+    return AiEngineRuntimeConfig(
+        config={
+            "active_engine": engine,
+            "fallback_on_error": False,
+            "openai_model": (
+                config["llm_model"]
+                if engine == "openai"
+                else str(openai_catalog.get("default_model") or "gpt-5.5")
+            ),
+            "deepseek_model": (
+                config["llm_model"]
+                if engine == "deepseek"
+                else str(deepseek_catalog.get("default_model") or "deepseek-reasoner")
+            ),
+            "deepseek_thinking": "enabled",
+            "engine_configs": {
+                engine: {
+                    "base_url": config["llm_base_url"],
+                    "max_tokens": 8192,
+                }
+            },
+        },
+        secrets={
+            "openai_api_key": (
+                config["llm_api_key"]
+                if engine == "openai"
+                else str(os.environ.get("OPENAI_API_KEY") or "")
+            ),
+            "deepseek_api_key": (
+                config["llm_api_key"]
+                if engine == "deepseek"
+                else str(os.environ.get("DEEPSEEK_API_KEY") or "")
+            ),
+        },
+    )
+
+
+def _graphiti_langchain_messages(
+    client: Any,
+    messages: list[Any],
+    *,
+    response_model: type[Any] | None,
+) -> list[dict[str, str]]:
+    converted: list[dict[str, str]] = []
+    for message in messages:
+        content = client._clean_input(str(getattr(message, "content", "")))
+        role = str(getattr(message, "role", "user"))
+        converted.append({"role": role if role in {"system", "user", "assistant"} else "user", "content": content})
+    if response_model is not None:
+        schema = response_model.model_json_schema()
+        converted.insert(
+            0,
+            {
+                "role": "system",
+                "content": (
+                    "Return only a valid JSON object that matches this JSON schema. "
+                    "Do not wrap it in markdown.\n"
+                    + json.dumps(schema, ensure_ascii=False, sort_keys=True)
+                ),
+            },
+        )
+    elif converted:
+        converted[0]["content"] = "Return only a valid JSON object.\n" + converted[0]["content"]
+    return converted
+
+
+def _parse_graphiti_json_response(content: str) -> dict[str, Any]:
+    text_value = str(content or "").strip()
+    if text_value.startswith("```"):
+        text_value = re.sub(r"^```(?:json)?\s*|\s*```$", "", text_value, flags=re.IGNORECASE | re.DOTALL).strip()
+    try:
+        payload = json.loads(text_value or "{}")
+    except json.JSONDecodeError:
+        start = text_value.find("{")
+        end = text_value.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        payload = json.loads(text_value[start : end + 1])
+    if not isinstance(payload, dict):
+        raise ValueError("Graphiti LangChain LLM response was not a JSON object.")
+    return payload
+
+
+def _new_graphiti_client(graphiti_cls: Any, config: dict[str, str]) -> Any:
+    return graphiti_cls(
+        config["uri"],
+        config["user"],
+        config["password"],
+        **_graphiti_constructor_kwargs(config),
+    )
 
 
 def graphiti_backend_status() -> GraphitiBackendStatus:
@@ -348,14 +834,15 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
     graph_configured = bool(config["uri"] and config["user"] and config["password"])
     llm_configured = bool(config["llm_api_key"])
     configured = graph_configured and llm_configured
+    password_env_conflict, password_env_conflict_detail = _graphiti_password_env_conflict(config)
     graphiti_cls, episode_type = _graphiti_package()
     package_installed = graphiti_cls is not None and episode_type is not None
     if not enabled:
         status = "disabled"
-        detail = "Graphiti is not enabled; local memory mirror is active."
+        detail = "Graphiti is not enabled; configure Graphiti to use the target Memory / Asset Graph Backend."
     elif not graph_configured:
         status = "not_configured"
-        detail = "Set Graphiti Neo4j URI/user in Settings and password via AITEAMOS_GRAPHITI_PASSWORD or NEO4J_PASSWORD."
+        detail = f"Set Graphiti Neo4j URI/user in Settings and password via {GRAPHITI_NEO4J_PASSWORD_SETUP_LABEL}."
     elif not llm_configured:
         status = "llm_not_configured"
         detail = f"Set {config['llm_api_key_env'] or 'the selected AI Engine API key env'} for Graphiti ingestion and graph search."
@@ -364,7 +851,10 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
         detail = "Install the graphiti optional dependency to enable ingestion and graph search."
     else:
         status = "ready"
-        detail = f"Graphiti is configured with {config['llm_ai_engine_name']}; approved memory can be ingested."
+        detail = (
+            f"Graphiti is configured with {config['llm_ai_engine_name']}; approved memory ingestion is available, "
+            "with durable asset projection as the next extension."
+        )
     return GraphitiBackendStatus(
         enabled=enabled,
         configured=configured,
@@ -380,9 +870,113 @@ def graphiti_backend_status() -> GraphitiBackendStatus:
         llm_ai_engine=config["llm_ai_engine"],
         llm_ai_engine_name=config["llm_ai_engine_name"],
         llm_api_key_env=config["llm_api_key_env"],
-        password_configured=bool(config["password"]),
-        llm_api_key_configured=bool(config["llm_api_key"]),
+        password_env=config["password_env"],
+        password_env_conflict=password_env_conflict,
+        password_env_conflict_detail=password_env_conflict_detail,
+        password_configured=enabled and bool(config["password"]),
+        llm_api_key_configured=enabled and bool(config["llm_api_key"]),
     )
+
+
+async def graphiti_provider_external_smoke() -> dict[str, Any]:
+    backend = graphiti_backend_status()
+    if backend.password_env_conflict:
+        return {
+            "status": "not_configured",
+            "checks": ["graphiti_local_password_env_conflict_reported"],
+            "warnings": [],
+            "failures": [],
+            "blockers": [
+                {
+                    "id": "memory:graphiti:password_env_conflict",
+                    "status": "not_configured",
+                    "detail": backend.password_env_conflict_detail,
+                    "setup_required": [GRAPHITI_NEO4J_PASSWORD_SETUP_LABEL],
+                }
+            ],
+            "evidence": {"memory_backend_status": backend.model_dump(mode="json")},
+            "external_calls": False,
+        }
+    if backend.status != "ready":
+        return {
+            "status": backend.status,
+            "checks": ["graphiti_setup_blocker_reported"],
+            "warnings": [],
+            "failures": [],
+            "blockers": [
+                {
+                    "id": "memory:graphiti:setup",
+                    "status": backend.status,
+                    "detail": backend.detail,
+                    "setup_required": [
+                        item
+                        for item, configured in (
+                            ("Graphiti enabled", backend.enabled),
+                            ("Graphiti URI/user", backend.graph_configured),
+                            (GRAPHITI_NEO4J_PASSWORD_SETUP_LABEL, backend.password_configured),
+                            (backend.llm_api_key_env or "selected Graphiti LLM API key", backend.llm_api_key_configured),
+                            ("graphiti optional dependency", backend.package_installed),
+                        )
+                        if not configured
+                    ],
+                }
+            ],
+            "evidence": {"memory_backend_status": backend.model_dump(mode="json")},
+            "external_calls": False,
+        }
+
+    config = _graphiti_config()
+    graphiti_cls, _episode_type = _graphiti_package()
+    previous_env = _set_graphiti_environment(config)
+    graphiti: Any | None = None
+    try:
+        graphiti = _new_graphiti_client(graphiti_cls, config)
+        search = getattr(graphiti, "search")
+        parameters = inspect.signature(search).parameters
+        kwargs: dict[str, Any] = {}
+        if _accepts_kwarg(parameters, "group_ids"):
+            kwargs["group_ids"] = [config["group_id"]]
+        if _accepts_kwarg(parameters, "num_results"):
+            kwargs["num_results"] = 1
+        raw_results = await _maybe_await(search("AITeamOS provider conformance smoke", **kwargs))
+        result_count = len(list(raw_results or []))
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "checks": ["graphiti_read_search"],
+            "warnings": [],
+            "failures": ["graphiti_external_smoke_failed"],
+            "blockers": [
+                {
+                    "id": "memory:graphiti:external_smoke",
+                    "status": "failed",
+                    "detail": str(exc),
+                    "setup_required": [],
+                }
+            ],
+            "evidence": {"memory_backend_status": backend.model_dump(mode="json")},
+            "external_calls": True,
+        }
+    finally:
+        close = getattr(graphiti, "close", None) if graphiti is not None else None
+        if close is not None:
+            await _maybe_await(close())
+        _restore_environment(previous_env)
+
+    return {
+        "status": "passed",
+        "checks": ["graphiti_read_search", "graphiti_external_call_completed"],
+        "warnings": [],
+        "failures": [],
+        "blockers": [],
+        "evidence": {
+            "memory_backend_status": backend.model_dump(mode="json"),
+            "query": "AITeamOS provider conformance smoke",
+            "group_id": config["group_id"],
+            "result_count": result_count,
+        },
+        "external_calls": True,
+    }
 
 
 def graphiti_settings_response() -> GraphitiSettingsResponse:
@@ -396,8 +990,8 @@ def graphiti_settings_response() -> GraphitiSettingsResponse:
         llm_ai_engine=config["llm_ai_engine"],
         llm_ai_engine_name=config["llm_ai_engine_name"],
         llm_api_key_env=config["llm_api_key_env"],
-        password_configured=bool(config["password"]),
-        llm_api_key_configured=bool(config["llm_api_key"]),
+        password_configured=config["enabled"] == "true" and bool(config["password"]),
+        llm_api_key_configured=config["enabled"] == "true" and bool(config["llm_api_key"]),
         saved_paths={
             "settings": _relative(_graphiti_settings_path()),
         },
@@ -431,11 +1025,11 @@ def update_graphiti_settings(request: GraphitiSettingsUpdateRequest) -> Graphiti
 
 def memory_status() -> MemoryStatusResponse:
     candidates = _load_candidates()
-    approved = _load_approved()
+    approved = list_approved_memories()
     pending = [
         candidate
         for candidate in approved
-        if candidate.graphiti_status.get("status") not in {"ingested", "skipped_disabled"}
+        if candidate.graphiti_status.get("status") != "ingested"
     ]
     return MemoryStatusResponse(
         backend=graphiti_backend_status(),
@@ -459,7 +1053,8 @@ def list_memory_candidates(status: str | None = None) -> list[MemoryCandidate]:
 
 
 def list_approved_memories() -> list[MemoryCandidate]:
-    return sorted(_load_approved(), key=lambda item: item.updated_at, reverse=True)
+    approved = [candidate for candidate in _load_approved() if candidate.status in RECALLABLE_MEMORY_STATUSES]
+    return sorted(approved, key=lambda item: item.updated_at, reverse=True)
 
 
 def create_memory_candidate(request: MemoryCandidateCreateRequest) -> MemoryCandidate:
@@ -482,7 +1077,104 @@ def create_memory_candidate(request: MemoryCandidateCreateRequest) -> MemoryCand
     candidates = _load_candidates()
     candidates.append(candidate)
     _save_candidates(candidates)
+    _sync_asset_candidate(candidate)
     return candidate
+
+
+def create_memory_candidates_from_execution_result(
+    *,
+    memory_candidates: list[dict[str, Any]],
+    request_id: str,
+    run_id: str,
+    thread_id: str,
+    ticket_id: str,
+    employee_id: str,
+    action: str,
+    executor_id: str,
+    trace_ref: str,
+    provider_refs: list[dict[str, Any]] | None = None,
+    source_report_id: str = "",
+    evidence_id: str = "",
+) -> list[MemoryCandidate]:
+    created: list[MemoryCandidate] = []
+    if not memory_candidates:
+        return created
+
+    existing_keys = {
+        (
+            str(candidate.provenance.get("source_run_id") or "").strip(),
+            str(candidate.provenance.get("execution_candidate_index") or "").strip(),
+        )
+        for candidate in _load_candidates()
+    }
+    for index, item in enumerate(memory_candidates):
+        if not isinstance(item, dict):
+            continue
+        content = _first_string(item.get("content"), item.get("summary"), item.get("text"), item.get("memory"))
+        if not content:
+            continue
+        source_run_id = run_id or request_id
+        candidate_index = str(item.get("index") if item.get("index") is not None else index)
+        if (source_run_id, candidate_index) in existing_keys:
+            continue
+        memory_type = _first_string(item.get("memory_type"), item.get("type"), "fact")
+        source_kind = _first_string(item.get("source_kind"), "execution_result")
+        scope_kind = _first_string(item.get("scope_kind"), "ticket" if ticket_id else "employee")
+        scope_ref = _first_string(item.get("scope_ref"), ticket_id, employee_id, "aiteamos")
+        confidence = item.get("confidence", 0.66)
+        tags = {
+            "execution-result",
+            "ticket-aware" if ticket_id else "employee-aware",
+            action,
+            executor_id,
+            *_string_items(item.get("tags")),
+        }
+        provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+        candidate = create_memory_candidate(
+            MemoryCandidateCreateRequest(
+                content=_compact_text(content, 1200),
+                source_kind=source_kind,
+                source_ref=_first_string(item.get("source_ref"), trace_ref, source_run_id),
+                scope_kind=scope_kind,
+                scope_ref=scope_ref,
+                memory_type=memory_type,
+                confidence=max(0.0, min(float(confidence), 1.0)),
+                employee_ids=sorted({employee_id, *_string_items(item.get("employee_ids"))} - {""}),
+                tags=sorted({tag for tag in tags if tag}),
+                provenance={
+                    **provenance,
+                    "source_ticket_id": _first_string(provenance.get("source_ticket_id"), ticket_id),
+                    "source_employee_id": _first_string(provenance.get("source_employee_id"), employee_id),
+                    "source_run_id": _first_string(provenance.get("source_run_id"), source_run_id),
+                    "source_report_id": _first_string(provenance.get("source_report_id"), source_report_id),
+                    "evidence_id": _first_string(provenance.get("evidence_id"), evidence_id),
+                    "source_trace_path": _first_string(provenance.get("source_trace_path"), trace_ref),
+                    "thread_id": thread_id,
+                    "request_id": request_id,
+                    "run_id": source_run_id,
+                    "action": action,
+                    "executor_id": executor_id,
+                    "execution_candidate_index": candidate_index,
+                    "provider_refs": provider_refs or [],
+                    "why_should_be_remembered": _first_string(
+                        provenance.get("why_should_be_remembered"),
+                        item.get("why_should_be_remembered"),
+                        "Runtime produced a Ticket-bound reusable learning candidate.",
+                    ),
+                    "future_recall_query_hints": _string_items(item.get("future_recall_query_hints"))
+                    or sorted({ticket_id, action, *_compact_text(content, 160).split()[:8]} - {""}),
+                },
+            )
+        )
+        created.append(candidate)
+        existing_keys.add((source_run_id, candidate_index))
+    return created
+
+
+def _string_items(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _update_candidate(candidate: MemoryCandidate) -> MemoryCandidate:
@@ -491,9 +1183,11 @@ def _update_candidate(candidate: MemoryCandidate) -> MemoryCandidate:
         if current.id == candidate.id:
             candidates[index] = candidate
             _save_candidates(candidates)
+            _sync_asset_candidate(candidate)
             return candidate
     candidates.append(candidate)
     _save_candidates(candidates)
+    _sync_asset_candidate(candidate)
     return candidate
 
 
@@ -506,6 +1200,117 @@ def _upsert_approved(candidate: MemoryCandidate) -> None:
             return
     approved.append(candidate)
     _save_approved(approved)
+
+
+def _update_approved_if_present(candidate: MemoryCandidate) -> None:
+    approved = _load_approved()
+    for index, current in enumerate(approved):
+        if current.id != candidate.id:
+            continue
+        approved[index] = candidate
+        _save_approved(approved)
+        return
+
+
+def _replace_local_memory_candidate(candidate: MemoryCandidate) -> None:
+    candidates = _load_candidates()
+    candidate_updated = False
+    for index, current in enumerate(candidates):
+        if current.id != candidate.id:
+            continue
+        candidates[index] = candidate
+        candidate_updated = True
+        break
+    if candidate_updated:
+        _save_candidates(candidates)
+    approved = _load_approved()
+    approved_updated = False
+    for index, current in enumerate(approved):
+        if current.id != candidate.id:
+            continue
+        approved[index] = candidate
+        approved_updated = True
+        break
+    if approved_updated:
+        _save_approved(approved)
+    _sync_asset_candidate(candidate)
+
+
+def _find_local_memory_candidate(candidate_id: str) -> MemoryCandidate | None:
+    for candidate in [*_load_candidates(), *_load_approved()]:
+        if candidate.id == candidate_id:
+            return candidate
+    return None
+
+
+def _memory_candidate_status(candidate_id: str) -> str | None:
+    candidate = _find_local_memory_candidate(candidate_id)
+    return candidate.status if candidate is not None else None
+
+
+def _is_local_memory_asset_recallable(provenance: dict[str, Any]) -> bool:
+    return not _memory_asset_recall_exclusion_reason(provenance)
+
+
+def _memory_asset_recall_exclusion_reason(provenance: dict[str, Any]) -> str:
+    asset_id = _first_string(provenance.get("asset_id"), provenance.get("memory_id"))
+    if not asset_id:
+        return ""
+    local_status = _memory_candidate_status(asset_id)
+    if local_status is not None:
+        return (
+            ""
+            if local_status in RECALLABLE_MEMORY_STATUSES
+            else f"Local Memory candidate status is {local_status}; it must not be recalled as active context."
+        )
+    graphiti_status = _first_string(provenance.get("asset_status"), provenance.get("status"))
+    if graphiti_status and graphiti_status not in RECALLABLE_DURABLE_ASSET_STATUSES:
+        return f"Graphiti Asset status is {graphiti_status}; it must be treated as a stale/conflict hint, not active context."
+    return ""
+
+
+def _graphiti_excluded_memory_result(
+    *,
+    item_id: str,
+    content: str,
+    episode_id: str,
+    score: Any,
+    provenance: dict[str, Any],
+    reason: str,
+    backend_group_id: str,
+) -> dict[str, Any]:
+    scope = provenance.get("scope") if isinstance(provenance.get("scope"), dict) else {}
+    scope_kind = _first_string(scope.get("kind") if isinstance(scope, dict) else "")
+    scope_ref = _first_string(
+        scope.get("ref") if isinstance(scope, dict) else "",
+        provenance.get("source_ticket_id"),
+        backend_group_id,
+    )
+    source_employee_id = _first_string(provenance.get("source_employee_id"))
+    asset_id = _first_string(provenance.get("asset_id"), provenance.get("memory_id"), item_id)
+    return {
+        "id": item_id,
+        "memory_id": asset_id,
+        "asset_id": asset_id,
+        "content": _compact_text(content, 1000),
+        "source": "graphiti",
+        "score": float(score) if isinstance(score, int | float) else None,
+        "source_kind": _first_string(provenance.get("source_kind"), provenance.get("asset_type")),
+        "source_ref": _first_string(provenance.get("source_ref"), asset_id),
+        "scope_kind": scope_kind,
+        "scope_ref": scope_ref,
+        "memory_type": _first_string(provenance.get("asset_type")),
+        "employee_ids": [source_employee_id] if source_employee_id else [],
+        "tags": [],
+        "status": _first_string(provenance.get("asset_status"), provenance.get("status"), "excluded"),
+        "exclusion_reason": reason,
+        "superseded_by_candidate_id": _first_string(provenance.get("superseded_by_candidate_id")),
+        "provenance": provenance,
+        "graphiti_episode_id": episode_id,
+        "graphiti_result_id": item_id,
+        "graphiti_recalled": False,
+        "graphiti_backed": bool(episode_id),
+    }
 
 
 async def _maybe_await(value: Any) -> Any:
@@ -534,49 +1339,287 @@ def _restore_environment(previous: dict[str, str | None]) -> None:
             os.environ[key] = value
 
 
+def _content_hash(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _first_string(*values: Any) -> str:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _graphiti_asset_provenance(candidate: MemoryCandidate) -> dict[str, Any]:
+    provenance = dict(candidate.provenance)
+    source_ticket_id = _first_string(
+        provenance.get("source_ticket_id"),
+        provenance.get("ticket_id"),
+        candidate.scope_ref if candidate.scope_kind == "ticket" else "",
+    )
+    source_employee_id = _first_string(
+        provenance.get("source_employee_id"),
+        provenance.get("employee_id"),
+        candidate.employee_ids[0] if candidate.employee_ids else "",
+    )
+    source_run_id = _first_string(provenance.get("source_run_id"), provenance.get("run_id"), provenance.get("trace"))
+    source_report_id = _first_string(provenance.get("source_report_id"), provenance.get("report_id"))
+    evidence_id = _first_string(provenance.get("evidence_id"), provenance.get("source_evidence_id"))
+    provider_refs = provenance.get("provider_refs")
+    if not isinstance(provider_refs, list):
+        provider_ref = provenance.get("provider_ref")
+        provider_refs = [provider_ref] if isinstance(provider_ref, dict) else []
+    content_hash = _content_hash(candidate.content)
+    return {
+        "asset_id": candidate.id,
+        "asset_type": f"memory:{candidate.memory_type}",
+        "asset_status": candidate.status,
+        "source_ticket_id": source_ticket_id,
+        "source_employee_id": source_employee_id,
+        "source_run_id": source_run_id,
+        "source_report_id": source_report_id,
+        "evidence_id": evidence_id,
+        "scope": {"kind": candidate.scope_kind, "ref": candidate.scope_ref},
+        "version": content_hash,
+        "content_hash": content_hash,
+        "provider_refs": provider_refs,
+        "source_ref": candidate.source_ref,
+        "source_kind": candidate.source_kind,
+        "schema_version": GRAPHITI_EPISODE_SCHEMA_VERSION,
+    }
+
+
+def _durable_asset_provenance(request: DurableAssetIngestRequest) -> dict[str, Any]:
+    scope = request.scope if isinstance(request.scope, dict) else {}
+    if not scope:
+        scope = {
+            "kind": "ticket" if request.source_ticket_id.strip() else "project",
+            "ref": request.source_ticket_id.strip() or "aiteamos",
+        }
+    content_hash = _content_hash(request.content)
+    version = request.version.strip() or content_hash
+    return {
+        "asset_id": request.asset_id.strip(),
+        "asset_type": request.asset_type.strip(),
+        "asset_status": request.asset_status.strip().lower(),
+        "source_ticket_id": request.source_ticket_id.strip(),
+        "source_employee_id": request.source_employee_id.strip(),
+        "source_run_id": request.source_run_id.strip(),
+        "source_report_id": request.source_report_id.strip(),
+        "evidence_id": request.evidence_id.strip(),
+        "scope": scope,
+        "version": version,
+        "content_hash": content_hash,
+        "provider_refs": request.provider_refs,
+        "source_ref": request.source_ref.strip(),
+        "source_kind": request.source_kind.strip() or "durable_asset",
+        "schema_version": GRAPHITI_EPISODE_SCHEMA_VERSION,
+        "metadata": request.metadata,
+    }
+
+
+def _graphiti_result_provenance(item: Any) -> dict[str, Any]:
+    candidates = [
+        getattr(item, "provenance", None),
+        getattr(item, "metadata", None),
+        getattr(item, "attributes", None),
+    ]
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        if isinstance(candidate.get("aiteamos"), dict):
+            return dict(candidate["aiteamos"])
+        if any(field in candidate for field in GRAPHITI_MINIMAL_PROVENANCE_FIELDS):
+            return dict(candidate)
+    return {"raw_type": item.__class__.__name__}
+
+
+def _graphiti_result_local_memory_match(content: str, episode_id: str) -> MemoryCandidate | None:
+    result_terms = set(re.findall(r"[\w:-]+", content.lower()))
+    normalized_content = content.lower()
+    best: tuple[int, MemoryCandidate] | None = None
+    for candidate in list_approved_memories():
+        score = 0
+        if episode_id and candidate.graphiti_episode_id == episode_id:
+            score += 100
+        tag_hits = [
+            tag
+            for tag in candidate.tags
+            if len(tag) >= 6 and tag.lower() in normalized_content
+        ]
+        if tag_hits:
+            score += 50 + len(tag_hits)
+        candidate_terms = set(re.findall(r"[\w:-]+", candidate.content.lower()))
+        overlap = len(result_terms & candidate_terms)
+        if overlap >= 6:
+            score += min(overlap, 30)
+        candidate_content = candidate.content.lower()
+        if normalized_content and (normalized_content in candidate_content or candidate_content in normalized_content):
+            score += 30
+        if score >= 12 and (best is None or score > best[0]):
+            best = (score, candidate)
+    return best[1] if best is not None else None
+
+
+def _graphiti_durable_asset_ingestion_records() -> list[dict[str, Any]]:
+    state = _read_json_object(_state_path())
+    records = state.get("durable_asset_ingestions")
+    return [record for record in records if isinstance(record, dict)] if isinstance(records, list) else []
+
+
+def _durable_asset_ingestion_record(asset_id: str) -> dict[str, Any] | None:
+    target_asset_id = asset_id.strip()
+    for record in reversed(_graphiti_durable_asset_ingestion_records()):
+        if str(record.get("asset_id") or "").strip() != target_asset_id:
+            continue
+        graphiti_status = record.get("graphiti_status")
+        if isinstance(graphiti_status, dict) and graphiti_status.get("status") == "ingested":
+            return record
+    return None
+
+
+def employee_profile_projection_status(employee_id: str) -> dict[str, Any]:
+    normalized_employee_id = employee_id.strip()
+    asset_id = f"employee-profile-{normalized_employee_id}"
+    record = _durable_asset_ingestion_record(asset_id)
+    backend = graphiti_backend_status().model_dump(mode="json")
+    if record is None:
+        return {
+            "provider": "graphiti",
+            "asset_id": asset_id,
+            "asset_type": "employee_profile_summary",
+            "status": "not_projected",
+            "backend_status": backend.get("status", ""),
+            "detail": "Employee profile summary has not been projected to Graphiti.",
+            "episode_id": "",
+            "ingested_at": "",
+        }
+    graphiti_status = record.get("graphiti_status") if isinstance(record.get("graphiti_status"), dict) else {}
+    return {
+        "provider": "graphiti",
+        "asset_id": asset_id,
+        "asset_type": str(record.get("asset_type") or "employee_profile_summary"),
+        "status": str(graphiti_status.get("status") or "ingested"),
+        "backend_status": backend.get("status", ""),
+        "detail": str(graphiti_status.get("detail") or "Employee profile summary is projected to Graphiti."),
+        "episode_id": str(graphiti_status.get("episode_id") or ""),
+        "ingested_at": str(record.get("ingested_at") or ""),
+    }
+
+
+def _graphiti_result_durable_asset_match(content: str, episode_id: str) -> dict[str, Any] | None:
+    normalized_content = content.lower()
+    best: tuple[int, dict[str, Any]] | None = None
+    for record in _graphiti_durable_asset_ingestion_records():
+        graphiti_status = record.get("graphiti_status")
+        if not isinstance(graphiti_status, dict):
+            continue
+        provenance = graphiti_status.get("provenance")
+        if not isinstance(provenance, dict):
+            continue
+        score = 0
+        record_episode_id = _first_string(graphiti_status.get("episode_id"))
+        if episode_id and record_episode_id and episode_id == record_episode_id:
+            score += 100
+        asset_tokens = {
+            _first_string(record.get("asset_id")),
+            _first_string(provenance.get("asset_id")),
+        }
+        for token in asset_tokens:
+            if token and token.lower() in normalized_content:
+                score += 80 + min(len(token), 80)
+        for value in (
+            provenance.get("source_report_id"),
+            provenance.get("evidence_id"),
+            provenance.get("source_ticket_id"),
+        ):
+            token = _first_string(value)
+            if token and token.lower() in normalized_content:
+                score += 20 + min(len(token), 40)
+        source_ref = _first_string(provenance.get("source_ref"))
+        if source_ref and source_ref.lower() in normalized_content:
+            score += 20
+        if score >= 40 and (best is None or score > best[0]):
+            best = (score, provenance)
+    return dict(best[1]) if best is not None else None
+
+
+def _accepts_kwarg(parameters: Mapping[str, inspect.Parameter], name: str) -> bool:
+    return name in parameters or any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
+
+
 async def _ingest_graphiti(candidate: MemoryCandidate) -> dict[str, Any]:
     status = graphiti_backend_status()
-    if status.status == "disabled":
-        return {"status": "skipped_disabled", "detail": status.detail}
+    if status.status != "ready":
+        return {"status": status.status, "detail": status.detail}
+
+    asset_provenance = _graphiti_asset_provenance(candidate)
+    episode_body = (
+        f"Memory id: {candidate.id}\n"
+        f"Scope: {candidate.scope_kind}:{candidate.scope_ref}\n"
+        f"Employees: {', '.join(candidate.employee_ids) or 'all'}\n"
+        f"Content: {candidate.content}\n"
+        "AITeamOS provenance:\n"
+        f"{json.dumps(asset_provenance, ensure_ascii=False, sort_keys=True)}"
+    )
+    source_kind = candidate.source_kind.strip() or "memory_candidate"
+    source_description = f"AITeamOS {source_kind} memory candidate"
+    source_selector = "message" if candidate.source_kind == "chat" else "text"
+    return await _ingest_graphiti_episode(
+        name=f"AITeamOS memory {candidate.id}",
+        episode_body=episode_body,
+        source_description=source_description,
+        source_selector=source_selector,
+        provenance=asset_provenance,
+        success_detail="Approved memory was ingested into Graphiti.",
+    )
+
+
+async def _ingest_graphiti_episode(
+    *,
+    name: str,
+    episode_body: str,
+    source_description: str,
+    source_selector: str,
+    provenance: dict[str, Any],
+    success_detail: str,
+) -> dict[str, Any]:
+    status = graphiti_backend_status()
     if status.status != "ready":
         return {"status": status.status, "detail": status.detail}
 
     config = _graphiti_config()
     graphiti_cls, episode_type = _graphiti_package()
     previous_env = _set_graphiti_environment(config)
-    graphiti = graphiti_cls(config["uri"], config["user"], config["password"])
+    graphiti = _new_graphiti_client(graphiti_cls, config)
     try:
         build_indices = getattr(graphiti, "build_indices_and_constraints", None)
         if build_indices is not None:
             await _maybe_await(build_indices())
 
-        source = episode_type.message if candidate.source_kind == "chat" else episode_type.text
-        episode_body = (
-            f"Memory id: {candidate.id}\n"
-            f"Scope: {candidate.scope_kind}:{candidate.scope_ref}\n"
-            f"Employees: {', '.join(candidate.employee_ids) or 'all'}\n"
-            f"Content: {candidate.content}"
-        )
+        source = getattr(episode_type, source_selector, None) or episode_type.text
         add_episode = getattr(graphiti, "add_episode")
         parameters = inspect.signature(add_episode).parameters
         kwargs: dict[str, Any] = {
-            "name": f"AITeamOS memory {candidate.id}",
+            "name": name,
             "episode_body": episode_body,
             "source": source,
-            "source_description": f"AITeamOS {candidate.source_kind} memory candidate",
+            "source_description": source_description,
             "reference_time": datetime.now(UTC),
         }
-        if "group_id" in parameters:
+        if _accepts_kwarg(parameters, "group_id"):
             kwargs["group_id"] = config["group_id"]
         result = await _maybe_await(add_episode(**kwargs))
         episode = getattr(result, "episode", None)
         episode_id = getattr(episode, "uuid", None) or getattr(result, "uuid", None)
         return {
             "status": "ingested",
-            "detail": "Approved memory was ingested into Graphiti.",
+            "detail": success_detail,
             "episode_id": str(episode_id) if episode_id else None,
+            "episode_schema_version": GRAPHITI_EPISODE_SCHEMA_VERSION,
+            "provenance": provenance,
         }
-    except Exception as exc:  # Keep the local approval path usable.
+    except Exception as exc:
         return {"status": "error", "detail": str(exc)[:500]}
     finally:
         close = getattr(graphiti, "close", None)
@@ -594,7 +1637,21 @@ async def approve_memory_candidate(candidate_id: str) -> MemoryCandidate:
     candidate.status = "approved"
     candidate.approved_at = candidate.approved_at or timestamp
     candidate.updated_at = timestamp
-    candidate.graphiti_status = await _ingest_graphiti(candidate)
+    graphiti_status = await _ingest_graphiti(candidate)
+    if graphiti_status.get("status") != "ingested":
+        state = {
+            "last_blocked_at": timestamp,
+            "last_candidate_id": candidate.id,
+            "last_graphiti_status": graphiti_status,
+            "backend": graphiti_backend_status().model_dump(mode="json"),
+        }
+        _write_json(_state_path(), state)
+        raise ValueError(
+            "Graphiti Memory / Asset Graph setup blocker: "
+            + str(graphiti_status.get("detail") or graphiti_status.get("status") or "ingestion failed")
+        )
+
+    candidate.graphiti_status = graphiti_status
     episode_id = candidate.graphiti_status.get("episode_id")
     if isinstance(episode_id, str) and episode_id:
         candidate.graphiti_episode_id = episode_id
@@ -609,6 +1666,1363 @@ async def approve_memory_candidate(candidate_id: str) -> MemoryCandidate:
     }
     _write_json(_state_path(), state)
     return candidate
+
+
+async def ingest_durable_asset_to_graphiti(request: DurableAssetIngestRequest) -> DurableAssetIngestResponse:
+    allowed_statuses = {"approved", "validated", "accepted"}
+    asset_status = request.asset_status.strip().lower()
+    if asset_status not in allowed_statuses:
+        raise ValueError("Graphiti only ingests approved, accepted, or validated durable assets.")
+
+    asset_type = request.asset_type.strip()
+    asset_id = request.asset_id.strip()
+    content = request.content.strip()
+    provenance = _durable_asset_provenance(
+        request.model_copy(update={"asset_status": asset_status, "asset_type": asset_type, "asset_id": asset_id, "content": content})
+    )
+    scope = provenance.get("scope") if isinstance(provenance.get("scope"), dict) else {}
+    scope_ref = str(scope.get("ref") or provenance.get("source_ticket_id") or "aiteamos").strip()
+    episode_body = (
+        f"Durable asset id: {asset_id}\n"
+        f"Type: {asset_type}\n"
+        f"Status: {asset_status}\n"
+        f"Scope: {json.dumps(scope, ensure_ascii=False, sort_keys=True)}\n"
+        f"Content: {content}\n"
+        "AITeamOS provenance:\n"
+        f"{json.dumps(provenance, ensure_ascii=False, sort_keys=True)}"
+    )
+    graphiti_status = await _ingest_graphiti_episode(
+        name=f"AITeamOS durable asset {asset_id}",
+        episode_body=episode_body,
+        source_description=f"AITeamOS {asset_type} durable asset",
+        source_selector="text",
+        provenance=provenance,
+        success_detail="Validated durable asset was ingested into Graphiti.",
+    )
+    timestamp = _now()
+    state = _read_json_object(_state_path())
+    durable_ingestions = state.get("durable_asset_ingestions")
+    if not isinstance(durable_ingestions, list):
+        durable_ingestions = []
+    audit_record = {
+        "asset_id": asset_id,
+        "asset_type": asset_type,
+        "asset_status": asset_status,
+        "source_ticket_id": provenance.get("source_ticket_id", ""),
+        "scope_ref": scope_ref,
+        "ingested_at": timestamp,
+        "graphiti_status": graphiti_status,
+    }
+    durable_ingestions.append(audit_record)
+    durable_ingestions = [item for item in durable_ingestions if isinstance(item, dict)][-100:]
+    state.update(
+        {
+            "last_durable_asset_at": timestamp,
+            "last_durable_asset_id": asset_id,
+            "last_durable_asset_status": graphiti_status,
+            "durable_asset_ingestions": durable_ingestions,
+            "backend": graphiti_backend_status().model_dump(mode="json"),
+        }
+    )
+    _write_json(_state_path(), state)
+    if graphiti_status.get("status") != "ingested":
+        raise ValueError(
+            "Graphiti Memory / Asset Graph setup blocker: "
+            + str(graphiti_status.get("detail") or graphiti_status.get("status") or "ingestion failed")
+        )
+    return DurableAssetIngestResponse(
+        status="ingested",
+        detail=str(graphiti_status.get("detail") or "Validated durable asset was ingested into Graphiti."),
+        episode_id=graphiti_status.get("episode_id") if isinstance(graphiti_status.get("episode_id"), str) else None,
+        episode_schema_version=GRAPHITI_EPISODE_SCHEMA_VERSION,
+        provenance=provenance,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+def _safe_asset_id_component(value: str) -> str:
+    component = re.sub(r"[^A-Za-z0-9_.:-]+", "-", value.strip()).strip("-")
+    return component[:72] or "asset"
+
+
+def _durable_asset_relationship_id(request: DurableAssetRelationshipIngestRequest) -> str:
+    relationship_type = request.relationship_type.strip().lower()
+    digest_source = f"{request.source_asset_id.strip()}|{relationship_type}|{request.target_asset_id.strip()}"
+    digest = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()[:12]
+    return (
+        "asset-relationship-"
+        f"{_safe_asset_id_component(relationship_type)}-"
+        f"{_safe_asset_id_component(request.source_asset_id)}-"
+        f"{_safe_asset_id_component(request.target_asset_id)}-"
+        f"{digest}"
+    )[:180]
+
+
+def _relationship_public_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    public_keys = {"reason", "confidence", "review_status", "usage_id", "source_kind", "source_ref"}
+    public: dict[str, Any] = {}
+    for key, value in metadata.items():
+        key_text = str(key).strip()
+        if key_text in public_keys:
+            public[key_text] = value
+    return public
+
+
+def _durable_asset_relationship_request(request: DurableAssetRelationshipIngestRequest) -> DurableAssetIngestRequest:
+    relationship_type = request.relationship_type.strip().lower()
+    if relationship_type not in _DURABLE_ASSET_RELATIONSHIP_TYPES:
+        allowed = ", ".join(sorted(_DURABLE_ASSET_RELATIONSHIP_TYPES))
+        raise ValueError(f"Unsupported durable asset relationship type: {relationship_type}. Allowed: {allowed}.")
+    source_asset_id = request.source_asset_id.strip()
+    target_asset_id = request.target_asset_id.strip()
+    reason = request.reason.strip()
+    relationship_id = _durable_asset_relationship_id(request)
+    scope = request.scope if isinstance(request.scope, dict) else {}
+    if not scope:
+        scope = {"kind": "asset", "ref": source_asset_id}
+    metadata = {
+        **_relationship_public_metadata(request.metadata),
+        "source_asset_id": source_asset_id,
+        "target_asset_id": target_asset_id,
+        "relationship_type": relationship_type,
+        "reason": reason,
+    }
+    return DurableAssetIngestRequest(
+        asset_id=relationship_id,
+        asset_type="asset_relationship",
+        asset_status=request.asset_status.strip().lower() or "validated",
+        content=_compact_text(
+            f"Durable asset relationship: {source_asset_id} {relationship_type} {target_asset_id}. "
+            f"Reason: {reason or '-'}",
+            1200,
+        ),
+        source_ticket_id=request.source_ticket_id,
+        source_employee_id=request.source_employee_id,
+        source_run_id=request.source_run_id,
+        source_report_id=request.source_report_id,
+        evidence_id=request.evidence_id,
+        scope=scope,
+        provider_refs=request.provider_refs,
+        source_ref=request.source_ref,
+        source_kind="durable_asset_relationship",
+        metadata=metadata,
+    )
+
+
+async def ingest_durable_asset_relationship_to_graphiti(
+    request: DurableAssetRelationshipIngestRequest,
+) -> DurableAssetRelationshipIngestResponse:
+    durable_request = _durable_asset_relationship_request(request)
+    existing = _durable_asset_ingestion_record(durable_request.asset_id)
+    relationship_type = request.relationship_type.strip().lower()
+    if existing is not None:
+        graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+        return DurableAssetRelationshipIngestResponse(
+            relationship_id=durable_request.asset_id,
+            relationship_type=relationship_type,
+            source_asset_id=request.source_asset_id.strip(),
+            target_asset_id=request.target_asset_id.strip(),
+            status="skipped",
+            detail="Durable asset relationship already exists in Graphiti ingestion audit.",
+            skipped_asset={
+                "asset_id": durable_request.asset_id,
+                "asset_type": durable_request.asset_type,
+                "reason": "already_ingested",
+                "episode_id": str(graphiti_status.get("episode_id") or ""),
+            },
+            saved_paths={"graphiti_state": _relative(_state_path())},
+        )
+
+    ingested = await ingest_durable_asset_to_graphiti(durable_request)
+    return DurableAssetRelationshipIngestResponse(
+        relationship_id=durable_request.asset_id,
+        relationship_type=relationship_type,
+        source_asset_id=request.source_asset_id.strip(),
+        target_asset_id=request.target_asset_id.strip(),
+        status="ingested",
+        detail="Durable asset relationship was projected to Graphiti.",
+        ingested_asset=ingested,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+def _ticket_is_validated(ticket: Any) -> bool:
+    status = str(getattr(ticket, "status", "") or "").strip().lower()
+    if status in _DURABLE_TICKET_STATUSES:
+        return True
+    for report in getattr(ticket, "reports", []) or []:
+        report_type = str(getattr(report, "report_type", "") or "").strip().lower()
+        if report_type in _DURABLE_VALIDATION_REPORT_TYPES:
+            return True
+    return False
+
+
+def _ticket_provider_refs(ticket: Any) -> list[dict[str, Any]]:
+    provider_ref = getattr(ticket, "provider_ref", None)
+    if provider_ref is None:
+        return []
+    if hasattr(provider_ref, "model_dump"):
+        return [provider_ref.model_dump(mode="json")]
+    if isinstance(provider_ref, dict):
+        return [dict(provider_ref)]
+    return []
+
+
+def _report_source_run_id(ticket: Any, report: Any) -> str:
+    source_event_id = str(getattr(report, "source_event_id", "") or "").strip()
+    for event in getattr(ticket, "events", []) or []:
+        if str(getattr(event, "event_id", "") or "").strip() != source_event_id:
+            continue
+        data = getattr(event, "data", {})
+        if isinstance(data, dict):
+            return _first_string(data.get("source_run_id"))
+    return _first_string(getattr(ticket, "source_run_id", ""))
+
+
+def _ticket_summary_durable_asset_request(ticket: Any) -> DurableAssetIngestRequest:
+    ticket_id = str(getattr(ticket, "id", "") or "").strip()
+    ticket_title = str(getattr(ticket, "title", "") or ticket_id).strip()
+    description = str(getattr(ticket, "description", "") or "").strip()
+    status = str(getattr(ticket, "status", "") or "").strip()
+    ticket_type = str(getattr(ticket, "ticket_type", "") or "").strip()
+    assigned_employee_id = str(getattr(ticket, "assigned_employee_id", "") or "").strip()
+    assigned_role = str(getattr(ticket, "assigned_role", "") or "").strip()
+    validation_employee_id = str(getattr(ticket, "validation_employee_id", "") or "").strip()
+    validation_role = str(getattr(ticket, "validation_role", "") or "").strip()
+    knowledge_refs = [str(item).strip() for item in getattr(ticket, "knowledge_refs", []) or [] if str(item).strip()]
+    code_repository_ids = [
+        str(item).strip()
+        for item in getattr(ticket, "code_repository_ids", []) or []
+        if str(item).strip()
+    ]
+    reports = [
+        report
+        for report in getattr(ticket, "reports", []) or []
+        if str(getattr(report, "report_type", "") or "report").strip().lower() not in _NON_DURABLE_REPORT_TYPES
+    ]
+    report_count = len(reports)
+    evidence_count = sum(len(getattr(report, "evidence", []) or []) for report in reports)
+    provider_refs = _ticket_provider_refs(ticket)
+    source_employee_id = assigned_employee_id or validation_employee_id
+    return DurableAssetIngestRequest(
+        asset_id=f"ticket-summary-{ticket_id}",
+        asset_type="ticket_summary",
+        asset_status="validated",
+        content=_compact_text(
+            f"Validated Ticket summary for {ticket_id} ({ticket_title}). "
+            f"Type: {ticket_type or '-'} "
+            f"Status: {status or '-'} "
+            f"Assignee: {assigned_employee_id or assigned_role or '-'} "
+            f"Validator: {validation_employee_id or validation_role or '-'} "
+            f"Reports: {report_count}; Evidence items: {evidence_count}. "
+            f"Description: {description or '-'}",
+            1400,
+        ),
+        source_ticket_id=ticket_id,
+        source_employee_id=source_employee_id,
+        source_run_id=_first_string(getattr(ticket, "source_run_id", "")),
+        source_report_id="",
+        evidence_id="",
+        scope={"kind": "ticket", "ref": ticket_id},
+        provider_refs=provider_refs,
+        source_ref=f"tickets/{ticket_id}",
+        source_kind="validated_ticket_summary",
+        metadata={
+            "ticket_title": ticket_title,
+            "ticket_type": ticket_type,
+            "ticket_status": status,
+            "assigned_employee_id": assigned_employee_id,
+            "assigned_role": assigned_role,
+            "validation_employee_id": validation_employee_id,
+            "validation_role": validation_role,
+            "knowledge_refs": knowledge_refs,
+            "code_repository_ids": code_repository_ids,
+            "report_count": report_count,
+            "evidence_count": evidence_count,
+        },
+    )
+
+
+def _ticket_report_durable_asset_requests(ticket: Any) -> list[DurableAssetIngestRequest]:
+    ticket_id = str(getattr(ticket, "id", "") or "").strip()
+    ticket_title = str(getattr(ticket, "title", "") or ticket_id).strip()
+    provider_refs = _ticket_provider_refs(ticket)
+    requests: list[DurableAssetIngestRequest] = [_ticket_summary_durable_asset_request(ticket)]
+    for report in getattr(ticket, "reports", []) or []:
+        report_id = str(getattr(report, "id", "") or "").strip()
+        if not report_id:
+            continue
+        report_type = str(getattr(report, "report_type", "") or "report").strip().lower()
+        if report_type in _NON_DURABLE_REPORT_TYPES:
+            continue
+        reporter_employee_id = str(getattr(report, "reporter_employee_id", "") or "").strip()
+        source_run_id = _report_source_run_id(ticket, report)
+        report_content = str(getattr(report, "content", "") or "").strip()
+        evidence_items = [str(item).strip() for item in getattr(report, "evidence", []) or [] if str(item).strip()]
+        if report_content:
+            requests.append(
+                DurableAssetIngestRequest(
+                    asset_id=f"report-summary-{ticket_id}-{report_id}",
+                    asset_type="report_summary",
+                    asset_status="validated",
+                    content=_compact_text(
+                        f"Validated report summary for Ticket {ticket_id} ({ticket_title}). "
+                        f"Report {report_id} type={report_type} by {reporter_employee_id or 'unknown Employee'}: {report_content}",
+                        1200,
+                    ),
+                    source_ticket_id=ticket_id,
+                    source_employee_id=reporter_employee_id,
+                    source_run_id=source_run_id,
+                    source_report_id=report_id,
+                    evidence_id="",
+                    scope={"kind": "ticket", "ref": ticket_id},
+                    provider_refs=provider_refs,
+                    source_ref=f"tickets/{ticket_id}/reports/{report_id}",
+                    source_kind="validated_report_summary",
+                    metadata={
+                        "ticket_title": ticket_title,
+                        "report_type": report_type,
+                        "evidence_count": len(evidence_items),
+                    },
+                )
+            )
+        for index, evidence in enumerate(evidence_items):
+            evidence_id = f"{report_id}:evidence:{index}"
+            requests.append(
+                DurableAssetIngestRequest(
+                    asset_id=f"evidence-summary-{ticket_id}-{report_id}-{index}",
+                    asset_type="evidence_summary",
+                    asset_status="validated",
+                    content=_compact_text(
+                        f"Validated evidence summary for Ticket {ticket_id} ({ticket_title}). "
+                        f"Evidence {evidence_id} from report {report_id} type={report_type}: {evidence}",
+                        1200,
+                    ),
+                    source_ticket_id=ticket_id,
+                    source_employee_id=reporter_employee_id,
+                    source_run_id=source_run_id,
+                    source_report_id=report_id,
+                    evidence_id=evidence_id,
+                    scope={"kind": "ticket", "ref": ticket_id},
+                    provider_refs=provider_refs,
+                    source_ref=f"tickets/{ticket_id}/reports/{report_id}#evidence-{index}",
+                    source_kind="validated_evidence_summary",
+                    metadata={
+                        "ticket_title": ticket_title,
+                        "report_type": report_type,
+                        "evidence_index": index,
+                    },
+                )
+            )
+    return requests
+
+
+def _decision_durable_asset_request(decision: Any) -> DurableAssetIngestRequest:
+    decision_id = str(getattr(decision, "id", "") or "").strip()
+    title = str(getattr(decision, "title", "") or decision_id).strip()
+    status = str(getattr(decision, "status", "") or "").strip().lower()
+    context = str(getattr(decision, "context", "") or "").strip()
+    decision_text = str(getattr(decision, "decision", "") or "").strip()
+    consequences = str(getattr(decision, "consequences", "") or "").strip()
+    linked_tickets = [
+        str(item).strip()
+        for item in getattr(decision, "linked_tickets", []) or []
+        if str(item).strip()
+    ]
+    linked_memories = [
+        str(item).strip()
+        for item in getattr(decision, "linked_memories", []) or []
+        if str(item).strip()
+    ]
+    source_ticket_id = linked_tickets[0] if linked_tickets else ""
+    source_ref = str(getattr(decision, "saved_path", "") or "").strip() or f"knowledge/decisions/{decision_id}"
+    return DurableAssetIngestRequest(
+        asset_id=decision_id,
+        asset_type="decision",
+        asset_status=status,
+        content=_compact_text(
+            f"Accepted Decision {decision_id} ({title}). "
+            f"Context: {context or '-'} "
+            f"Decision: {decision_text} "
+            f"Consequences: {consequences or '-'}",
+            1400,
+        ),
+        source_ticket_id=source_ticket_id,
+        source_employee_id="",
+        source_run_id="",
+        source_report_id="",
+        evidence_id="",
+        scope={"kind": "ticket", "ref": source_ticket_id} if source_ticket_id else {"kind": "project", "ref": "aiteamos"},
+        source_ref=source_ref,
+        source_kind="accepted_decision",
+        metadata={
+            "title": title,
+            "linked_tickets": linked_tickets,
+            "linked_memories": linked_memories,
+        },
+    )
+
+
+async def ingest_accepted_decision_durable_asset(decision_id: str) -> DecisionDurableAssetProjectionResponse:
+    from .knowledge_service import list_decisions
+
+    normalized_decision_id = decision_id.strip()
+    decision = next((item for item in list_decisions() if item.id == normalized_decision_id), None)
+    if decision is None:
+        raise KeyError(normalized_decision_id)
+    status = str(decision.status or "").strip().lower()
+    if status not in _ACCEPTED_DECISION_STATUSES:
+        raise ValueError("Only accepted Decisions can project into Graphiti.")
+
+    request = _decision_durable_asset_request(decision)
+    existing = _durable_asset_ingestion_record(request.asset_id)
+    if existing is not None:
+        graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+        return DecisionDurableAssetProjectionResponse(
+            decision_id=normalized_decision_id,
+            status="skipped",
+            detail="Accepted Decision durable asset already exists in Graphiti ingestion audit.",
+            skipped_asset={
+                "asset_id": request.asset_id,
+                "asset_type": request.asset_type,
+                "reason": "already_ingested",
+                "episode_id": str(graphiti_status.get("episode_id") or ""),
+            },
+            saved_paths={"graphiti_state": _relative(_state_path())},
+        )
+
+    ingested = await ingest_durable_asset_to_graphiti(request)
+    return DecisionDurableAssetProjectionResponse(
+        decision_id=normalized_decision_id,
+        status="ingested",
+        detail="Accepted Decision durable asset was projected to Graphiti.",
+        ingested_asset=ingested,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+async def ingest_accepted_decision_durable_assets(
+    *,
+    max_assets: int = 20,
+) -> DecisionDurableAssetBatchProjectionResponse:
+    from .knowledge_service import list_decisions
+
+    ingested: list[DurableAssetIngestResponse] = []
+    skipped: list[dict[str, str]] = []
+    capped_max_assets = max(1, min(max_assets, 50))
+    accepted_decisions = [
+        decision
+        for decision in list_decisions()
+        if str(decision.status or "").strip().lower() in _ACCEPTED_DECISION_STATUSES
+    ]
+    for decision in accepted_decisions:
+        request = _decision_durable_asset_request(decision)
+        existing = _durable_asset_ingestion_record(request.asset_id)
+        if existing is not None:
+            graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "already_ingested",
+                    "episode_id": str(graphiti_status.get("episode_id") or ""),
+                }
+            )
+            continue
+        if len(ingested) >= capped_max_assets:
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "max_assets_limit",
+                    "episode_id": "",
+                }
+            )
+            continue
+        ingested.append(await ingest_durable_asset_to_graphiti(request))
+
+    status = "ingested" if ingested else "skipped" if skipped else "no_assets"
+    return DecisionDurableAssetBatchProjectionResponse(
+        status=status,
+        detail=(
+            "Accepted Decision durable assets were projected to Graphiti."
+            if ingested
+            else "No new accepted Decision durable assets needed Graphiti ingestion."
+        ),
+        ingested_assets=ingested,
+        skipped_assets=skipped,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+def _skill_durable_asset_request(skill: Any) -> DurableAssetIngestRequest:
+    skill_id = str(getattr(skill, "id", "") or "").strip()
+    title = str(getattr(skill, "title", "") or skill_id).strip()
+    status = str(getattr(skill, "status", "") or "approved").strip().lower()
+    metadata = getattr(skill, "metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    description = _first_string(metadata.get("description"))
+    content = _first_string(metadata.get("content"), description, title)
+    assigned_employees = [
+        str(item).strip()
+        for item in getattr(skill, "assigned_employees", []) or []
+        if str(item).strip()
+    ]
+    scopes = [str(item).strip() for item in getattr(skill, "scopes", []) or [] if str(item).strip()]
+    source_employee_id = assigned_employees[0] if assigned_employees else ""
+    source_ref = _first_string(
+        metadata.get("saved_path"),
+        metadata.get("source_ref"),
+        f"assets/capabilities/skills/{skill_id}",
+    )
+    scope = (
+        {"kind": "employee", "ref": source_employee_id}
+        if source_employee_id
+        else {"kind": "capability", "ref": skill_id}
+    )
+    return DurableAssetIngestRequest(
+        asset_id=f"skill-summary-{skill_id}",
+        asset_type="skill_summary",
+        asset_status=status,
+        content=_compact_text(
+            f"Approved Skill summary for {skill_id} ({title}). "
+            f"Description: {description or '-'} "
+            f"Content: {content}",
+            1600,
+        ),
+        source_ticket_id="",
+        source_employee_id=source_employee_id,
+        source_run_id="",
+        source_report_id="",
+        evidence_id="",
+        scope=scope,
+        source_ref=source_ref,
+        source_kind="approved_skill_summary",
+        metadata={
+            "source_asset_id": skill_id,
+            "title": title,
+            "description": description,
+            "assigned_employees": assigned_employees,
+            "scopes": scopes,
+            "resources": metadata.get("resources") if isinstance(metadata.get("resources"), list) else [],
+            "source": metadata.get("source") or "",
+            "source_ref": metadata.get("source_ref") or source_ref,
+        },
+    )
+
+
+def _approved_skill_assets() -> list[Any]:
+    from .knowledge_service import all_asset_items
+
+    return [
+        item
+        for item in all_asset_items()
+        if str(getattr(item, "kind", "") or "").strip().lower() == "skill"
+        and str(getattr(item, "status", "") or "").strip().lower() == "approved"
+    ]
+
+
+async def ingest_approved_skill_durable_asset(skill_id: str) -> SkillDurableAssetProjectionResponse:
+    normalized_skill_id = skill_id.strip()
+    skill = next((item for item in _approved_skill_assets() if item.id == normalized_skill_id), None)
+    if skill is None:
+        raise KeyError(normalized_skill_id)
+
+    request = _skill_durable_asset_request(skill)
+    existing = _durable_asset_ingestion_record(request.asset_id)
+    if existing is not None:
+        graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+        return SkillDurableAssetProjectionResponse(
+            skill_id=normalized_skill_id,
+            status="skipped",
+            detail="Approved Skill durable asset already exists in Graphiti ingestion audit.",
+            skipped_asset={
+                "asset_id": request.asset_id,
+                "asset_type": request.asset_type,
+                "reason": "already_ingested",
+                "episode_id": str(graphiti_status.get("episode_id") or ""),
+            },
+            saved_paths={"graphiti_state": _relative(_state_path())},
+        )
+
+    ingested = await ingest_durable_asset_to_graphiti(request)
+    return SkillDurableAssetProjectionResponse(
+        skill_id=normalized_skill_id,
+        status="ingested",
+        detail="Approved Skill durable asset was projected to Graphiti.",
+        ingested_asset=ingested,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+async def ingest_approved_skill_durable_assets(
+    *,
+    max_assets: int = 20,
+) -> SkillDurableAssetBatchProjectionResponse:
+    ingested: list[DurableAssetIngestResponse] = []
+    skipped: list[dict[str, str]] = []
+    capped_max_assets = max(1, min(max_assets, 50))
+    for skill in _approved_skill_assets():
+        request = _skill_durable_asset_request(skill)
+        existing = _durable_asset_ingestion_record(request.asset_id)
+        if existing is not None:
+            graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "already_ingested",
+                    "episode_id": str(graphiti_status.get("episode_id") or ""),
+                }
+            )
+            continue
+        if len(ingested) >= capped_max_assets:
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "max_assets_limit",
+                    "episode_id": "",
+                }
+            )
+            continue
+        ingested.append(await ingest_durable_asset_to_graphiti(request))
+
+    status = "ingested" if ingested else "skipped" if skipped else "no_assets"
+    return SkillDurableAssetBatchProjectionResponse(
+        status=status,
+        detail=(
+            "Approved Skill durable assets were projected to Graphiti."
+            if ingested
+            else "No new approved Skill durable assets needed Graphiti ingestion."
+        ),
+        ingested_assets=ingested,
+        skipped_assets=skipped,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+def _doc_durable_asset_request(doc: Any) -> DurableAssetIngestRequest:
+    doc_id = str(getattr(doc, "id", "") or "").strip()
+    title = str(getattr(doc, "title", "") or doc_id).strip()
+    path = str(getattr(doc, "path", "") or "").strip()
+    tags = [str(item).strip() for item in getattr(doc, "tags", []) or [] if str(item).strip()]
+    excerpt = str(getattr(doc, "excerpt", "") or "").strip()
+    content = str(getattr(doc, "content", "") or "").strip()
+    summary_source = content or excerpt or title
+    return DurableAssetIngestRequest(
+        asset_id=f"doc-summary-{doc_id}",
+        asset_type="doc_summary",
+        asset_status="approved",
+        content=_compact_text(
+            f"Approved Doc summary for {doc_id} ({title}). "
+            f"Path: {path or '-'} "
+            f"Excerpt: {excerpt or '-'} "
+            f"Content: {summary_source}",
+            1800,
+        ),
+        source_ticket_id="",
+        source_employee_id="",
+        source_run_id="",
+        source_report_id="",
+        evidence_id="",
+        scope={"kind": "doc", "ref": doc_id},
+        source_ref=path,
+        source_kind="approved_doc_summary",
+        metadata={
+            "source_asset_id": doc_id,
+            "title": title,
+            "path": path,
+            "tags": tags,
+            "excerpt": excerpt,
+        },
+    )
+
+
+def _approved_docs() -> list[Any]:
+    from .knowledge_service import list_docs
+
+    docs: list[Any] = []
+    for doc in list_docs():
+        path = str(getattr(doc, "path", "") or "")
+        tags = [str(item).strip() for item in getattr(doc, "tags", []) or [] if str(item).strip()]
+        if "decision" in tags or path.startswith(".aiteamos/knowledge/decisions/"):
+            continue
+        docs.append(doc)
+    return docs
+
+
+async def ingest_approved_doc_durable_asset(doc_id: str) -> DocDurableAssetProjectionResponse:
+    normalized_doc_id = doc_id.strip()
+    doc = next((item for item in _approved_docs() if item.id == normalized_doc_id), None)
+    if doc is None:
+        raise KeyError(normalized_doc_id)
+
+    request = _doc_durable_asset_request(doc)
+    existing = _durable_asset_ingestion_record(request.asset_id)
+    if existing is not None:
+        graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+        return DocDurableAssetProjectionResponse(
+            doc_id=normalized_doc_id,
+            status="skipped",
+            detail="Approved Doc durable asset already exists in Graphiti ingestion audit.",
+            skipped_asset={
+                "asset_id": request.asset_id,
+                "asset_type": request.asset_type,
+                "reason": "already_ingested",
+                "episode_id": str(graphiti_status.get("episode_id") or ""),
+            },
+            saved_paths={"graphiti_state": _relative(_state_path())},
+        )
+
+    ingested = await ingest_durable_asset_to_graphiti(request)
+    return DocDurableAssetProjectionResponse(
+        doc_id=normalized_doc_id,
+        status="ingested",
+        detail="Approved Doc durable asset was projected to Graphiti.",
+        ingested_asset=ingested,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+async def ingest_approved_doc_durable_assets(
+    *,
+    max_assets: int = 20,
+) -> DocDurableAssetBatchProjectionResponse:
+    ingested: list[DurableAssetIngestResponse] = []
+    skipped: list[dict[str, str]] = []
+    capped_max_assets = max(1, min(max_assets, 50))
+    for doc in _approved_docs():
+        request = _doc_durable_asset_request(doc)
+        existing = _durable_asset_ingestion_record(request.asset_id)
+        if existing is not None:
+            graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "already_ingested",
+                    "episode_id": str(graphiti_status.get("episode_id") or ""),
+                }
+            )
+            continue
+        if len(ingested) >= capped_max_assets:
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "max_assets_limit",
+                    "episode_id": "",
+                }
+            )
+            continue
+        ingested.append(await ingest_durable_asset_to_graphiti(request))
+
+    status = "ingested" if ingested else "skipped" if skipped else "no_assets"
+    return DocDurableAssetBatchProjectionResponse(
+        status=status,
+        detail=(
+            "Approved Doc durable assets were projected to Graphiti."
+            if ingested
+            else "No new approved Doc durable assets needed Graphiti ingestion."
+        ),
+        ingested_assets=ingested,
+        skipped_assets=skipped,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+def _employee_profiles_dir() -> Path:
+    return _workspace_dir() / "employees"
+
+
+def _profile_string_list(profile: Mapping[str, Any], key: str) -> list[str]:
+    raw = profile.get(key)
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    value = str(raw or "").strip()
+    return [value] if value else []
+
+
+def _employee_profile_records() -> list[dict[str, Any]]:
+    profiles: list[dict[str, Any]] = []
+    for path in sorted(_employee_profiles_dir().glob("*.yaml")):
+        try:
+            payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except OSError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        employee_id = str(payload.get("id") or path.stem).strip()
+        if not employee_id:
+            continue
+        profile = dict(payload)
+        profile["id"] = employee_id
+        profile["source_ref"] = _relative(path)
+        profiles.append(profile)
+    return profiles
+
+
+def _employee_profile_durable_asset_request(profile: Mapping[str, Any]) -> DurableAssetIngestRequest:
+    employee_id = str(profile.get("id") or "").strip()
+    display_name = str(profile.get("display_name") or employee_id).strip()
+    kind = str(profile.get("kind") or "ai").strip()
+    role = str(profile.get("role") or "AI Employee").strip()
+    summary = str(profile.get("summary") or "").strip()
+    personality = str(profile.get("personality") or "").strip()
+    responsibilities = _profile_string_list(profile, "responsibilities")
+    skills = _profile_string_list(profile, "skills")
+    memory_scopes = _profile_string_list(profile, "memory_scopes")
+    handoff_rules = _profile_string_list(profile, "handoff_rules")
+    source_ref = str(profile.get("source_ref") or f".aiteamos/employees/{employee_id}.yaml").strip()
+    content = _compact_text(
+        f"Approved Employee profile summary for {employee_id} ({display_name}). "
+        f"Kind: {kind or '-'} "
+        f"Role: {role or '-'} "
+        f"Summary: {summary or '-'} "
+        f"Personality: {personality or '-'} "
+        f"Responsibilities: {'; '.join(responsibilities) or '-'} "
+        f"Skills: {', '.join(skills) or '-'} "
+        f"Memory scopes: {', '.join(memory_scopes) or '-'} "
+        f"Handoff rules: {'; '.join(handoff_rules) or '-'}",
+        1600,
+    )
+    return DurableAssetIngestRequest(
+        asset_id=f"employee-profile-{employee_id}",
+        asset_type="employee_profile_summary",
+        asset_status="approved",
+        content=content,
+        source_ticket_id="",
+        source_employee_id=employee_id,
+        source_run_id="",
+        source_report_id="",
+        evidence_id="",
+        scope={"kind": "employee", "ref": employee_id},
+        source_ref=source_ref,
+        source_kind="approved_employee_profile_summary",
+        metadata={
+            "source_asset_id": employee_id,
+            "display_name": display_name,
+            "kind": kind,
+            "role": role,
+            "summary": summary,
+            "skills": skills,
+            "memory_scopes": memory_scopes,
+            "responsibilities": responsibilities,
+            "handoff_rules": handoff_rules,
+            "source_ref": source_ref,
+        },
+    )
+
+
+async def ingest_approved_employee_profile_durable_asset(employee_id: str) -> EmployeeDurableAssetProjectionResponse:
+    normalized_employee_id = employee_id.strip()
+    profile = next((item for item in _employee_profile_records() if item["id"] == normalized_employee_id), None)
+    if profile is None:
+        raise KeyError(normalized_employee_id)
+
+    request = _employee_profile_durable_asset_request(profile)
+    existing = _durable_asset_ingestion_record(request.asset_id)
+    if existing is not None:
+        graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+        return EmployeeDurableAssetProjectionResponse(
+            employee_id=normalized_employee_id,
+            status="skipped",
+            detail="Approved Employee profile durable asset already exists in Graphiti ingestion audit.",
+            skipped_asset={
+                "asset_id": request.asset_id,
+                "asset_type": request.asset_type,
+                "reason": "already_ingested",
+                "episode_id": str(graphiti_status.get("episode_id") or ""),
+            },
+            saved_paths={"graphiti_state": _relative(_state_path())},
+        )
+
+    ingested = await ingest_durable_asset_to_graphiti(request)
+    return EmployeeDurableAssetProjectionResponse(
+        employee_id=normalized_employee_id,
+        status="ingested",
+        detail="Approved Employee profile durable asset was projected to Graphiti.",
+        ingested_asset=ingested,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+async def ingest_approved_employee_profile_durable_assets(
+    *,
+    max_assets: int = 20,
+) -> EmployeeDurableAssetBatchProjectionResponse:
+    ingested: list[DurableAssetIngestResponse] = []
+    skipped: list[dict[str, str]] = []
+    capped_max_assets = max(1, min(max_assets, 50))
+    for profile in _employee_profile_records():
+        request = _employee_profile_durable_asset_request(profile)
+        existing = _durable_asset_ingestion_record(request.asset_id)
+        if existing is not None:
+            graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "already_ingested",
+                    "episode_id": str(graphiti_status.get("episode_id") or ""),
+                }
+            )
+            continue
+        if len(ingested) >= capped_max_assets:
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "max_assets_limit",
+                    "episode_id": "",
+                }
+            )
+            continue
+        ingested.append(await ingest_durable_asset_to_graphiti(request))
+
+    status = "ingested" if ingested else "skipped" if skipped else "no_assets"
+    return EmployeeDurableAssetBatchProjectionResponse(
+        status=status,
+        detail=(
+            "Approved Employee profile durable assets were projected to Graphiti."
+            if ingested
+            else "No new approved Employee profile durable assets needed Graphiti ingestion."
+        ),
+        ingested_assets=ingested,
+        skipped_assets=skipped,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+def _capability_is_durable(capability: Any) -> bool:
+    status = str(getattr(capability, "status", "") or "").strip().lower()
+    enabled = bool(getattr(capability, "enabled", False))
+    configured = bool(getattr(capability, "configured", False))
+    return status in {"ready", "active", "configured", "local"} and enabled and configured
+
+
+def _capability_durable_asset_request(capability: Any) -> DurableAssetIngestRequest:
+    capability_id = str(getattr(capability, "id", "") or "").strip()
+    name = str(getattr(capability, "name", "") or capability_id).strip()
+    kind = str(getattr(capability, "kind", "") or "tool").strip()
+    capability_source_kind = str(getattr(capability, "source_kind", "") or "").strip()
+    domain = str(getattr(capability, "domain", "") or "").strip()
+    source = str(getattr(capability, "source", "") or "").strip()
+    status = str(getattr(capability, "status", "") or "ready").strip()
+    description = str(getattr(capability, "description", "") or "").strip()
+    owner_scope = str(getattr(capability, "owner_scope", "") or "").strip()
+    arguments = [str(item).strip() for item in getattr(capability, "arguments", []) or [] if str(item).strip()]
+    produces = [str(item).strip() for item in getattr(capability, "produces", []) or [] if str(item).strip()]
+    boundary = str(getattr(capability, "boundary", "") or "").strip()
+    deep_link = str(getattr(capability, "deep_link", "") or "").strip()
+    connector_id = str(getattr(capability, "connector_id", "") or "").strip()
+    source_ref = (
+        f"tool_connector:{connector_id}:{capability_id}"
+        if connector_id
+        else f"capability_registry:{capability_source_kind or kind}:{capability_id}"
+    )
+    return DurableAssetIngestRequest(
+        asset_id=f"capability-{capability_id}",
+        asset_type="capability_summary",
+        asset_status="approved",
+        content=_compact_text(
+            f"Approved Capability summary for {capability_id} ({name}). "
+            f"Kind: {kind or '-'} "
+            f"Source kind: {capability_source_kind or '-'} "
+            f"Domain: {domain or '-'} "
+            f"Status: {status or '-'} "
+            f"Description: {description or '-'} "
+            f"Owner scope: {owner_scope or '-'} "
+            f"Arguments: {', '.join(arguments) or '-'} "
+            f"Produces: {', '.join(produces) or '-'} "
+            f"Boundary: {boundary or '-'} "
+            f"Deep link: {deep_link or '-'}",
+            1600,
+        ),
+        source_ticket_id="",
+        source_employee_id="",
+        source_run_id="",
+        source_report_id="",
+        evidence_id="",
+        scope={"kind": "capability", "ref": capability_id},
+        source_ref=source_ref,
+        source_kind="approved_capability_summary",
+        metadata={
+            "source_asset_id": capability_id,
+            "name": name,
+            "kind": kind,
+            "capability_source_kind": capability_source_kind,
+            "domain": domain,
+            "source": source,
+            "status": status,
+            "enabled": bool(getattr(capability, "enabled", False)),
+            "configured": bool(getattr(capability, "configured", False)),
+            "description": description,
+            "owner_scope": owner_scope,
+            "arguments": arguments,
+            "produces": produces,
+            "boundary": boundary,
+            "deep_link": deep_link,
+            "connector_id": connector_id,
+            "source_ref": source_ref,
+        },
+    )
+
+
+def _durable_capabilities() -> list[Any]:
+    from .capability_service import list_capabilities
+
+    return [item for item in list_capabilities() if _capability_is_durable(item)]
+
+
+async def ingest_approved_capability_durable_asset(capability_id: str) -> CapabilityDurableAssetProjectionResponse:
+    normalized_capability_id = capability_id.strip()
+    from .capability_service import list_capabilities
+
+    capability = next((item for item in list_capabilities() if item.id == normalized_capability_id), None)
+    if capability is None:
+        raise KeyError(normalized_capability_id)
+    if not _capability_is_durable(capability):
+        raise ValueError("Only ready and configured Capability facts can be projected into Graphiti.")
+
+    request = _capability_durable_asset_request(capability)
+    existing = _durable_asset_ingestion_record(request.asset_id)
+    if existing is not None:
+        graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+        return CapabilityDurableAssetProjectionResponse(
+            capability_id=normalized_capability_id,
+            status="skipped",
+            detail="Approved Capability durable asset already exists in Graphiti ingestion audit.",
+            skipped_asset={
+                "asset_id": request.asset_id,
+                "asset_type": request.asset_type,
+                "reason": "already_ingested",
+                "episode_id": str(graphiti_status.get("episode_id") or ""),
+            },
+            saved_paths={"graphiti_state": _relative(_state_path())},
+        )
+
+    ingested = await ingest_durable_asset_to_graphiti(request)
+    return CapabilityDurableAssetProjectionResponse(
+        capability_id=normalized_capability_id,
+        status="ingested",
+        detail="Approved Capability durable asset was projected to Graphiti.",
+        ingested_asset=ingested,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+async def ingest_approved_capability_durable_assets(
+    *,
+    max_assets: int = 20,
+) -> CapabilityDurableAssetBatchProjectionResponse:
+    ingested: list[DurableAssetIngestResponse] = []
+    skipped: list[dict[str, str]] = []
+    capped_max_assets = max(1, min(max_assets, 50))
+    for capability in _durable_capabilities():
+        request = _capability_durable_asset_request(capability)
+        existing = _durable_asset_ingestion_record(request.asset_id)
+        if existing is not None:
+            graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "already_ingested",
+                    "episode_id": str(graphiti_status.get("episode_id") or ""),
+                }
+            )
+            continue
+        if len(ingested) >= capped_max_assets:
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "max_assets_limit",
+                    "episode_id": "",
+                }
+            )
+            continue
+        ingested.append(await ingest_durable_asset_to_graphiti(request))
+
+    status = "ingested" if ingested else "skipped" if skipped else "no_assets"
+    return CapabilityDurableAssetBatchProjectionResponse(
+        status=status,
+        detail=(
+            "Approved Capability durable assets were projected to Graphiti."
+            if ingested
+            else "No new approved Capability durable assets needed Graphiti ingestion."
+        ),
+        ingested_assets=ingested,
+        skipped_assets=skipped,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+async def ingest_validated_ticket_durable_assets(ticket_id: str, *, max_assets: int = 20) -> TicketDurableAssetProjectionResponse:
+    from .ticket_service import get_ticket
+
+    normalized_ticket_id = ticket_id.strip()
+    ticket = get_ticket(normalized_ticket_id)
+    if ticket is None:
+        raise KeyError(normalized_ticket_id)
+    if not _ticket_is_validated(ticket):
+        raise ValueError("Only validated Tickets can project report and evidence summaries into Graphiti.")
+
+    ingested: list[DurableAssetIngestResponse] = []
+    skipped: list[dict[str, str]] = []
+    capped_max_assets = max(1, min(max_assets, 50))
+    for request in _ticket_report_durable_asset_requests(ticket):
+        existing = _durable_asset_ingestion_record(request.asset_id)
+        if existing is not None:
+            graphiti_status = existing.get("graphiti_status") if isinstance(existing.get("graphiti_status"), dict) else {}
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "already_ingested",
+                    "episode_id": str(graphiti_status.get("episode_id") or ""),
+                }
+            )
+            continue
+        if len(ingested) >= capped_max_assets:
+            skipped.append(
+                {
+                    "asset_id": request.asset_id,
+                    "asset_type": request.asset_type,
+                    "reason": "max_assets_limit",
+                    "episode_id": "",
+                }
+            )
+            continue
+        ingested.append(await ingest_durable_asset_to_graphiti(request))
+
+    status = "ingested" if ingested else "skipped" if skipped else "no_assets"
+    return TicketDurableAssetProjectionResponse(
+        ticket_id=normalized_ticket_id,
+        status=status,
+        detail=(
+            "Validated Ticket report/evidence durable assets were projected to Graphiti."
+            if ingested
+            else "No new validated Ticket report/evidence durable assets needed Graphiti ingestion."
+        ),
+        ingested_assets=ingested,
+        skipped_assets=skipped,
+        saved_paths={"graphiti_state": _relative(_state_path())},
+    )
+
+
+def review_memory_candidate(candidate_id: str, request: MemoryCandidateReviewRequest) -> MemoryCandidate:
+    status = request.status.strip().lower()
+    if status not in MEMORY_REVIEW_STATUSES:
+        raise ValueError(
+            "Memory candidate review status must be one of: "
+            + ", ".join(sorted(MEMORY_REVIEW_STATUSES))
+        )
+    candidate = next((item for item in _load_candidates() if item.id == candidate_id), None)
+    if candidate is None:
+        candidate = next((item for item in _load_approved() if item.id == candidate_id), None)
+    if candidate is None:
+        raise KeyError(candidate_id)
+
+    timestamp = _now()
+    review = {
+        "status": status,
+        "reason": request.reason.strip(),
+        "actor_employee_id": request.actor_employee_id.strip() or "clara",
+        "reviewed_at": timestamp,
+    }
+    superseded_by = request.superseded_by_candidate_id.strip()
+    if superseded_by:
+        review["superseded_by_candidate_id"] = superseded_by
+
+    provenance = dict(candidate.provenance)
+    reviews = provenance.get("reviews")
+    if not isinstance(reviews, list):
+        reviews = []
+    reviews.append(review)
+    provenance["reviews"] = reviews
+    provenance["latest_review"] = review
+    provenance["asset_status"] = status
+    if status in {"stale", "superseded"}:
+        provenance["not_applicable_at"] = timestamp
+    if superseded_by:
+        provenance["superseded_by_candidate_id"] = superseded_by
+
+    candidate.status = status
+    candidate.updated_at = timestamp
+    candidate.provenance = provenance
+    _update_candidate(candidate)
+    _update_approved_if_present(candidate)
+    return candidate
+
+
+def _usage_summary(usage_history: list[dict[str, Any]]) -> dict[str, Any]:
+    status_counts = {
+        "unreviewed": 0,
+        "used": 0,
+        "irrelevant": 0,
+        "harmful": 0,
+        "promoted": 0,
+    }
+    for item in usage_history:
+        status = _normalize_memory_recall_usefulness_status(str(item.get("usefulness_status") or "unreviewed"), allow_unreviewed=True)
+        status_counts[status] = status_counts.get(status, 0) + 1
+    latest = usage_history[-1] if usage_history else {}
+    latest_status = _normalize_memory_recall_usefulness_status(str(latest.get("usefulness_status") or "unreviewed"), allow_unreviewed=True)
+    return {
+        "recall_count": len(usage_history),
+        "used_count": status_counts.get("used", 0),
+        "irrelevant_count": status_counts.get("irrelevant", 0),
+        "harmful_count": status_counts.get("harmful", 0),
+        "promoted_count": status_counts.get("promoted", 0),
+        "unreviewed_count": status_counts.get("unreviewed", 0),
+        "status_counts": status_counts,
+        "useful_count": status_counts.get("used", 0),
+        "not_useful_count": status_counts.get("irrelevant", 0),
+        "last_recalled_at": latest.get("at", ""),
+        "last_recalled_ticket_id": (latest.get("source_ticket_ids") or [""])[0] if isinstance(latest.get("source_ticket_ids"), list) else "",
+        "last_recalled_run_id": latest.get("source_run_id", ""),
+        "last_usefulness_status": latest_status,
+    }
+
+
+def record_memory_recall_usage(
+    *,
+    memory_refs: list[dict[str, Any]],
+    run_id: str,
+    employee_id: str,
+    ticket_keys: list[str],
+    query: str,
+    trace_path: str,
+) -> list[dict[str, Any]]:
+    timestamp = _now()
+    usage_refs: list[dict[str, Any]] = []
+    seen_memory_ids: set[str] = set()
+    for ref in memory_refs:
+        provenance = ref.get("provenance") if isinstance(ref.get("provenance"), dict) else {}
+        memory_id = _first_string(ref.get("memory_id"), provenance.get("asset_id"))
+        if not memory_id or memory_id in seen_memory_ids:
+            continue
+        seen_memory_ids.add(memory_id)
+        candidate = _find_local_memory_candidate(memory_id)
+        if candidate is None or candidate.status not in RECALLABLE_MEMORY_STATUSES:
+            continue
+
+        usage_id = f"usage-{run_id}-{memory_id}"
+        candidate_provenance = dict(candidate.provenance)
+        usage_history = candidate_provenance.get("usage_history")
+        if not isinstance(usage_history, list):
+            usage_history = []
+        existing = next((item for item in usage_history if isinstance(item, dict) and item.get("usage_id") == usage_id), None)
+        if isinstance(existing, dict):
+            usage = existing
+        else:
+            usage = {
+                "usage_id": usage_id,
+                "at": timestamp,
+                "source_kind": "chat_run",
+                "source_run_id": run_id,
+                "source_trace_path": trace_path,
+                "source_employee_id": employee_id,
+                "source_ticket_ids": list(ticket_keys),
+                "query": _compact_text(query, 240),
+                "graphiti_recalled": bool(ref.get("graphiti_recalled")),
+                "graphiti_episode_id": ref.get("graphiti_episode_id") or "",
+                "graphiti_result_id": ref.get("graphiti_result_id") or "",
+                "usefulness_status": "unreviewed",
+            }
+            usage_history.append(usage)
+        usage_history = [item for item in usage_history if isinstance(item, dict)][-50:]
+        candidate_provenance["usage_history"] = usage_history
+        candidate_provenance["usage_summary"] = _usage_summary(usage_history)
+        candidate.provenance = candidate_provenance
+        candidate.updated_at = timestamp
+        _replace_local_memory_candidate(candidate)
+        _sync_asset_usefulness_from_memory_candidate(candidate)
+
+        usage_refs.append(
+            {
+                "usage_id": usage["usage_id"],
+                "memory_id": memory_id,
+                "asset_id": memory_id,
+                "source_run_id": run_id,
+                "source_trace_path": trace_path,
+                "source_employee_id": employee_id,
+                "source_ticket_ids": list(ticket_keys),
+                "graphiti_recalled": bool(usage.get("graphiti_recalled")),
+                "graphiti_episode_id": usage.get("graphiti_episode_id") or "",
+                "usefulness_status": usage.get("usefulness_status") or "unreviewed",
+            }
+        )
+    return usage_refs
+
+
+def review_memory_recall_usage(
+    candidate_id: str,
+    usage_id: str,
+    request: MemoryRecallUsefulnessReviewRequest,
+) -> MemoryCandidate:
+    try:
+        usefulness_status = _normalize_memory_recall_usefulness_status(request.usefulness_status, allow_unreviewed=False)
+    except ValueError as exc:
+        raise ValueError(
+            "Memory recall usefulness status must be one of: "
+            + ", ".join(sorted(MEMORY_RECALL_USEFULNESS_STATUSES - {"unreviewed"}))
+            + ". Legacy aliases useful, not_useful, neutral, and promote are accepted."
+        ) from exc
+    candidate = _find_local_memory_candidate(candidate_id)
+    if candidate is None:
+        raise KeyError(candidate_id)
+
+    provenance = dict(candidate.provenance)
+    usage_history = provenance.get("usage_history")
+    if not isinstance(usage_history, list):
+        usage_history = []
+    matched = False
+    timestamp = _now()
+    for item in usage_history:
+        if not isinstance(item, dict) or item.get("usage_id") != usage_id:
+            continue
+        item["usefulness_status"] = usefulness_status
+        item["reviewed_at"] = timestamp
+        item["reviewer_employee_id"] = request.reviewer_employee_id.strip() or "clara"
+        item["usefulness_reason"] = request.reason.strip()
+        matched = True
+        break
+    if not matched:
+        raise KeyError(usage_id)
+
+    provenance["usage_history"] = usage_history
+    provenance["usage_summary"] = _usage_summary([item for item in usage_history if isinstance(item, dict)])
+    candidate.provenance = provenance
+    candidate.updated_at = timestamp
+    _replace_local_memory_candidate(candidate)
+    _sync_asset_usefulness_from_memory_candidate(candidate)
+    return candidate
+
+
+def _normalize_memory_recall_usefulness_status(value: str, *, allow_unreviewed: bool) -> str:
+    normalized = value.strip().lower().replace("-", "_")
+    normalized = MEMORY_RECALL_USEFULNESS_ALIASES.get(normalized, normalized)
+    if normalized == "unreviewed" and allow_unreviewed:
+        return normalized
+    allowed = MEMORY_RECALL_USEFULNESS_STATUSES if allow_unreviewed else MEMORY_RECALL_USEFULNESS_STATUSES - {"unreviewed"}
+    if normalized not in allowed:
+        raise ValueError(normalized)
+    return normalized
+
+
+def _sync_asset_usefulness_from_memory_candidate(candidate: MemoryCandidate) -> None:
+    try:
+        from .asset_candidate_service import sync_asset_usefulness_from_memory_candidate
+
+        sync_asset_usefulness_from_memory_candidate(candidate)
+    except Exception:
+        # Memory recall feedback must not fail if the local Asset read model needs repair.
+        return
 
 
 def _compact_text(value: str, limit: int = 900) -> str:
@@ -652,6 +3066,60 @@ def _candidate_matches_scope(
     return True
 
 
+def _search_result_matches_scope(
+    result: MemorySearchResult,
+    *,
+    employee_id: str | None = None,
+    ticket_key: str | None = None,
+    project: str | None = None,
+) -> bool:
+    provenance = result.provenance if isinstance(result.provenance, dict) else {}
+    scope = provenance.get("scope") if isinstance(provenance.get("scope"), dict) else {}
+    normalized_employee_id = (employee_id or "").strip()
+    normalized_ticket_key = (ticket_key or "").strip()
+    normalized_project = (project or "").strip()
+    if normalized_employee_id and result.employee_ids and normalized_employee_id not in result.employee_ids:
+        return False
+    if normalized_ticket_key:
+        ticket_refs = {
+            result.scope_ref if result.scope_kind == "ticket" else "",
+            _first_string(provenance.get("source_ticket_id")),
+            _first_string(scope.get("ref")) if _first_string(scope.get("kind")) == "ticket" else "",
+        }
+        return normalized_ticket_key in ticket_refs
+    if normalized_project and result.scope_kind == "project" and result.scope_ref not in {normalized_project, "aiteamos"}:
+        return False
+    return True
+
+
+def _excluded_result_matches_scope(
+    item: dict[str, Any],
+    *,
+    employee_id: str | None = None,
+    ticket_key: str | None = None,
+    project: str | None = None,
+) -> bool:
+    provenance = item.get("provenance") if isinstance(item.get("provenance"), dict) else {}
+    scope = provenance.get("scope") if isinstance(provenance.get("scope"), dict) else {}
+    normalized_employee_id = (employee_id or "").strip()
+    normalized_ticket_key = (ticket_key or "").strip()
+    normalized_project = (project or "").strip()
+    employee_ids = [str(value).strip() for value in item.get("employee_ids", []) if str(value).strip()] if isinstance(item.get("employee_ids"), list) else []
+    if normalized_employee_id and employee_ids and normalized_employee_id not in employee_ids:
+        return False
+    scope_kind = _first_string(item.get("scope_kind"), scope.get("kind") if isinstance(scope, dict) else "")
+    scope_ref = _first_string(item.get("scope_ref"), scope.get("ref") if isinstance(scope, dict) else "")
+    if normalized_ticket_key:
+        ticket_refs = {
+            scope_ref if scope_kind == "ticket" else "",
+            _first_string(provenance.get("source_ticket_id")),
+        }
+        return normalized_ticket_key in ticket_refs
+    if normalized_project and scope_kind == "project" and scope_ref not in {normalized_project, "aiteamos"}:
+        return False
+    return True
+
+
 def _file_memory_results(
     *,
     query: str,
@@ -679,6 +3147,7 @@ def _file_memory_results(
                 employee_ids=candidate.employee_ids,
                 tags=candidate.tags,
                 provenance=candidate.provenance,
+                graphiti_episode_id=candidate.graphiti_episode_id,
             )
         )
         if len(results) >= limit:
@@ -687,25 +3156,30 @@ def _file_memory_results(
 
 
 async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchResult]:
-    backend = graphiti_backend_status()
-    if backend.status != "ready" or not query.strip():
-        return []
+    results, _excluded = await _graphiti_memory_search(query, limit)
+    return results
 
-    config = _graphiti_config()
+
+async def _graphiti_memory_search(query: str, limit: int) -> tuple[list[MemorySearchResult], list[dict[str, Any]]]:
+    backend = await asyncio.to_thread(graphiti_backend_status)
+    if backend.status != "ready" or not query.strip():
+        return [], []
+
+    config = await asyncio.to_thread(_graphiti_config)
     graphiti_cls, _episode_type = _graphiti_package()
     previous_env = _set_graphiti_environment(config)
-    graphiti = graphiti_cls(config["uri"], config["user"], config["password"])
+    graphiti = _new_graphiti_client(graphiti_cls, config)
     try:
         search = getattr(graphiti, "search")
         parameters = inspect.signature(search).parameters
         kwargs: dict[str, Any] = {}
-        if "group_ids" in parameters:
+        if _accepts_kwarg(parameters, "group_ids"):
             kwargs["group_ids"] = [config["group_id"]]
-        if "num_results" in parameters:
+        if _accepts_kwarg(parameters, "num_results"):
             kwargs["num_results"] = limit
         raw_results = await _maybe_await(search(query, **kwargs))
     except Exception:
-        return []
+        return [], []
     finally:
         close = getattr(graphiti, "close", None)
         if close is not None:
@@ -713,9 +3187,65 @@ async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchR
         _restore_environment(previous_env)
 
     results: list[MemorySearchResult] = []
+    excluded: list[dict[str, Any]] = []
     for index, item in enumerate(list(raw_results or [])[:limit]):
         content = getattr(item, "fact", None) or getattr(item, "name", None) or str(item)
         item_id = getattr(item, "uuid", None) or getattr(item, "source_node_uuid", None) or f"graphiti-{index}"
+        episode_id = getattr(item, "episode_uuid", None) or getattr(item, "source_node_uuid", None) or item_id
+        provenance = _graphiti_result_provenance(item)
+        matched_memory: MemoryCandidate | None = None
+        if not _first_string(provenance.get("asset_id"), provenance.get("memory_id")):
+            matched_memory = await asyncio.to_thread(
+                _graphiti_result_local_memory_match,
+                str(content),
+                str(episode_id or ""),
+            )
+            if matched_memory is not None:
+                provenance = {
+                    **_graphiti_asset_provenance(matched_memory),
+                    "graphiti_result_id": str(item_id),
+                    "graphiti_result_episode_id": str(episode_id) if episode_id else "",
+                    "graphiti_raw_type": provenance.get("raw_type", item.__class__.__name__),
+                }
+            else:
+                durable_provenance = await asyncio.to_thread(
+                    _graphiti_result_durable_asset_match,
+                    str(content),
+                    str(episode_id or ""),
+                )
+                if durable_provenance is not None:
+                    provenance = {
+                        **durable_provenance,
+                        "graphiti_result_id": str(item_id),
+                        "graphiti_result_episode_id": str(episode_id) if episode_id else "",
+                        "graphiti_raw_type": provenance.get("raw_type", item.__class__.__name__),
+                    }
+        exclusion_reason = _memory_asset_recall_exclusion_reason(provenance)
+        if exclusion_reason:
+            excluded.append(
+                _graphiti_excluded_memory_result(
+                    item_id=str(item_id),
+                    content=str(content),
+                    episode_id=str(episode_id) if episode_id else "",
+                    score=getattr(item, "score", None),
+                    provenance=provenance,
+                    reason=exclusion_reason,
+                    backend_group_id=backend.group_id,
+                )
+            )
+            continue
+        scope = provenance.get("scope") if isinstance(provenance.get("scope"), dict) else {}
+        provenance_source_kind = _first_string(provenance.get("source_kind"), provenance.get("asset_type"))
+        provenance_scope_kind = _first_string(scope.get("kind") if isinstance(scope, dict) else None)
+        provenance_scope_ref = _first_string(
+            scope.get("ref") if isinstance(scope, dict) else None,
+            provenance.get("source_ticket_id"),
+            backend.group_id,
+        )
+        provenance_employee_ids: list[str] = []
+        source_employee_id = _first_string(provenance.get("source_employee_id"))
+        if source_employee_id:
+            provenance_employee_ids.append(source_employee_id)
         score = getattr(item, "score", None)
         results.append(
             MemorySearchResult(
@@ -723,12 +3253,18 @@ async def _graphiti_memory_results(query: str, limit: int) -> list[MemorySearchR
                 content=_compact_text(str(content), 1000),
                 source="graphiti",
                 score=float(score) if isinstance(score, int | float) else None,
-                scope_kind="graphiti",
-                scope_ref=backend.group_id,
-                provenance={"raw_type": item.__class__.__name__},
+                source_kind=matched_memory.source_kind if matched_memory is not None else provenance_source_kind,
+                source_ref=matched_memory.source_ref if matched_memory is not None else _first_string(provenance.get("source_ref")),
+                scope_kind=matched_memory.scope_kind if matched_memory is not None else provenance_scope_kind,
+                scope_ref=matched_memory.scope_ref if matched_memory is not None else provenance_scope_ref,
+                memory_type=matched_memory.memory_type if matched_memory is not None else _first_string(provenance.get("asset_type")),
+                employee_ids=matched_memory.employee_ids if matched_memory is not None else provenance_employee_ids,
+                tags=matched_memory.tags if matched_memory is not None else [],
+                provenance=provenance,
+                graphiti_episode_id=str(episode_id) if episode_id else None,
             )
         )
-    return results
+    return results, excluded
 
 
 async def search_memory(
@@ -741,7 +3277,8 @@ async def search_memory(
     include_graphiti: bool = True,
 ) -> MemorySearchResponse:
     capped_limit = max(1, min(limit, 50))
-    file_results = _file_memory_results(
+    file_results = await asyncio.to_thread(
+        _file_memory_results,
         query=query,
         employee_id=employee_id,
         ticket_key=ticket_key,
@@ -749,15 +3286,36 @@ async def search_memory(
         limit=capped_limit,
     )
     remaining = max(0, capped_limit - len(file_results))
-    graphiti_results = (
-        await _graphiti_memory_results(query, remaining)
-        if include_graphiti and remaining
-        else []
-    )
+    graphiti_results: list[MemorySearchResult] = []
+    graphiti_excluded: list[dict[str, Any]] = []
+    if include_graphiti and remaining:
+        graphiti_results, graphiti_excluded = await _graphiti_memory_search(query, remaining)
+    graphiti_results = [
+        result
+        for result in graphiti_results
+        if _search_result_matches_scope(
+            result,
+            employee_id=employee_id,
+            ticket_key=ticket_key,
+            project=project,
+        )
+    ]
+    graphiti_excluded = [
+        item
+        for item in graphiti_excluded
+        if _excluded_result_matches_scope(
+            item,
+            employee_id=employee_id,
+            ticket_key=ticket_key,
+            project=project,
+        )
+    ]
+    backend_status = await asyncio.to_thread(graphiti_backend_status)
     return MemorySearchResponse(
         query=query,
         results=[*file_results, *graphiti_results],
-        backend=graphiti_backend_status(),
+        backend=backend_status,
+        excluded_results=graphiti_excluded,
     )
 
 
@@ -769,11 +3327,10 @@ def recall_memory_snippets(
     limit: int = 5,
 ) -> list[str]:
     snippets: list[str] = []
-    search_terms = " ".join(ticket_keys or []).strip() or query
-    for result in _file_memory_results(
-        query=search_terms,
+    for result in recall_memory_records(
         employee_id=employee_id,
-        ticket_key=(ticket_keys or [None])[0],
+        query=query,
+        ticket_keys=ticket_keys,
         limit=limit,
     ):
         snippets.append(
@@ -783,6 +3340,23 @@ def recall_memory_snippets(
         if len(snippets) >= limit:
             break
     return snippets[:limit]
+
+
+def recall_memory_records(
+    *,
+    employee_id: str,
+    query: str = "",
+    ticket_keys: list[str] | None = None,
+    limit: int = 5,
+) -> list[MemorySearchResult]:
+    search_terms = " ".join(ticket_keys or []).strip() or query
+    results = _file_memory_results(
+        query=search_terms,
+        employee_id=employee_id,
+        ticket_key=(ticket_keys or [None])[0],
+        limit=limit,
+    )
+    return results[:limit]
 
 
 def propose_memory_from_chat_turn(
@@ -795,8 +3369,22 @@ def propose_memory_from_chat_turn(
     assistant_reply: str,
     ticket_keys: list[str],
     trace_path: str,
+    provider_refs: list[dict[str, Any]] | None = None,
+    graphiti_episode_refs: list[dict[str, Any]] | None = None,
+    source_report_id: str = "",
+    evidence_id: str = "",
+    recalled_memory_refs: list[dict[str, Any]] | None = None,
+    action_plan: dict[str, Any] | None = None,
 ) -> MemoryCandidate | None:
-    if any(candidate.source_kind == "chat" and candidate.source_ref == run_id for candidate in _load_candidates()):
+    if any(
+        _is_chat_turn_memory_candidate(candidate)
+        and (
+            candidate.source_ref == run_id
+            or candidate.source_ref == trace_path
+            or candidate.provenance.get("source_run_id") == run_id
+        )
+        for candidate in _load_candidates()
+    ):
         return None
 
     text = f"{user_message}\n{assistant_reply}"
@@ -806,6 +3394,13 @@ def propose_memory_from_chat_turn(
 
     scope_kind = "ticket" if detected_ticket else "employee"
     scope_ref = detected_ticket[0] if detected_ticket else employee_id
+    source_kind = "ticket_run" if detected_ticket else "chat"
+    source_ref = trace_path if detected_ticket else run_id
+    tags = {"auto-chat", *detected_ticket}
+    if detected_ticket:
+        tags.add("ticket-aware")
+    if action_plan and action_plan.get("action"):
+        tags.add(str(action_plan["action"]))
     content = _compact_text(
         f"In thread {thread_id}, user asked {employee_display_name}: {user_message} "
         f"{employee_display_name} replied: {assistant_reply}",
@@ -814,20 +3409,40 @@ def propose_memory_from_chat_turn(
     return create_memory_candidate(
         MemoryCandidateCreateRequest(
             content=content,
-            source_kind="chat",
-            source_ref=run_id,
+            source_kind=source_kind,
+            source_ref=source_ref,
             scope_kind=scope_kind,
             scope_ref=scope_ref,
             memory_type="episode",
             confidence=0.62 if detected_ticket else 0.42,
             employee_ids=[employee_id],
-            tags=sorted({"auto-chat", *detected_ticket}),
+            tags=sorted(tags),
             provenance={
+                "source_ticket_id": scope_ref if scope_kind == "ticket" else "",
+                "source_employee_id": employee_id,
+                "source_run_id": run_id,
+                "source_report_id": source_report_id,
+                "evidence_id": evidence_id,
+                "source_trace_path": trace_path,
                 "thread_id": thread_id,
                 "run_id": run_id,
                 "employee_id": employee_id,
                 "trace": trace_path,
                 "ticket_keys": detected_ticket,
+                "provider_refs": provider_refs or [],
+                "graphiti_episode_refs": graphiti_episode_refs or [],
+                "recalled_memory_refs": recalled_memory_refs or [],
+                "action_plan": action_plan or {},
+                "why_should_be_remembered": (
+                    "Ticket-bound chat turn with reusable execution, validation, blocker, or summary context."
+                    if detected_ticket
+                    else "Chat turn explicitly asked to remember reusable context."
+                ),
+                "future_recall_query_hints": sorted({*detected_ticket, *_compact_text(user_message, 160).split()[:8]}),
             },
         )
     )
+
+
+def _is_chat_turn_memory_candidate(candidate: MemoryCandidate) -> bool:
+    return candidate.source_kind in {"chat", "ticket_run"} and candidate.memory_type == "episode"

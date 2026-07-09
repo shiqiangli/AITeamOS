@@ -1,0 +1,197 @@
+{
+  "checks": [
+    {
+      "actual": "ready",
+      "expected": "ready",
+      "name": "graphiti.status",
+      "passed": true
+    },
+    {
+      "actual": 1,
+      "expected": 1,
+      "name": "graphiti.result_count",
+      "passed": true
+    },
+    {
+      "actual": 2,
+      "expected": 2,
+      "name": "graphiti.excluded_result_count",
+      "passed": true
+    },
+    {
+      "actual": 1.0,
+      "expected": 1.0,
+      "name": "work_history.eval_recall",
+      "passed": true
+    },
+    {
+      "actual": [],
+      "expected": [],
+      "name": "work_history.missing_refs",
+      "passed": true
+    },
+    {
+      "actual": 4,
+      "expected": ">=1",
+      "name": "work_history.report_count",
+      "passed": true
+    },
+    {
+      "actual": [
+        "asset-graphiti-context-solution"
+      ],
+      "expected": [
+        "asset-graphiti-context-solution"
+      ],
+      "name": "active.asset_ids",
+      "passed": true
+    },
+    {
+      "actual": [
+        "asset-graphiti-stale-solution",
+        "asset-graphiti-conflicted-solution"
+      ],
+      "expected": "asset-graphiti-stale-solution",
+      "name": "stale_hint.asset_ids",
+      "passed": true
+    },
+    {
+      "actual": [
+        "asset-graphiti-stale-solution",
+        "asset-graphiti-conflicted-solution"
+      ],
+      "expected": "asset-graphiti-conflicted-solution",
+      "name": "stale_hint.asset_ids",
+      "passed": true
+    },
+    {
+      "actual": [
+        "asset-graphiti-context-solution"
+      ],
+      "expected": "absent:asset-wrong-ticket-solution",
+      "name": "wrong_ticket.active",
+      "passed": true
+    },
+    {
+      "actual": [
+        "asset-graphiti-stale-solution",
+        "asset-graphiti-conflicted-solution"
+      ],
+      "expected": "absent:asset-wrong-ticket-solution",
+      "name": "wrong_ticket.stale_hint",
+      "passed": true
+    },
+    {
+      "actual": [
+        "alex",
+        "alex",
+        "rd-0002",
+        "rd-0001",
+        "ops-0001",
+        "ops-0002",
+        "report-cb2262331a",
+        "report-cb2262331a:evidence:0",
+        "mem-b2cef4797841",
+        "mem-377e7c59cb62",
+        "asset-graphiti-context-solution"
+      ],
+      "expected": "asset-graphiti-context-solution",
+      "name": "audit.selected",
+      "passed": true
+    },
+    {
+      "actual": [
+        "asset-graphiti-stale-solution",
+        "asset-graphiti-conflicted-solution"
+      ],
+      "expected": "asset-graphiti-stale-solution",
+      "name": "audit.excluded",
+      "passed": true
+    }
+  ],
+  "generated_at": "2026-06-23T04:33:34.346758+00:00",
+  "schema": "aiteamos.context_retrieval_eval_smoke.v1",
+  "status": "passed",
+  "summary": {
+    "active_asset_ids": [
+      "asset-graphiti-context-solution"
+    ],
+    "excluded_asset_ids": [
+      "asset-graphiti-stale-solution",
+      "asset-graphiti-conflicted-solution"
+    ],
+    "graphiti_excluded_result_count": 2,
+    "graphiti_result_count": 1,
+    "provider_blocker_count": 0,
+    "query": "Graphiti context Neo4j password provider dogfood",
+    "recalled_memory_ids": [],
+    "stale_hint_asset_ids": [
+      "asset-graphiti-stale-solution",
+      "asset-graphiti-conflicted-solution"
+    ],
+    "ticket_id": "rd-0002",
+    "work_history": {
+      "current_ticket_count": 4,
+      "employee_id": "alex",
+      "eval_precision_like": 0.058823529411764705,
+      "eval_recall": 1.0,
+      "matched_refs": [
+        {
+          "kind": "employee_work_history",
+          "ref": "alex"
+        },
+        {
+          "kind": "work_ticket",
+          "ref": "rd-0002"
+        },
+        {
+          "kind": "work_report",
+          "ref": "report-cb2262331a"
+        }
+      ],
+      "missing_refs": [],
+      "report_count": 4,
+      "report_id": "report-cb2262331a",
+      "retrieved_refs": [
+        {
+          "kind": "employee_work_history",
+          "ref": "alex"
+        },
+        {
+          "kind": "work_ticket",
+          "ref": "rd-0002"
+        },
+        {
+          "kind": "work_ticket",
+          "ref": "rd-0001"
+        },
+        {
+          "kind": "work_ticket",
+          "ref": "ops-0002"
+        },
+        {
+          "kind": "work_ticket",
+          "ref": "ops-0001"
+        },
+        {
+          "kind": "work_report",
+          "ref": "report-cb2262331a"
+        },
+        {
+          "kind": "work_report",
+          "ref": "report-668481531c"
+        },
+        {
+          "kind": "work_report",
+          "ref": "report-1e6a17189e"
+        },
+        {
+          "kind": "work_report",
+          "ref": "report-9219ee6cc9"
+        }
+      ]
+    },
+    "wrong_ticket_filtered": true
+  },
+  "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+}

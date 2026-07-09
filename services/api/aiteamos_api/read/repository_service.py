@@ -88,6 +88,14 @@ class CodeRepositoryStatus(BaseModel):
     ready_count: int
     local_count: int
     remote_count: int
+    plane_scope_status: str = ""
+    plane_scope_detail: str = ""
+    plane_scope_candidate_count: int = 0
+    plane_scope_missing_count: int = 0
+    plane_scope_setup_action: str = ""
+    plane_scope_candidates: list[dict[str, Any]] = Field(default_factory=list)
+    plane_scope_missing: list[dict[str, Any]] = Field(default_factory=list)
+    plane_scope_suggestions: list[dict[str, Any]] = Field(default_factory=list)
     saved_paths: dict[str, str] = Field(default_factory=dict)
 
 
@@ -380,14 +388,111 @@ def list_code_repositories() -> list[CodeRepository]:
 
 def code_repository_status() -> CodeRepositoryStatus:
     items = list_code_repositories()
+    plane_scope = code_repository_plane_scope_summary(items)
     return CodeRepositoryStatus(
         repository_count=len(items),
         enabled_count=sum(1 for item in items if item.enabled),
         ready_count=sum(1 for item in items if item.status in {"ready", "configured"}),
         local_count=sum(1 for item in items if item.provider == "local"),
         remote_count=sum(1 for item in items if item.provider != "local"),
+        plane_scope_status=str(plane_scope["code_repository_scope_status"]),
+        plane_scope_detail=str(plane_scope["code_repository_scope_detail"]),
+        plane_scope_candidate_count=int(plane_scope["code_repository_scope_candidate_count"]),
+        plane_scope_missing_count=int(plane_scope["code_repository_scope_missing_count"]),
+        plane_scope_setup_action=str(plane_scope["code_repository_scope_setup_action"]),
+        plane_scope_candidates=list(plane_scope["code_repository_scope_candidates"]),
+        plane_scope_missing=list(plane_scope["code_repository_scope_missing"]),
+        plane_scope_suggestions=list(plane_scope["code_repository_scope_suggestions"]),
         saved_paths={"registry": _relative(_registry_path())},
     )
+
+
+def _ticket_backend_plane_scope_suggestion() -> dict[str, Any] | None:
+    path = _workspace_dir() / "tickets" / "backend.json"
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    workspace = str(payload.get("plane_workspace_slug") or "").strip()
+    project = str(payload.get("plane_project_id") or "").strip()
+    if not workspace or not project:
+        return None
+    return {
+        "source": "ticket_backend",
+        "mode": str(payload.get("mode") or ""),
+        "plane_workspace_slug": workspace,
+        "plane_project_id": project,
+        "settings_path": _relative(path),
+        "deep_link": "#/settings/ticket-backend",
+        "status": "available",
+    }
+
+
+def code_repository_plane_scope_summary(items: list[CodeRepository] | None = None) -> dict[str, Any]:
+    repositories = items if items is not None else list_code_repositories()
+    candidates: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for repository in repositories:
+        if not repository.enabled:
+            continue
+        workspace = repository.plane_workspace_slug.strip()
+        project = repository.plane_project_id.strip()
+        payload = {
+            "source": "code_repository",
+            "repository_id": repository.id,
+            "repository_name": repository.name,
+            "provider": repository.provider,
+            "status": repository.status,
+            "deep_link": "#/settings/code-repositories",
+        }
+        if workspace and project:
+            candidates.append(
+                {
+                    **payload,
+                    "plane_workspace_slug": workspace,
+                    "plane_project_id": project,
+                }
+            )
+        else:
+            missing.append(
+                {
+                    **payload,
+                    "workspace_configured": bool(workspace),
+                    "project_configured": bool(project),
+                }
+            )
+    suggestions = [_ticket_backend_plane_scope_suggestion()]
+    suggestions = [suggestion for suggestion in suggestions if suggestion is not None]
+    if candidates:
+        scope_status = "available"
+        detail = "Code Repository registry has Plane workspace/project scope candidates."
+        action = "apply_code_repository_plane_scope_to_ticket_backend"
+    elif suggestions and missing:
+        scope_status = "incomplete"
+        detail = "Code Repository registry has no ready Plane scope, but Ticket Backend has Plane workspace/project values."
+        action = "copy_ticket_backend_plane_scope_to_code_repository"
+    elif missing:
+        scope_status = "incomplete"
+        detail = "Code Repository registry has repositories, but none has both Plane workspace and project configured."
+        action = "add_plane_scope_to_code_repository_or_ticket_backend"
+    else:
+        scope_status = "missing"
+        detail = "No enabled Code Repository can provide a Plane workspace/project scope candidate."
+        action = "configure_plane_scope_in_ticket_backend"
+    return {
+        "code_repository_scope_status": scope_status,
+        "code_repository_scope_detail": detail,
+        "code_repository_scope_candidate_count": len(candidates),
+        "code_repository_scope_missing_count": len(missing),
+        "code_repository_scope_candidates": candidates[:5],
+        "code_repository_scope_missing": missing[:5],
+        "code_repository_scope_suggestions": suggestions[:5],
+        "code_repository_scope_setup_action": action,
+    }
 
 
 def get_code_repository(repo_id: str) -> CodeRepository | None:

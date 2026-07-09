@@ -2,19 +2,21 @@
  * AITeamOS Dashboard — App Shell (file-first P0)
  */
 
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { parseHash, navigateTo, NAV_ITEMS, type RouteState } from "../components/shared";
+import { LoadingState, parseHash, navigateTo, NAV_ITEMS, type RouteState } from "../components/shared";
 import { Toaster } from "../components/ui/toaster";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { cn } from "@/lib/utils";
-import { ChatPage } from "../pages/chat";
-import { AssetsPage } from "../pages/assets";
-import { EmployeesPage } from "../pages/employees";
-import { SettingsPage } from "../pages/settings";
-import { SystemStatusPage } from "../pages/system-status";
-import { TicketsPage } from "../pages/tickets";
+
+const ChatPage = lazy(() => import("../pages/chat").then((module) => ({ default: module.ChatPage })));
+const AssetsPage = lazy(() => import("../pages/assets").then((module) => ({ default: module.AssetsPage })));
+const EmployeesPage = lazy(() => import("../pages/employees").then((module) => ({ default: module.EmployeesPage })));
+const RuntimePage = lazy(() => import("../pages/runtime").then((module) => ({ default: module.RuntimePage })));
+const SettingsPage = lazy(() => import("../pages/settings").then((module) => ({ default: module.SettingsPage })));
+const SystemStatusPage = lazy(() => import("../pages/system-status").then((module) => ({ default: module.SystemStatusPage })));
+const TicketsPage = lazy(() => import("../pages/tickets").then((module) => ({ default: module.TicketsPage })));
 
 /** Lightweight hook to fetch sidebar nav counts for Assets sub-items */
 function useNavCounts() {
@@ -61,22 +63,36 @@ function NotFoundPage() {
 }
 
 function PageBody({ route }: { route: RouteState }) {
+  const ticketRoute = route.page === "tickets" && route.detail
+    ? [route.id, route.detail].filter(Boolean).join("/")
+    : route.id;
+  let page;
   switch (route.page) {
     case "chat":
-      return <ChatPage routeTarget={route.id} />;
+      page = <ChatPage routeTarget={route.id} />;
+      break;
     case "tickets":
-      return <TicketsPage selectedSection={route.id} />;
+      page = <TicketsPage selectedSection={ticketRoute} />;
+      break;
     case "employees":
-      return <EmployeesPage selectedId={route.id} />;
+      page = <EmployeesPage selectedId={route.id} selectedDetail={route.detail} />;
+      break;
     case "assets":
-      return <AssetsPage selectedArea={route.id} selectedDetail={route.detail} />;
+      page = <AssetsPage selectedArea={route.id} selectedDetail={route.detail} />;
+      break;
+    case "runtime":
+      page = <RuntimePage selectedSessionKey={route.id} />;
+      break;
     case "settings":
-      return <SettingsPage selectedSection={route.id} />;
+      page = <SettingsPage selectedSection={route.id} />;
+      break;
     case "system-status":
-      return <SystemStatusPage />;
+      page = <SystemStatusPage />;
+      break;
     default:
-      return <NotFoundPage />;
+      page = <NotFoundPage />;
   }
+  return <Suspense fallback={<LoadingState message="Loading page..." />}>{page}</Suspense>;
 }
 
 export function App() {

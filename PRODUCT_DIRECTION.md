@@ -2,7 +2,7 @@
 
 Version: 1.0.0
 
-AITeamOS is a Ticket-flow-centered AI team operating system. A human delegates work through Chat to Clara and AI Employees, while Tickets carry ownership, validation, reports, evidence, and reusable assets across the flow.
+AITeamOS is a Ticket-flow-centered AI team operating system. A human delegates work through Chat to Clara and AI Employees, while Tickets carry ownership, validation, reports, evidence, and reusable assets across the flow. Inside AITeamOS, the product concept is always `Ticket`; provider-native names only appear inside adapters, connector metadata, or external deep links.
 
 This is a greenfield product direction. It does not preserve legacy CRUD modules, compatibility routes, or old execution-configuration naming.
 
@@ -39,7 +39,7 @@ Employees are workforce records. They are not just personas or chat identities. 
 
 Tickets are the accountability ledger. Every active Ticket has an assignee; changing assignee is the routing primitive between AI Employees. Every meaningful action should append a Ticket event such as `created`, `assigned`, `status_changed`, `reported`, `validated`, `blocked`, or `asset_linked`.
 
-Assets are traceable reusable team resources. Assets include Knowledge, Skills, Kernel Commands, MCP Tools, Decisions, Reports, Evidence, and review candidates. Every asset should carry provenance where possible: source Ticket, source Employee, status, scopes, created time, and updated time.
+Assets are traceable reusable team resources. Assets include Knowledge, Skills, Kernel Commands, MCP Tools, Decisions, Reports, Evidence, and review candidates. Every asset should carry provenance where possible: source Ticket, source Employee, status, scopes, created time, updated time, and later Graphiti projection metadata when the asset is durable.
 
 ## Navigation
 
@@ -64,7 +64,7 @@ Settings
   -> Tool Connectors
   -> Code Repositories
   -> Ticket Backend
-  -> Memory Backend
+  -> Memory / Asset Graph Backend
 System Status
 ```
 
@@ -78,7 +78,6 @@ Examples:
 
 - DeepSeek, ChatGPT / OpenAI API, Gemini, Kimi, Ollama, LM Studio, vLLM
 - Codex, Claude Code, Cursor, Qoder
-- File stub for deterministic local development
 
 Settings / AI Engines owns non-sensitive engine configuration, model selection, base URL, enabled status, and active engine. API keys are referenced by environment variable names and checked under System Status.
 
@@ -94,40 +93,43 @@ Capabilities are executable or reusable ability assets. In Assets they are visib
 
 Tool Connectors are Settings entries that make external tools discoverable. MCP Server is a `kind` of Tool Connector, not a parallel top-level concept. AITeamOS acts as host/client, discovers MCP tools/resources/prompts, normalizes them into capabilities, and applies permission and trace boundaries.
 
-Plane or Jira configuration belongs to Ticket Backend when they serve as the Ticket fact source. Their executable actions may still appear as capability tools, but their primary configuration should not be duplicated under Tool Connectors.
+Plane configuration belongs to Ticket Backend because Plane serves as the external Ticket fact source. Plane provider-native records are mapped into AITeamOS Tickets at the adapter boundary. Plane executable actions may still appear as capability tools, but Plane configuration should not be duplicated under Tool Connectors.
 
 ## Backends
 
 Ticket Backend:
 
-- P0: local file, one append-only JSONL timeline per Ticket.
-- Later: Plane as preferred external backend.
-- Future: Jira only if enterprise integration requires it.
+- Plane is the required Ticket Backend for dogfooding and self-bootstrap.
+- AITeamOS API, UI, Chat, Employee ledger, Asset Graph, and analytics always call the domain object `Ticket`.
+- Provider-native names stay at the adapter boundary only.
+- Local-file Ticket Backend is not a product path and should be removed from the target architecture instead of maintained as a parallel mode.
+- Additional Ticket providers require a separate product decision and must map into the same AITeamOS Ticket contract.
 
-Memory Backend:
+Memory / Asset Graph Backend:
 
-- P0: local approved memories and review candidates.
-- Later: Graphiti / Neo4j for long-term memory graph.
+- Graphiti / Neo4j is the required persistent asset temporal knowledge graph projection.
+- Graphiti should manage durable semantic relationships for approved Memories, accepted Decisions, Docs, Skills, Capabilities, Tooling facts, validated Ticket summaries, and durable Employee facts.
+- Graphiti must not become the source of truth for Ticket events, traces, raw logs, approval state, permissions, or secrets.
 - Graphiti LLM must select a compatible configured AI Engine rather than owning a separate LLM key path.
 
 Code Repositories:
 
 - Configured independently in Settings.
-- P0 supports local repository inspection for bounded evidence.
+- Local repository inspection can attach bounded evidence to Tickets.
 - Remote Git systems are stored as configuration until a connector or AI Engine can safely operate on them.
 
 ## 1.0 Scope
 
-AITeamOS 1.0 is allowed to be file-first. It should be coherent, inspectable, and useful before introducing heavier persistence.
+AITeamOS 1.0 should run on Plane for Tickets and Graphiti for persistent asset recall. The goal is not to preserve a parallel local-file mode; the goal is to make the real integration base coherent enough that every later feature is built and tested on it.
 
 Included:
 
 - Clara-led Chat workflow.
 - AI Engine catalog and per-Employee default AI Engine.
-- Local Ticket backend with event ledger.
+- Plane-backed Ticket backend with AITeamOS Ticket event projection.
 - Ticket-centered Employee work ledger.
 - Assets UI with Knowledge, Capabilities, and Review Queue.
-- Settings aligned with AI Engines, Tool Connectors, Code Repositories, Ticket Backend, and Memory Backend.
+- Settings aligned with AI Engines, Tool Connectors, Code Repositories, Ticket Backend, and Memory / Asset Graph Backend.
 - System Status as read-only summary and secrets health.
 
 Not included as first-class 1.0 products:
@@ -144,8 +146,8 @@ The next product depth should continue from working facts:
 
 - richer Ticket Asset Graph edges
 - fuller validation skills and review flows
-- Graphiti-backed Memory usage in the operating loop
-- external Ticket Backend integration
+- broader Graphiti-backed persistent asset recall in the operating loop
+- deeper Plane Ticket synchronization and provenance
 - more capable AI Engine handoffs for repo edit, testing, and long-running execution
 
 The product rule remains: add facts before adding more screens.

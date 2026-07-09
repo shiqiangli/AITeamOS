@@ -10,13 +10,15 @@
 
 AITeamOS 应被建模为一个 **以 Ticket 为中心的 AI Workforce Operating System**。
 
-Chat 是主要交互入口。Employees 是执行和协作主体。Ticket 是工作对象、流转锚点和团队账本，让多个 Employees 能围绕同一个真实任务跨时间协作。Knowledge assets 则围绕 Ticket flow 被生成、审核、分配、召回和演进。
+Chat 是主要交互入口。Employees 是执行和协作主体。Ticket 是工作对象、流转锚点和团队账本，让多个 Employees 能围绕同一个真实任务跨时间协作。Assets 则围绕 Ticket flow 被生成、审核、分配、召回和演进。
+
+AITeamOS 内部领域语言必须始终使用 **Ticket**。Plane 或其他第三方系统可以在 adapter、外部链接、同步元数据和 provider-native 日志中保留它们自己的术语，但进入 AITeamOS API、UI、Chat、Employee ledger、Asset graph 和 analytics 后，都要归一化为 Ticket。
 
 AITeamOS 不应被理解为：
 
 - 通用 AI 聊天客户端
 - Employee CRUD 管理后台
-- Plane / Jira 克隆
+- Plane 克隆
 - Memory 数据库 UI
 - Agent IDE
 
@@ -35,6 +37,7 @@ Human goal
   -> Reports、Decisions、Memory candidates、Docs updates 和 Skill candidates 进入 Ticket Asset Graph
   -> Clara 汇总、交叉验证，并把结果回复给 human
   -> 审核通过的 assets 成为可复用团队知识，并可赋予给不同 Employees
+  -> 持久 assets 被写入 Graphiti 投影，用于跨 Ticket 的语义召回和时间关系管理
 ```
 
 ---
@@ -59,7 +62,7 @@ Ticket 是最主要的工作对象。
 
 Ticket 的流转通过 assignee、status、report、evidence 和 validation events 表达。活跃 Ticket 不应是无 assignee 的孤立记录；assignee 变化就是 Clara 在 AI Employees 之间路由工作的主要方式。
 
-Plane 可以作为外部 Ticket / Docs 事实源，但 AITeamOS 拥有对这项工作的 AI-team 解释层。
+Plane 是首选外部 Ticket / Docs 事实源，但 AITeamOS 拥有对这项工作的 AI-team 解释层。Plane provider-native 记录进入系统后映射为 AITeamOS Ticket；外部原生名称只保留在 adapter metadata 和 deep link 中。
 
 ### Employee
 
@@ -163,32 +166,63 @@ Ticket Asset Graph 不是长期 Memory 本身。它是 AITeamOS 的产品工作�
 
 ---
 
-## 4. Graphiti 与 Ticket Graph 边界
+## 4. Graphiti 与 Ticket Asset Graph 边界
 
 AITeamOS 已经选择的开源图记忆组件是 **Graphiti**。
 
-Graphiti 应继续作为长期 temporal knowledge graph，用于 Memory 和语义召回。它适合承载事实、关系、时间语义、provenance，以及长期 Memory 的 hybrid search。
+Graphiti 不应只被理解为 approved Memory 的后端。更准确的边界是：Graphiti 是 AITeamOS 的 **Persistent Asset Knowledge Graph projection**，用于管理持久资产的语义关系、时间关系、provenance 和 hybrid search。
 
-但 Ticket Asset Graph 比 Memory 更宽：
+AITeamOS 仍然拥有 Ticket / Employee / Asset 的权威事实源，Graphiti 管理的是经过筛选的持久资产投影：
 
 ```text
 Ticket Asset Graph
   -> AITeamOS 拥有的 product / work graph
   -> 包含 Ticket、Employee、Run、Trace、Report、Evidence、Decisions、Docs、Skills、Capabilities、Repositories 和 Memories
+  -> 解释谁做了什么、何时做、证据是什么、谁验证、产出了哪些资产
 
 Graphiti
-  -> long-term Memory / temporal knowledge graph backend
-  -> 存储或索引 approved Memories，以及部分被选中的 Decisions / Facts
+  -> persistent asset temporal knowledge graph projection
+  -> 索引或管理 approved Memories、accepted Decisions、Docs、Skills、Capabilities、Tooling facts、validated Ticket summaries 和持久 Employee facts
+  -> 用于跨 Ticket 召回、冲突发现、supersession、时间语义和资产关系检索
 ```
 
 推荐边界：
 
-- 使用 Plane 作为外部 Ticket / Docs 事实源。
-- 使用 AITeamOS 本地 trace 和 metadata 作为 AI work trace 的事实源。
-- 使用 Graphiti 管理 approved long-term Memory 和语义关系召回。
-- 不强行把每个 Ticket event 都写入 Graphiti。
-- 不为了“未来灵活性”先构建第二套通用 graph database abstraction。
-- 围绕 AITeamOS work events 建一个小而明确的 Ticket Asset Graph，让 Graphiti 服务其中的 Memory 子集。
+- 使用 Plane 作为外部 Ticket / Docs 事实源时，AITeamOS 仍拥有 AI-team flow、trace、asset generation 和 Employee accountability 的解释层。
+- 使用 AITeamOS 本地 event ledger、trace 和 metadata 作为临时执行过程与审计事实源。
+- 使用 Graphiti 管理持久资产的语义图投影，而不是只管理 approved Memories。
+- 不强行把每个 Ticket event、chat turn、trace line、terminal output 或 tool call raw log 写入 Graphiti。
+- 不把 unapproved / rejected candidates、secrets、权限策略、原始 API key 配置、完整 terminal logs 或未经验证的临时状态写入 Graphiti。
+- 不让 Graphiti 接管 candidate approval、permission enforcement、Ticket lifecycle 或 Employee work ledger。
+- 不为了“未来灵活性”先构建第二套通用 graph database abstraction；Graphiti 是选定的持久资产图后端，AITeamOS 保留可重建的权威事实和轻量投影边界。
+
+Graphiti 可以承载的持久资产包括：
+
+- approved Memories
+- accepted Decisions
+- Docs 或 Doc summaries
+- Skills 和 Skill summaries
+- Kernel Commands / MCP Tools / Tooling capability facts
+- validated Ticket summaries
+- validated Reports / Evidence summaries
+- Employee durable profile facts，例如长期职责、专长、历史贡献模式
+- asset supersedes / conflicts / derived-from / used-by / validated-by 关系
+
+每个写入 Graphiti 的 episode 或 structured fact 必须能回链到 AITeamOS 事实源，至少包含：
+
+- `asset_id`
+- `asset_type`
+- `asset_status`
+- `version` 或 content hash
+- `source_ticket_id`
+- `source_employee_id`
+- `source_run_id` 或 trace ref
+- `source_report_id` / `evidence_id`，如适用
+- `scope`
+- `created_at` / `updated_at`
+- `source_ref`
+
+Graphiti search 结果回到 Chat、Ticket、Employee 或 Asset UI 时，必须展示可点击或可追踪的 AITeamOS provenance，而不是只展示一段孤立的语义结果。
 
 ---
 
@@ -210,7 +244,7 @@ Settings
 2. **Tickets**：AI 工作 cockpit 和 flow ledger。
 3. **Employees**：workforce system of record 和治理视图。
 4. **Assets**：可复用团队资产和审核队列。
-5. **Settings**：AI Engines、Tool Connectors、Code Repositories、Ticket Backend 和 Memory Backend。
+5. **Settings**：AI Engines、Tool Connectors、Code Repositories、Ticket Backend 和 Memory / Asset Graph Backend。
 6. **System Status**：System Summary 和 Secrets Health 的只读运行状态入口。
 
 ### 为什么叫 Assets
@@ -284,13 +318,12 @@ Tickets 应成为核心 work cockpit。
 - `Promote Decision`
 - `Approve Memory`
 
-Ticket 的承载层通过 `TicketAdapter` 接入。P0 使用 local file，让 AITeamOS 可以快速自举，并允许把本地 Ticket 文件放入仓库跟踪系统演进；长期默认后端可以切到 Plane。AITeamOS Tickets 始终是 AI-team operating view，不是 Plane/Jira/OpenProject 的表单克隆。
+Ticket 的承载层通过 `TicketAdapter` 接入，但目标架构不保留并行 local-file Ticket mode。Plane + Graphiti 是自举和后续开发测试的基础底座：Plane 承载 Ticket / Docs 事实源，Graphiti 承载持久资产语义图投影。AITeamOS Tickets 始终是 AI-team operating view，不是 Plane 或其他外部系统的表单克隆。
 
 Adapter 只解决事实源访问问题，不改变产品模型：
 
-- `local_file`：P0 默认，用于本地开发、自举和轻量团队验证。
-- `plane`：长期默认目标，提供完整 project、ticket、page、comment、permission 现场。
-- `jira`：未来兼容目标，只有在需要企业生态对接时再实现。
+- `plane`：当前目标和默认底座，作为外部 Ticket / Docs 事实源；provider-native records 在 adapter 边界归一化为 AITeamOS Tickets。
+- 其他 Ticket providers 不作为近期计划的一部分。只有在明确产品决策后才新增，并且必须映射到同一套 AITeamOS Ticket contract。
 
 ### Employees
 
@@ -329,7 +362,7 @@ Settings 只应承载运行条件：
 - Tool Connectors
 - Code Repositories
 - Ticket Backend
-- Memory Backend
+- Memory / Asset Graph Backend
 - Security and approval policy
 
 Employee Defaults 更适合逐步移动到 Employees，或在 System Status 中只读展示，而不是作为主要 Settings 概念。
@@ -350,10 +383,8 @@ Settings
        -> product repos
        -> harness / regression repos
   -> Ticket Backend
-       -> local_file
        -> plane
-       -> jira
-  -> Memory Backend
+  -> Memory / Asset Graph Backend
        -> Graphiti / Neo4j
 
 System Status
@@ -363,9 +394,9 @@ System Status
 
 AI Engines 是 Clara 和 Employees 思考或执行的后端。DeepSeek、OpenAI / ChatGPT API、Kimi、Gemini、Ollama、LM Studio、vLLM 等都可表达为 `llm_api`；Codex、Claude Code、Cursor、Qoder 等可表达为 `agent_platform`。本地模型不是单独的产品层级，而是 `llm_api` 的本地 deployment。
 
-Tool Connector 是外部能力来源的配置入口。MCP Server 是 Tool Connector 的一种 `kind`，不是和 Connector 并列的产品概念。AITeamOS 作为 host / client 连接 MCP Server，发现其 tools / resources / prompts，并把可执行动作归一化到 Capabilities / MCP Tools。AITeamOS Kernel 自带动作进入 Capabilities / Kernel Commands。Plane、Jira 等 Ticket 事实源优先归入 Ticket Backend；它们派生出的 `tickets.create`、`tickets.comment`、`tickets.transition` 等动作进入对应的 capability tool 分类，但配置不在 Tool Connectors 中重复。
+Tool Connector 是外部能力来源的配置入口。MCP Server 是 Tool Connector 的一种 `kind`，不是和 Connector 并列的产品概念。AITeamOS 作为 host / client 连接 MCP Server，发现其 tools / resources / prompts，并把可执行动作归一化到 Capabilities / MCP Tools。AITeamOS Kernel 自带动作进入 Capabilities / Kernel Commands。Plane 作为 Ticket 事实源优先归入 Ticket Backend；它派生出的 `tickets.create`、`tickets.comment`、`tickets.transition` 等动作进入对应的 capability tool 分类，但配置不在 Tool Connectors 中重复。
 
-System Status 是一级只读状态入口，放在 Settings 之后。API key、token、password 等敏感值只通过环境变量提供；Settings 的各业务页面只配置非敏感信息和环境变量引用。System Status / Secrets Health 只展示需要哪些环境变量、用途、是否已配置、如何配置，以及被哪个 AI Engine、Ticket Backend、Tool Connector 或 Memory Backend 使用。
+System Status 是一级只读状态入口，放在 Settings 之后。API key、token、password 等敏感值只通过环境变量提供；Settings 的各业务页面只配置非敏感信息和环境变量引用。System Status / Secrets Health 只展示需要哪些环境变量、用途、是否已配置、如何配置，以及被哪个 AI Engine、Ticket Backend、Tool Connector 或 Memory / Asset Graph Backend 使用。
 
 ---
 
@@ -377,15 +408,15 @@ System Status 是一级只读状态入口，放在 Settings 之后。API key、t
 
 - digital employee role templates
 - Employee profile sections：Memory、Skills、Connectors、Projects、Permissions
-- conversation work items 和 triggered work items
-- local-first control console
+- conversation-triggered external records
+- control console
 - 面向高风险操作的 approval cards
 
 AITeamOS 的吸收方式：
 
 - 保留 rich Employee profile 的思路。
 - 让 Ticket 成为主要工作对象，而不是让每个 Employee 拥有孤立 task。
-- 将 triggered work items 理解为 Ticket triggers 或 orchestration rules。
+- 将外部 triggered records 理解为 Ticket triggers 或 orchestration rules。
 
 参考：https://docs.qoder.com/qoderwake/quick-start
 
@@ -438,7 +469,7 @@ AITeamOS 的吸收方式：
 
 AITeamOS 的吸收方式：
 
-- Plane 仍然是 Ticket / Docs fact source。
+- Plane 仍然是 Ticket / Docs fact source；Plane provider-native records 只在 adapter 边界保留原生名称，AITeamOS 内部统一叫 Ticket。
 - AITeamOS 拥有 AI-team flow、trace、asset generation 和 Employee accountability。
 - AITeamOS 不复制 Plane 的 editing 或 planning surfaces。
 
@@ -456,5 +487,5 @@ AITeamOS 的吸收方式：
 6. Tickets 是 work cockpit，不是 project-management clone。
 7. Employees 是 workforce ledger，不只是 profile list。
 8. Assets 是共享记忆和能力库存，不是被动文档库。
-9. Settings 是 AI Engine、backend、connector、repo 和 memory 的运行条件，不是业务页面；System Status 是只读运行状态入口。
+9. Settings 是 AI Engine、backend、connector、repo 和持久资产图的运行条件，不是业务页面；System Status 是只读运行状态入口。
 10. 外部 agent platforms 是 AI Engines；AITeamOS 是 control plane 和 asset graph。

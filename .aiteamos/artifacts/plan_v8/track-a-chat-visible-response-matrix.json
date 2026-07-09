@@ -1,0 +1,353 @@
+{
+  "generated_at": "2026-06-23T03:14:21.085672+00:00",
+  "result": {
+    "blockers": [],
+    "cases": [
+      {
+        "assistant_reply_visible": true,
+        "blockers": [],
+        "expected_display_state": "completed",
+        "id": "completed",
+        "missing_evidence": [],
+        "observed_evidence": [
+          "assistant_message",
+          "display_state",
+          "runtime_status",
+          "ticket_refs",
+          "asset_refs"
+        ],
+        "required_evidence": [
+          "assistant_message",
+          "display_state",
+          "runtime_status",
+          "ticket_refs"
+        ],
+        "runtime_status_visible": true,
+        "status": "passed",
+        "visible_response": {
+          "approval_records": [],
+          "approval_request": {},
+          "approval_requests": [],
+          "asset_refs": [
+            {
+              "kind": "ticket_report",
+              "ref": "report-visible-completed"
+            }
+          ],
+          "assistant_message": {
+            "content": "Completed visible reply.",
+            "role": "assistant"
+          },
+          "blocked_reason": "",
+          "display_state": "completed",
+          "handoff_summary": {},
+          "memory_refs": [],
+          "provider_blockers": [],
+          "retry_cause": "",
+          "runtime_status": {
+            "current_node": "final_response",
+            "display_state": "completed",
+            "executor_id": "langgraph",
+            "request_id": "exec-visible-completed",
+            "run_id": "run-visible-completed",
+            "status": "completed"
+          },
+          "ticket_handoff_refs": [],
+          "ticket_refs": [
+            {
+              "kind": "ticket",
+              "ref": "rd-visible-completed"
+            }
+          ],
+          "version": "chat_visible_response.v1"
+        }
+      },
+      {
+        "assistant_reply_visible": true,
+        "blockers": [],
+        "expected_display_state": "blocked",
+        "id": "blocked",
+        "missing_evidence": [],
+        "observed_evidence": [
+          "assistant_message",
+          "display_state",
+          "runtime_status",
+          "ticket_refs",
+          "blocked_reason",
+          "retry_cause"
+        ],
+        "required_evidence": [
+          "assistant_message",
+          "display_state",
+          "runtime_status",
+          "blocked_reason",
+          "retry_cause",
+          "ticket_refs"
+        ],
+        "runtime_status_visible": true,
+        "status": "passed",
+        "visible_response": {
+          "approval_records": [],
+          "approval_request": {},
+          "approval_requests": [],
+          "asset_refs": [],
+          "assistant_message": {
+            "content": "Blocked visible reply.",
+            "role": "assistant"
+          },
+          "blocked_reason": "Plane write failed.",
+          "display_state": "blocked",
+          "handoff_summary": {},
+          "memory_refs": [],
+          "provider_blockers": [],
+          "retry_cause": "Plane write failed.",
+          "runtime_status": {
+            "current_node": "provider_write",
+            "display_state": "blocked",
+            "executor_id": "langgraph",
+            "request_id": "exec-visible-blocked",
+            "run_id": "run-visible-blocked",
+            "status": "blocked"
+          },
+          "ticket_handoff_refs": [],
+          "ticket_refs": [
+            {
+              "kind": "ticket",
+              "ref": "rd-visible-blocked"
+            }
+          ],
+          "version": "chat_visible_response.v1"
+        }
+      },
+      {
+        "assistant_reply_visible": true,
+        "blockers": [],
+        "expected_display_state": "needs_approval",
+        "id": "needs_approval",
+        "missing_evidence": [],
+        "observed_evidence": [
+          "assistant_message",
+          "display_state",
+          "runtime_status",
+          "ticket_refs",
+          "approval_request"
+        ],
+        "required_evidence": [
+          "assistant_message",
+          "display_state",
+          "runtime_status",
+          "approval_request",
+          "ticket_refs"
+        ],
+        "runtime_status_visible": true,
+        "status": "passed",
+        "visible_response": {
+          "approval_records": [],
+          "approval_request": {
+            "approval_ref": "approval-visible-1",
+            "reason": "Approval required for repo:write.",
+            "scope": "repo_write"
+          },
+          "approval_requests": [
+            {
+              "approval_ref": "approval-visible-1",
+              "reason": "Approval required for repo:write.",
+              "scope": "repo_write"
+            }
+          ],
+          "asset_refs": [],
+          "assistant_message": {
+            "content": "Approval visible reply.",
+            "role": "assistant"
+          },
+          "blocked_reason": "",
+          "display_state": "needs_approval",
+          "handoff_summary": {},
+          "memory_refs": [],
+          "provider_blockers": [],
+          "retry_cause": "",
+          "runtime_status": {
+            "current_node": "human_approval",
+            "display_state": "needs_approval",
+            "executor_id": "langgraph",
+            "request_id": "exec-visible-approval",
+            "run_id": "run-visible-approval",
+            "status": "needs_approval"
+          },
+          "ticket_handoff_refs": [],
+          "ticket_refs": [
+            {
+              "kind": "ticket",
+              "ref": "rd-visible-approval"
+            }
+          ],
+          "version": "chat_visible_response.v1"
+        }
+      },
+      {
+        "assistant_reply_visible": true,
+        "blockers": [],
+        "expected_display_state": "handoff",
+        "id": "handoff",
+        "missing_evidence": [],
+        "observed_evidence": [
+          "assistant_message",
+          "display_state",
+          "runtime_status",
+          "ticket_refs",
+          "handoff_summary"
+        ],
+        "required_evidence": [
+          "assistant_message",
+          "display_state",
+          "runtime_status",
+          "handoff_summary",
+          "ticket_refs"
+        ],
+        "runtime_status_visible": true,
+        "status": "passed",
+        "visible_response": {
+          "approval_records": [],
+          "approval_request": {},
+          "approval_requests": [],
+          "asset_refs": [],
+          "assistant_message": {
+            "content": "Handoff visible reply.",
+            "role": "assistant"
+          },
+          "blocked_reason": "",
+          "display_state": "handoff",
+          "handoff_summary": {
+            "from_employee_id": "clara",
+            "reason": "Specialist implementation follow-up.",
+            "status": "handoff_ready",
+            "to_employee_id": "alex"
+          },
+          "memory_refs": [],
+          "provider_blockers": [],
+          "retry_cause": "",
+          "runtime_status": {
+            "current_node": "handoff",
+            "display_state": "handoff",
+            "executor_id": "langgraph",
+            "request_id": "exec-visible-handoff",
+            "run_id": "run-visible-handoff",
+            "status": "completed"
+          },
+          "ticket_handoff_refs": [
+            {
+              "kind": "ticket_handoff",
+              "ref": "handoff-visible-1"
+            }
+          ],
+          "ticket_refs": [
+            {
+              "kind": "ticket",
+              "ref": "rd-visible-handoff"
+            }
+          ],
+          "version": "chat_visible_response.v1"
+        }
+      },
+      {
+        "assistant_reply_visible": true,
+        "blockers": [],
+        "expected_display_state": "provider_blocker",
+        "id": "provider_blocker",
+        "missing_evidence": [],
+        "observed_evidence": [
+          "assistant_message",
+          "display_state",
+          "runtime_status",
+          "ticket_refs",
+          "blocked_reason",
+          "provider_blocker"
+        ],
+        "required_evidence": [
+          "assistant_message",
+          "display_state",
+          "runtime_status",
+          "blocked_reason",
+          "provider_blocker",
+          "ticket_refs"
+        ],
+        "runtime_status_visible": true,
+        "status": "passed",
+        "visible_response": {
+          "approval_records": [],
+          "approval_request": {},
+          "approval_requests": [],
+          "asset_refs": [],
+          "assistant_message": {
+            "content": "Provider visible reply.",
+            "role": "assistant"
+          },
+          "blocked_reason": "Graphiti setup is missing.",
+          "display_state": "provider_blocker",
+          "handoff_summary": {},
+          "memory_refs": [],
+          "provider_blockers": [
+            {
+              "detail": "Graphiti setup is missing.",
+              "reason": "graphiti_setup_blocker",
+              "scope": "memory_provider"
+            }
+          ],
+          "retry_cause": "",
+          "runtime_status": {
+            "current_node": "context_retrieval",
+            "display_state": "provider_blocker",
+            "executor_id": "langgraph",
+            "request_id": "exec-visible-provider",
+            "run_id": "run-visible-provider",
+            "status": "completed"
+          },
+          "ticket_handoff_refs": [],
+          "ticket_refs": [
+            {
+              "kind": "ticket",
+              "ref": "rd-visible-provider"
+            }
+          ],
+          "version": "chat_visible_response.v1"
+        }
+      }
+    ],
+    "commands": [
+      "python scripts/chat_visible_response_matrix.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-a-chat-visible-response-matrix.json"
+    ],
+    "contract_version": "aiteamos_chat_visible_response_matrix.v1",
+    "detail": "Chat visible-response matrix covers completed, blocked, approval, handoff, and provider-blocker states.",
+    "status": "passed",
+    "summary": {
+      "approval_request_visible_count": 1,
+      "assistant_reply_visible_count": 5,
+      "blocked_reason_visible_count": 2,
+      "case_count": 5,
+      "contract_version": "aiteamos_chat_visible_response_matrix.v1",
+      "failed_case_count": 0,
+      "handoff_visible_count": 1,
+      "missing_states": [],
+      "observed_states": [
+        "completed",
+        "blocked",
+        "needs_approval",
+        "handoff",
+        "provider_blocker"
+      ],
+      "passed_case_count": 5,
+      "provider_blocker_visible_count": 1,
+      "required_states": [
+        "completed",
+        "blocked",
+        "needs_approval",
+        "handoff",
+        "provider_blocker"
+      ],
+      "retry_cause_visible_count": 1,
+      "runtime_status_visible_count": 5
+    }
+  },
+  "schema": "aiteamos.chat_visible_response_matrix.cli.v1",
+  "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+}

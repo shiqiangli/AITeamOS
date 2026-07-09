@@ -37,6 +37,14 @@ export interface CodeRepositoryStatus {
   ready_count: number;
   local_count: number;
   remote_count: number;
+  plane_scope_status?: string;
+  plane_scope_detail?: string;
+  plane_scope_candidate_count?: number;
+  plane_scope_missing_count?: number;
+  plane_scope_setup_action?: string;
+  plane_scope_candidates?: Array<Record<string, unknown>>;
+  plane_scope_missing?: Array<Record<string, unknown>>;
+  plane_scope_suggestions?: Array<Record<string, unknown>>;
   saved_paths: Record<string, string>;
 }
 

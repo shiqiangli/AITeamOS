@@ -1,0 +1,107 @@
+{
+  "generated_at": "2026-06-26T02:50:45.105322+00:00",
+  "result": {
+    "blockers": [],
+    "checks": [
+      "local_file_ticket_backend_active",
+      "plane_action_smoke_skipped"
+    ],
+    "evidence": {
+      "ticket_backend_status": {
+        "capabilities": [],
+        "detail": "Local append-only Ticket backend is active.",
+        "local_file_path": ".aiteamos/tickets/index.json",
+        "mapping": {},
+        "mode": "local_file",
+        "plane_setup": {
+          "active_mode": "local_file",
+          "active_provider": "",
+          "api_key_configured": true,
+          "api_key_env": "PLANE_API_KEY",
+          "code_repository_scope_candidate_count": 0,
+          "code_repository_scope_candidates": [],
+          "code_repository_scope_detail": "Code Repository registry has repositories, but none has both Plane workspace and project configured.",
+          "code_repository_scope_missing": [
+            {
+              "deep_link": "#/settings/code-repositories",
+              "project_configured": false,
+              "provider": "local",
+              "repository_id": "repo-aiteamos-afc617",
+              "repository_name": "AITeamOS",
+              "source": "code_repository",
+              "status": "ready",
+              "workspace_configured": false
+            }
+          ],
+          "code_repository_scope_missing_count": 1,
+          "code_repository_scope_setup_action": "add_plane_scope_to_code_repository_or_ticket_backend",
+          "code_repository_scope_status": "incomplete",
+          "configured": false,
+          "detail": "Plane Ticket Backend is not selected and Plane workspace/project setup is incomplete.",
+          "project_configured": false,
+          "required_mode": "plane",
+          "selected": false,
+          "settings_path": ".aiteamos/tickets/backend.json",
+          "setup_endpoint": "/api/v1/tickets/backend",
+          "setup_required": [
+            "PUT /api/v1/tickets/backend mode=plane",
+            ".aiteamos/tickets/backend.json mode=plane",
+            "plane_workspace_slug",
+            "plane_project_id"
+          ],
+          "status": "setup_blocked",
+          "workspace_configured": false
+        },
+        "provider": "",
+        "provider_ref_count": 0,
+        "saved_paths": {
+          "counters": ".aiteamos/tickets/counters.json",
+          "local_file": ".aiteamos/tickets/index.json",
+          "settings": ".aiteamos/tickets/backend.json",
+          "tickets": ".aiteamos/tickets"
+        },
+        "setup_required": [],
+        "status": "ready",
+        "supported_modes": [
+          {
+            "description": "Legacy append-only projection only for explicit migration checks; not the target Ticket Backend.",
+            "id": "local_file",
+            "label": "Local file",
+            "status": "legacy"
+          },
+          {
+            "description": "Plane-backed Ticket fact source through the AITeamOS TicketAdapter.",
+            "id": "plane",
+            "label": "Plane",
+            "status": "ready"
+          },
+          {
+            "description": "Future Jira-backed source of truth for enterprise Ticket integration after the Plane path is stable.",
+            "id": "jira",
+            "label": "Jira",
+            "status": "planned"
+          }
+        ],
+        "ticket_count": 4
+      }
+    },
+    "external_calls": false,
+    "failures": [],
+    "mutating": false,
+    "provider": "local_file",
+    "status": "skipped",
+    "summary": {
+      "reason": "Local file Ticket backend has no external Plane action path.",
+      "ticket_backend_status": "ready"
+    },
+    "warnings": [
+      "plane_action_smoke_requires_plane_backend"
+    ]
+  },
+  "schema": "aiteamos.plane_ticket_action_smoke.v1",
+  "summary": {
+    "reason": "Local file Ticket backend has no external Plane action path.",
+    "ticket_backend_status": "ready"
+  },
+  "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+}

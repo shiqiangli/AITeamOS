@@ -1,0 +1,213 @@
+{
+  "generated_at": "2026-06-26T01:33:52.192227+00:00",
+  "result": {
+    "blockers": [
+      "plane_ticket_backend_not_selected",
+      "live_provider_dogfood_not_confirmed"
+    ],
+    "commands": [
+      "python scripts/live_provider_soak_plan.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-live-provider-soak-plan.json",
+      "python scripts/live_provider_readiness_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-live-provider-readiness-smoke.json",
+      "python scripts/plane_ticket_action_smoke.py --workspace-dir . --source-run-id plan-v8-plane-action-smoke --output .aiteamos/artifacts/plan_v8/track-c-plane-ticket-action-smoke.json",
+      "AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 python scripts/live_provider_dogfood.py --execute --start-agent-server --profile core-loop --output .aiteamos/artifacts/plan_v8/track-c-live-soak-completed.json",
+      "AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 python scripts/live_provider_dogfood.py --execute --start-agent-server --profile core-loop --require-natural-handoff --expected-handoff-target alex --output .aiteamos/artifacts/plan_v8/track-c-live-soak-handoff.json",
+      "AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 python scripts/live_provider_dogfood.py --execute --start-agent-server --profile core-loop --output .aiteamos/artifacts/plan_v8/track-c-live-soak-approval-assets.json",
+      "python scripts/ticket_loop_queue_worker_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-ticket-loop-worker-soak.json"
+    ],
+    "contract_version": "aiteamos_live_provider_soak_plan.v1",
+    "detail": "Live provider soak plan is prepared, but live writes are blocked until the mutation gate is explicitly opened.",
+    "evidence_refs": [
+      "track-b-runtime-boundary-graphiti-langchain-agent-server-smoke.json",
+      "track-c-live-provider-readiness-smoke.json",
+      "track-c-live-provider-soak-evidence.json",
+      "track-c-plane-ticket-action-smoke.json",
+      "track-f-context-retrieval-eval-smoke.json",
+      "track-f-asset-provenance-eval-smoke.json"
+    ],
+    "scenarios": [
+      {
+        "blockers": [
+          "plane_ticket_backend_not_selected",
+          "live_provider_dogfood_not_confirmed"
+        ],
+        "command": "AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 python scripts/live_provider_dogfood.py --execute --start-agent-server --profile core-loop --output .aiteamos/artifacts/plan_v8/track-c-live-soak-completed.json",
+        "detail": "Fresh Agent Server core loop creates or advances a Ticket, writes report/evidence, promotes governed Asset evidence, projects to Graphiti, and recalls it.",
+        "expected_state": "completed",
+        "id": "core_loop_completed_closeout_asset",
+        "required_evidence": [
+          "fresh_agent_server",
+          "ticket_report",
+          "memory_candidate_ids",
+          "asset_record_ids",
+          "graphiti_projection_statuses",
+          "graphiti_recall_count"
+        ],
+        "status": "blocked",
+        "title": "Completed closeout with Asset proposal",
+        "ui_surfaces": [
+          "Chat",
+          "Tickets",
+          "Assets",
+          "Runtime Replay",
+          "System Status"
+        ]
+      },
+      {
+        "blockers": [
+          "plane_ticket_backend_not_selected",
+          "live_provider_dogfood_not_confirmed"
+        ],
+        "command": "AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 python scripts/live_provider_dogfood.py --execute --start-agent-server --profile core-loop --require-natural-handoff --expected-handoff-target alex --output .aiteamos/artifacts/plan_v8/track-c-live-soak-handoff.json",
+        "detail": "Core loop records a durable Ticket-backed handoff from Clara to the worker Employee and exposes the handoff in Chat/Ticket/Employee state.",
+        "expected_state": "handoff",
+        "id": "natural_handoff",
+        "required_evidence": [
+          "handoff_summary",
+          "ticket_handoff_refs",
+          "natural_handoff",
+          "handoff_target_employee_id"
+        ],
+        "status": "blocked",
+        "title": "Natural Employee handoff",
+        "ui_surfaces": [
+          "Chat",
+          "Tickets",
+          "Employees",
+          "Runtime Replay"
+        ]
+      },
+      {
+        "blockers": [
+          "plane_ticket_backend_not_selected",
+          "live_provider_dogfood_not_confirmed"
+        ],
+        "command": "AITEAMOS_LIVE_PROVIDER_DOGFOOD=1 python scripts/live_provider_dogfood.py --execute --start-agent-server --profile core-loop --output .aiteamos/artifacts/plan_v8/track-c-live-soak-approval-assets.json",
+        "detail": "Runtime execution remains approval-bound, evidence-bound, and review-bound before durable Asset/Memory promotion.",
+        "expected_state": "approval",
+        "id": "approval_and_asset_governance",
+        "required_evidence": [
+          "approval_id",
+          "approved_run",
+          "summary_report",
+          "asset_reviews",
+          "approved_memory"
+        ],
+        "status": "blocked",
+        "title": "Approval and Asset governance",
+        "ui_surfaces": [
+          "Chat",
+          "Assets",
+          "Runtime Replay",
+          "System Status"
+        ]
+      },
+      {
+        "blockers": [
+          "plane_ticket_backend_not_selected",
+          "live_provider_dogfood_not_confirmed"
+        ],
+        "command": "python scripts/live_provider_readiness_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-live-provider-readiness-smoke.json",
+        "detail": "Provider failure must surface as a governed blocker instead of being hidden by answer-only summaries, repo-write adapters, or direct LLM fallback.",
+        "expected_state": "blocked",
+        "id": "provider_blocker_visibility",
+        "required_evidence": [
+          "blocker_reasons",
+          "blocker_scopes",
+          "ticket_backend_status",
+          "memory_backend_status",
+          "provider_smoke_status"
+        ],
+        "status": "blocked",
+        "title": "Provider blocker visibility",
+        "ui_surfaces": [
+          "Chat",
+          "Tickets",
+          "System Status"
+        ]
+      },
+      {
+        "blockers": [
+          "plane_ticket_backend_not_selected",
+          "live_provider_dogfood_not_confirmed"
+        ],
+        "command": "python scripts/plane_ticket_action_smoke.py --workspace-dir . --source-run-id plan-v8-plane-action-smoke --output .aiteamos/artifacts/plan_v8/track-c-plane-ticket-action-smoke.json",
+        "detail": "Gated Ticket provider action smoke verifies the Plane handoff/report write path is explicit and mutation-gated before full live dogfood.",
+        "expected_state": "preflight",
+        "id": "plane_ticket_action_preflight",
+        "required_evidence": [
+          "ticket_backend_status",
+          "plane_action_smoke_guard",
+          "confirm_env_var"
+        ],
+        "status": "blocked",
+        "title": "Plane Ticket action-smoke preflight",
+        "ui_surfaces": [
+          "Tickets",
+          "System Status"
+        ]
+      },
+      {
+        "blockers": [
+          "plane_ticket_backend_not_selected",
+          "live_provider_dogfood_not_confirmed"
+        ],
+        "command": "python scripts/ticket_loop_queue_worker_smoke.py --workspace-dir . --output .aiteamos/artifacts/plan_v8/track-c-ticket-loop-worker-soak.json",
+        "detail": "Deterministic queue-worker soak preserves retry causes, Ticket refs, queue reliability, failure-retrospective Asset candidates, and daemon settlement while live provider closeout remains covered by the live dogfood artifacts.",
+        "expected_state": "retry",
+        "id": "retry_resume_closeout",
+        "required_evidence": [
+          "retry_cause",
+          "ticket_report",
+          "queue_reliability",
+          "failure_retrospective_candidate",
+          "daemon_resume_settlement"
+        ],
+        "status": "blocked",
+        "title": "Retry, resume, and closeout settlement",
+        "ui_surfaces": [
+          "Chat",
+          "Tickets",
+          "Runtime Replay",
+          "System Status"
+        ]
+      }
+    ],
+    "status": "blocked",
+    "summary": {
+      "blocked_scenario_count": 6,
+      "contract_version": "aiteamos_live_provider_soak_plan.v1",
+      "expected_state_count": 6,
+      "expected_states": [
+        "completed",
+        "handoff",
+        "approval",
+        "blocked",
+        "preflight",
+        "retry"
+      ],
+      "memory_backend_status": "ready",
+      "mutation_gate_open": false,
+      "plane_ticket_backend_selected": false,
+      "plane_ticket_backend_setup_required": [
+        "PUT /api/v1/tickets/backend mode=plane",
+        ".aiteamos/tickets/backend.json mode=plane",
+        "plane_workspace_slug",
+        "plane_project_id"
+      ],
+      "plane_ticket_backend_setup_status": "setup_blocked",
+      "plane_ticket_scope_candidate_count": 0,
+      "plane_ticket_scope_missing_count": 1,
+      "plane_ticket_scope_setup_action": "add_plane_scope_to_code_repository_or_ticket_backend",
+      "plane_ticket_scope_status": "incomplete",
+      "ready_scenario_count": 0,
+      "ready_to_execute": false,
+      "scenario_count": 6,
+      "selected_executor_id": "langgraph",
+      "ticket_backend_mode": "local_file",
+      "ticket_backend_provider": "",
+      "ticket_backend_status": "ready"
+    }
+  },
+  "schema": "aiteamos.live_provider_soak_plan.cli.v1",
+  "workspace_dir": "/home/shiqiangli/projects/AITeamOS"
+}

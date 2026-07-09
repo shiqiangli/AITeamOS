@@ -1,0 +1,13 @@
+{
+  "local_file_path": ".aiteamos/tickets/index.json",
+  "mode": "local_file",
+  "plane_api_base_url": "https://api.plane.so",
+  "plane_api_key_env": "PLANE_API_KEY",
+  "plane_employee_assignee_ids": {},
+  "plane_namespace_label_ids": {},
+  "plane_namespace_strategy": "label",
+  "plane_project_id": "",
+  "plane_state_ids": {},
+  "plane_web_base_url": "https://app.plane.so",
+  "plane_workspace_slug": ""
+}
